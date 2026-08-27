@@ -8,6 +8,8 @@ const countEl = document.getElementById("count");
 const statusEl = document.getElementById("status");
 const speakBtn = document.getElementById("speak");
 const stopBtn = document.getElementById("stop");
+const resetBtn = document.getElementById("reset");
+const PREFS_KEY = "booth-prefs";
 
 let catalog = null;
 let player = null;
@@ -20,6 +22,7 @@ updateDeliveryLabels();
 textEl.addEventListener("input", updateCount);
 speakBtn.addEventListener("click", speak);
 stopBtn.addEventListener("click", stop);
+resetBtn.addEventListener("click", resetPrefs);
 voiceEl.addEventListener("change", persist);
 speedEl.addEventListener("input", () => {
   updateDeliveryLabels();
@@ -83,7 +86,7 @@ function renderVoices(preferred) {
 
 function persist() {
   localStorage.setItem(
-    "booth-prefs",
+    PREFS_KEY,
     JSON.stringify({
       voice: voiceEl.value,
       speed: Number(speedEl.value),
@@ -94,10 +97,15 @@ function persist() {
 
 function readPrefs() {
   try {
-    return JSON.parse(localStorage.getItem("booth-prefs") || "{}");
+    return JSON.parse(localStorage.getItem(PREFS_KEY) || "{}");
   } catch {
     return {};
   }
+}
+
+function resetPrefs() {
+  localStorage.removeItem(PREFS_KEY);
+  location.reload();
 }
 
 async function speak() {
