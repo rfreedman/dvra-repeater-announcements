@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Booth — local TTS</title>
+    <title></title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -15,12 +15,8 @@
   <body>
     <main class="shell">
       <header class="mast">
-        <p class="kicker">Local · in-memory · no files</p>
-        <h1>Booth</h1>
-        <p class="lede">
-          Type something. The server turns it into speech and streams raw audio
-          straight to this tab.
-        </p>
+        <!-- p class="kicker"> </p -->
+        <h1>W2ZQ Announcement Generator Voice Test</h1>
       </header>
 
       <section class="voice-row">
@@ -31,7 +27,7 @@
       <section class="controls" aria-label="Delivery">
         <div class="control">
           <div class="control-head">
-            <label class="label" for="speed">Rate</label>
+            <label class="label" for="speed">Speech Rate</label>
             <span id="speed-value">1.00×</span>
           </div>
           <input id="speed" type="range" min="0.5" max="1.5" step="0.05" value="1" />
@@ -46,7 +42,7 @@
       </section>
 
       <section class="script">
-        <label class="label" for="text">Script</label>
+        <label class="label" for="text">Announcement</label>
         <textarea
           id="text"
           rows="6"
