@@ -16,13 +16,12 @@ def main(argv: list[str] | None = None) -> int:
         argv = ["speak", *argv]
 
     parser = argparse.ArgumentParser(
-        description="In-memory text-to-speech with Piper and KittenTTS.",
+        description="In-memory text-to-speech with Piper.",
     )
     sub = parser.add_subparsers(dest="command")
 
     speak = sub.add_parser("speak", help="Synthesize text and play it from memory")
     speak.add_argument("text", nargs="*", help="Text to speak")
-    speak.add_argument("-e", "--engine", help="piper or kitten (inferred from --voice when omitted)")
     speak.add_argument("-v", "--voice", help="Voice id or alias")
     speak.add_argument(
         "--speed",
@@ -49,12 +48,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Download and load the default Piper voice before serving",
     )
 
-    voices = sub.add_parser("voices", help="List engines and voices")
-    voices.add_argument("-e", "--engine", help="Limit to one engine")
+    sub.add_parser("voices", help="List Piper voices")
 
-    download = sub.add_parser("download", help="Download / load a voice or model")
+    download = sub.add_parser("download", help="Download / load a voice")
     download.add_argument("voices", nargs="*", help="Voice ids or aliases. Omit to prepare the default.")
-    download.add_argument("-e", "--engine", help="Engine to download for")
 
     args = parser.parse_args(argv)
     if not args.command:
@@ -65,7 +62,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "serve":
         return _cmd_serve(args)
     if args.command == "voices":
-        return _cmd_voices(args)
+        return _cmd_voices()
     if args.command == "download":
         return _cmd_download(args)
     parser.print_help()
@@ -82,9 +79,8 @@ def _cmd_speak(args: argparse.Namespace) -> int:
         return 2
     registry = get_registry()
     try:
-        engine, voice_id, _rate, chunks = registry.synthesize(
+        voice_id, _rate, chunks = registry.synthesize(
             text,
-            engine_id=args.engine,
             voice=args.voice,
             speed=args.speed,
             sentence_pause=args.sentence_pause,
@@ -92,7 +88,7 @@ def _cmd_speak(args: argparse.Namespace) -> int:
     except VoiceError as exc:
         print(exc, file=sys.stderr)
         return 2
-    print(f"{engine.name} · {voice_id}", file=sys.stderr)
+    print(voice_id, file=sys.stderr)
     play_chunks(chunks)
     return 0
 
@@ -100,35 +96,28 @@ def _cmd_speak(args: argparse.Namespace) -> int:
 def _cmd_serve(args: argparse.Namespace) -> int:
     if args.preload:
         registry = get_registry()
-        engine_id, voice_id = registry.prepare(None, None)
-        print(f"Preloaded {engine_id}:{voice_id}", file=sys.stderr)
+        voice_id = registry.prepare()
+        print(f"Preloaded {voice_id}", file=sys.stderr)
     import uvicorn
 
     uvicorn.run("app.server:app", host=args.host, port=args.port, reload=False)
     return 0
 
 
-def _cmd_voices(args: argparse.Namespace) -> int:
+def _cmd_voices() -> int:
     registry = get_registry()
-    engines = registry.list_engines()
-    if args.engine:
-        engines = [registry.get(args.engine)]
-    for engine in engines:
-        marker = " (default engine)" if engine.id == registry.default_engine_id else ""
-        ready = "ready" if engine.is_ready() else "not downloaded"
-        print(f"{engine.name} [{engine.id}]{marker} — {ready}")
-        print(f"  {engine.blurb}")
-        for voice in engine.list_voices():
-            flags = []
-            if voice.default:
-                flags.append("default")
-            flags.append("downloaded" if voice.downloaded else "download on first use")
-            alias = f" alias={voice.alias}" if voice.alias else ""
-            print(
-                f"  - {voice.id}{alias}  {voice.name}  "
-                f"({voice.gender}, {voice.locale}, {voice.quality})  [{', '.join(flags)}]"
-            )
-        print()
+    ready = "ready" if registry.engine.is_ready() else "not downloaded"
+    print(f"Piper — {ready}")
+    for voice in registry.list_voices():
+        flags = []
+        if voice.default:
+            flags.append("default")
+        flags.append("downloaded" if voice.downloaded else "download on first use")
+        alias = f" alias={voice.alias}" if voice.alias else ""
+        print(
+            f"  - {voice.id}{alias}  {voice.name}  "
+            f"({voice.gender}, {voice.locale}, {voice.quality})  [{', '.join(flags)}]"
+        )
     return 0
 
 
@@ -137,8 +126,8 @@ def _cmd_download(args: argparse.Namespace) -> int:
     targets = args.voices or [None]
     try:
         for target in targets:
-            engine_id, voice_id = registry.prepare(args.engine, target)
-            print(f"Ready: {engine_id}:{voice_id}")
+            voice_id = registry.prepare(target)
+            print(f"Ready: {voice_id}")
     except VoiceError as exc:
         print(exc, file=sys.stderr)
         return 2

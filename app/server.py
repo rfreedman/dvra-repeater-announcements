@@ -21,14 +21,12 @@ _END = object()
 
 class SpeakRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=MAX_TEXT_CHARS)
-    engine: str | None = None
     voice: str | None = None
     speed: float = Field(default=DEFAULT_SPEED, gt=0.25, le=2.0)
     sentence_pause: float = Field(default=DEFAULT_SENTENCE_PAUSE, ge=0.0, le=2.0)
 
 
 class PrepareRequest(BaseModel):
-    engine: str | None = None
     voice: str | None = None
 
 
@@ -45,12 +43,12 @@ def voices() -> dict[str, object]:
 @app.post("/api/prepare")
 def prepare(req: PrepareRequest) -> dict[str, str]:
     try:
-        engine_id, voice_id = registry.prepare(req.engine, req.voice)
+        voice_id = registry.prepare(req.voice)
     except VoiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    return {"engine": engine_id, "voice": voice_id}
+    return {"voice": voice_id}
 
 
 @app.post("/api/speak")
@@ -59,10 +57,9 @@ async def speak(req: SpeakRequest, request: Request) -> StreamingResponse:
     if not text:
         raise HTTPException(status_code=400, detail="Text is required")
     try:
-        engine, voice_id, sample_rate, chunks = await asyncio.to_thread(
+        voice_id, sample_rate, chunks = await asyncio.to_thread(
             lambda: registry.synthesize(
                 text,
-                engine_id=req.engine,
                 voice=req.voice,
                 speed=req.speed,
                 sentence_pause=req.sentence_pause,
@@ -78,7 +75,6 @@ async def speak(req: SpeakRequest, request: Request) -> StreamingResponse:
         media_type="application/octet-stream",
         headers={
             "Cache-Control": "no-store",
-            "X-Engine": engine.id,
             "X-Voice": voice_id,
             "X-Sample-Rate": str(sample_rate),
             "X-Sample-Width": "2",

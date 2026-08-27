@@ -1,4 +1,3 @@
-const enginesEl = document.getElementById("engines");
 const voiceEl = document.getElementById("voice");
 const speedEl = document.getElementById("speed");
 const pauseEl = document.getElementById("pause");
@@ -13,7 +12,6 @@ const stopBtn = document.getElementById("stop");
 const SAMPLE = "The booth is live. This audio never touches disk — it is synthesized, streamed, and played entirely from memory.";
 
 let catalog = null;
-let engineId = "piper";
 let player = null;
 let abort = null;
 let session = 0;
@@ -56,40 +54,16 @@ async function loadVoices() {
   if (!res.ok) throw new Error("Could not load voices");
   catalog = await res.json();
   const saved = readPrefs();
-  engineId = saved.engine || catalog.default_engine;
   speedEl.value = String(saved.speed ?? catalog.speed ?? 1);
   pauseEl.value = String(saved.sentence_pause ?? catalog.sentence_pause ?? 0.25);
   updateDeliveryLabels();
-  renderEngines();
   renderVoices(saved.voice);
 }
 
-function renderEngines() {
-  enginesEl.replaceChildren();
-  for (const engine of catalog.engines) {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = `engine${engine.id === engineId ? " active" : ""}`;
-    btn.innerHTML = `
-      <span class="name">${engine.name}</span>
-      <span class="hint">${engine.blurb}</span>
-      <span class="pill">${engine.ready ? "Model ready" : "Downloads on first use"}</span>
-    `;
-    btn.addEventListener("click", () => {
-      engineId = engine.id;
-      renderEngines();
-      renderVoices();
-      persist();
-    });
-    enginesEl.appendChild(btn);
-  }
-}
-
 function renderVoices(preferred) {
-  const engine = catalog.engines.find((item) => item.id === engineId);
-  const selected = preferred || engine.default_voice;
+  const selected = preferred || catalog.default_voice;
   voiceEl.replaceChildren();
-  for (const voice of engine.voices) {
+  for (const voice of catalog.voices) {
     const option = document.createElement("option");
     option.value = voice.id;
     const bits = [voice.name, voice.gender, voice.locale, voice.quality].filter(Boolean);
@@ -106,7 +80,6 @@ function persist() {
   localStorage.setItem(
     "booth-prefs",
     JSON.stringify({
-      engine: engineId,
       voice: voiceEl.value,
       speed: Number(speedEl.value),
       sentence_pause: Number(pauseEl.value),
@@ -144,7 +117,6 @@ async function speak() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         text,
-        engine: engineId,
         voice: voiceEl.value,
         speed: Number(speedEl.value),
         sentence_pause: Number(pauseEl.value),

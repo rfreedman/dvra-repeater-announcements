@@ -67,51 +67,6 @@ body {
   margin-bottom: 10px;
 }
 
-.engine-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-bottom: 24px;
-}
-
-.engine {
-  text-align: left;
-  background: var(--bg-2);
-  border: 1px solid var(--line);
-  color: inherit;
-  border-radius: 16px;
-  padding: 16px 16px 14px;
-  cursor: pointer;
-  min-height: 118px;
-}
-
-.engine.active {
-  border-color: var(--copper);
-  box-shadow: 0 0 0 1px var(--copper);
-}
-
-.engine .name {
-  font-family: Fraunces, serif;
-  font-size: 1.35rem;
-  display: block;
-  margin-bottom: 6px;
-}
-
-.engine .hint {
-  color: var(--muted);
-  font-size: 0.9rem;
-  line-height: 1.4;
-}
-
-.engine .pill {
-  display: inline-block;
-  margin-top: 10px;
-  font-size: 0.72rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--moss);
-}
-
 .voice-row,
 .script,
 .controls {
@@ -223,7 +178,6 @@ button:disabled {
 }
 
 @media (max-width: 640px) {
-  .engine-grid,
   .controls {
     grid-template-columns: 1fr;
   }
