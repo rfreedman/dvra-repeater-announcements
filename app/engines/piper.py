@@ -8,7 +8,7 @@ from typing import Iterator
 from piper import PiperVoice, SynthesisConfig
 from piper.download_voices import VOICE_PATTERN, download_voice
 
-from app.audio import PcmChunk, with_sentence_pauses
+from app.audio import PauseSegment, PcmChunk, parse_script, silence_chunk, with_sentence_pauses
 from app.config import DEFAULT_PIPER_VOICE, PIPER_VOICES_DIR
 from app.engines.base import Engine, VoiceError, VoiceInfo
 
@@ -196,10 +196,11 @@ class PiperEngine(Engine):
         length_scale = 1.0 / speed if speed > 0 else 1.0
         syn_config = SynthesisConfig(length_scale=length_scale)
         lock = self._lock_for(voice_id)
+        sample_rate = model.config.sample_rate
 
-        def chunks() -> Iterator[PcmChunk]:
+        def speech_chunks(speech: str) -> Iterator[PcmChunk]:
             with lock:
-                for chunk in model.synthesize(text, syn_config=syn_config):
+                for chunk in model.synthesize(speech, syn_config=syn_config):
                     yield PcmChunk(
                         pcm_int16=chunk.audio_int16_bytes,
                         sample_rate=chunk.sample_rate,
@@ -207,7 +208,12 @@ class PiperEngine(Engine):
                         channels=chunk.sample_channels,
                     )
 
-        yield from with_sentence_pauses(chunks(), sentence_pause)
+        for segment in parse_script(text):
+            if isinstance(segment, PauseSegment):
+                if segment.seconds > 0:
+                    yield silence_chunk(segment.seconds, sample_rate)
+                continue
+            yield from with_sentence_pauses(speech_chunks(segment.text), sentence_pause)
 
     def _info_from_meta(self, meta: _PiperVoiceMeta) -> VoiceInfo:
         return VoiceInfo(

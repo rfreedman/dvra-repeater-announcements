@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from dataclasses import dataclass
+
+MAX_PAUSE_SECONDS = 10.0
+_PAUSE_TAG = re.compile(r"\[pause:\s*(\d+(?:\.\d+)?)\s*s?\]", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -10,6 +14,36 @@ class PcmChunk:
     sample_rate: int
     sample_width: int = 2
     channels: int = 1
+
+
+@dataclass(frozen=True)
+class SpeechSegment:
+    text: str
+
+
+@dataclass(frozen=True)
+class PauseSegment:
+    seconds: float
+
+
+ScriptSegment = SpeechSegment | PauseSegment
+
+
+def parse_script(text: str) -> list[ScriptSegment]:
+    """Split script text on [pause:SECONDS] tags. Invalid tags stay in speech."""
+    segments: list[ScriptSegment] = []
+    last = 0
+    for match in _PAUSE_TAG.finditer(text):
+        speech = text[last : match.start()]
+        if speech.strip():
+            segments.append(SpeechSegment(speech))
+        seconds = min(float(match.group(1)), MAX_PAUSE_SECONDS)
+        segments.append(PauseSegment(seconds))
+        last = match.end()
+    tail = text[last:]
+    if tail.strip():
+        segments.append(SpeechSegment(tail))
+    return segments
 
 
 def silence_chunk(

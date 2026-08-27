@@ -33,6 +33,14 @@ python -m app serve
 
 Open [http://127.0.0.1:8000](http://127.0.0.1:8000). Choose a voice, adjust **rate** and **sentence pause** if you like, and press **Speak**. PCM audio is streamed to the browser and played with the Web Audio API.
 
+Insert a timed silence in the script with `[pause:SECONDS]` (optional trailing `s`). The tag is not spoken. Duration is capped at 10 seconds; invalid tags such as `[pause]` are left as ordinary text.
+
+```text
+This is w2-zee-q. [pause:2] The Delaware Valley Radio Association...
+```
+
+`[pause:1.5]` and `[pause:1.5s]` both pause 1.5 seconds. Tagged pauses are extra silence at that location; the **Sentence pause** slider still applies between Piper’s sentence chunks.
+
 ## CLI
 
 ```bash
