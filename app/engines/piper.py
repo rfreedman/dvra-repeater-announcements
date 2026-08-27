@@ -35,15 +35,6 @@ FEATURED_VOICES: tuple[_PiperVoiceMeta, ...] = (
         "Clear American English. Default — fast and natural enough for most use.",
     ),
     _PiperVoiceMeta(
-        "en_US-lessac-high",
-        "lessac-high",
-        "Lessac High",
-        "female",
-        "en_US",
-        "high",
-        "Same speaker as Lessac, higher quality, slower on a Pi.",
-    ),
-    _PiperVoiceMeta(
         "en_US-amy-medium",
         "amy",
         "Amy",
@@ -89,15 +80,6 @@ FEATURED_VOICES: tuple[_PiperVoiceMeta, ...] = (
         "American English male voice, good speed/quality balance.",
     ),
     _PiperVoiceMeta(
-        "en_US-ryan-high",
-        "ryan-high",
-        "Ryan High",
-        "male",
-        "en_US",
-        "high",
-        "Higher-quality Ryan. Prefer this on desktop, medium on a Pi.",
-    ),
-    _PiperVoiceMeta(
         "en_US-hfc_male-medium",
         "hfc-male",
         "HFC Male",
@@ -114,15 +96,6 @@ FEATURED_VOICES: tuple[_PiperVoiceMeta, ...] = (
         "en_GB",
         "medium",
         "British English female voice.",
-    ),
-    _PiperVoiceMeta(
-        "en_GB-cori-high",
-        "cori-high",
-        "Cori High",
-        "female",
-        "en_GB",
-        "high",
-        "Higher-quality British English female voice.",
     ),
     _PiperVoiceMeta(
         "en_GB-alan-medium",
@@ -163,7 +136,7 @@ class PiperEngine(Engine):
         if self.voices_dir.exists():
             for model_path in sorted(self.voices_dir.glob("*.onnx")):
                 voice_id = model_path.stem
-                if voice_id in listed_ids:
+                if voice_id in listed_ids or voice_id.endswith("-high"):
                     continue
                 voices.append(
                     VoiceInfo(
