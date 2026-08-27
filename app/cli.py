@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from app.config import HOST, PORT
+from app.config import DEFAULT_SENTENCE_PAUSE, DEFAULT_SPEED, HOST, PORT
 from app.engines.base import VoiceError
 from app.playback import play_chunks
 from app.registry import get_registry
@@ -24,7 +24,20 @@ def main(argv: list[str] | None = None) -> int:
     speak.add_argument("text", nargs="*", help="Text to speak")
     speak.add_argument("-e", "--engine", help="piper or kitten (inferred from --voice when omitted)")
     speak.add_argument("-v", "--voice", help="Voice id or alias")
-    speak.add_argument("--speed", type=float, default=1.0, help="Speaking speed (1.0 is default)")
+    speak.add_argument(
+        "--speed",
+        type=float,
+        default=DEFAULT_SPEED,
+        help=f"Speaking speed (default: {DEFAULT_SPEED:g}; lower is slower)",
+    )
+    speak.add_argument(
+        "--pause",
+        "--sentence-pause",
+        dest="sentence_pause",
+        type=float,
+        default=DEFAULT_SENTENCE_PAUSE,
+        help=f"Silence between sentences in seconds (default: {DEFAULT_SENTENCE_PAUSE:g})",
+    )
     speak.add_argument("--stdin", action="store_true", help="Read text from stdin")
 
     serve = sub.add_parser("serve", help="Run the FastAPI web UI and streaming API")
@@ -74,6 +87,7 @@ def _cmd_speak(args: argparse.Namespace) -> int:
             engine_id=args.engine,
             voice=args.voice,
             speed=args.speed,
+            sentence_pause=args.sentence_pause,
         )
     except VoiceError as exc:
         print(exc, file=sys.stderr)

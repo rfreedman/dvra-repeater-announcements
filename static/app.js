@@ -1,5 +1,9 @@
 const enginesEl = document.getElementById("engines");
 const voiceEl = document.getElementById("voice");
+const speedEl = document.getElementById("speed");
+const pauseEl = document.getElementById("pause");
+const speedValueEl = document.getElementById("speed-value");
+const pauseValueEl = document.getElementById("pause-value");
 const textEl = document.getElementById("text");
 const countEl = document.getElementById("count");
 const statusEl = document.getElementById("status");
@@ -16,16 +20,30 @@ let session = 0;
 
 textEl.value = SAMPLE;
 updateCount();
+updateDeliveryLabels();
 
 textEl.addEventListener("input", updateCount);
 speakBtn.addEventListener("click", speak);
 stopBtn.addEventListener("click", stop);
 voiceEl.addEventListener("change", persist);
+speedEl.addEventListener("input", () => {
+  updateDeliveryLabels();
+  persist();
+});
+pauseEl.addEventListener("input", () => {
+  updateDeliveryLabels();
+  persist();
+});
 
 loadVoices().catch((err) => setStatus(err.message, "error"));
 
 function updateCount() {
   countEl.textContent = `${textEl.value.length} / ${textEl.maxLength}`;
+}
+
+function updateDeliveryLabels() {
+  speedValueEl.textContent = `${Number(speedEl.value).toFixed(2)}×`;
+  pauseValueEl.textContent = `${Number(pauseEl.value).toFixed(2)}s`;
 }
 
 function setStatus(text, kind = "") {
@@ -39,6 +57,9 @@ async function loadVoices() {
   catalog = await res.json();
   const saved = readPrefs();
   engineId = saved.engine || catalog.default_engine;
+  speedEl.value = String(saved.speed ?? catalog.speed ?? 1);
+  pauseEl.value = String(saved.sentence_pause ?? catalog.sentence_pause ?? 0.25);
+  updateDeliveryLabels();
   renderEngines();
   renderVoices(saved.voice);
 }
@@ -84,7 +105,12 @@ function renderVoices(preferred) {
 function persist() {
   localStorage.setItem(
     "booth-prefs",
-    JSON.stringify({ engine: engineId, voice: voiceEl.value }),
+    JSON.stringify({
+      engine: engineId,
+      voice: voiceEl.value,
+      speed: Number(speedEl.value),
+      sentence_pause: Number(pauseEl.value),
+    }),
   );
 }
 
@@ -120,6 +146,8 @@ async function speak() {
         text,
         engine: engineId,
         voice: voiceEl.value,
+        speed: Number(speedEl.value),
+        sentence_pause: Number(pauseEl.value),
       }),
       signal: controller.signal,
     });

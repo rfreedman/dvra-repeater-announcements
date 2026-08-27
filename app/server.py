@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.audio import PcmChunk
-from app.config import MAX_TEXT_CHARS, STATIC_DIR
+from app.config import DEFAULT_SENTENCE_PAUSE, DEFAULT_SPEED, MAX_TEXT_CHARS, STATIC_DIR
 from app.engines.base import VoiceError
 from app.registry import get_registry
 
@@ -23,7 +23,8 @@ class SpeakRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=MAX_TEXT_CHARS)
     engine: str | None = None
     voice: str | None = None
-    speed: float = Field(default=1.0, gt=0.25, le=2.0)
+    speed: float = Field(default=DEFAULT_SPEED, gt=0.25, le=2.0)
+    sentence_pause: float = Field(default=DEFAULT_SENTENCE_PAUSE, ge=0.0, le=2.0)
 
 
 class PrepareRequest(BaseModel):
@@ -59,11 +60,13 @@ async def speak(req: SpeakRequest, request: Request) -> StreamingResponse:
         raise HTTPException(status_code=400, detail="Text is required")
     try:
         engine, voice_id, sample_rate, chunks = await asyncio.to_thread(
-            registry.synthesize,
-            text,
-            req.engine,
-            req.voice,
-            req.speed,
+            lambda: registry.synthesize(
+                text,
+                engine_id=req.engine,
+                voice=req.voice,
+                speed=req.speed,
+                sentence_pause=req.sentence_pause,
+            )
         )
     except VoiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

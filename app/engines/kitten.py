@@ -6,7 +6,7 @@ from typing import Iterator
 
 import numpy as np
 
-from app.audio import PcmChunk, float_to_pcm16, split_sentences
+from app.audio import PcmChunk, float_to_pcm16, split_sentences, with_sentence_pauses
 from app.config import DEFAULT_KITTEN_VOICE, KITTEN_CACHE_DIR, KITTEN_MODEL
 from app.engines.base import Engine, VoiceInfo
 
@@ -100,22 +100,27 @@ class KittenEngine(Engine):
         text: str,
         voice: str | None = None,
         speed: float = 1.0,
+        sentence_pause: float = 0.0,
     ) -> Iterator[PcmChunk]:
         voice_id = self.prepare(voice)
         model = self._load()
         sentences = split_sentences(text)
-        with self._lock:
-            for sentence in sentences:
-                audio = model.generate(
-                    sentence,
-                    voice=voice_id,
-                    speed=speed,
-                    clean_text=True,
-                )
-                pcm = float_to_pcm16(np.asarray(audio))
-                if not pcm:
-                    continue
-                yield PcmChunk(pcm_int16=pcm, sample_rate=KITTEN_SAMPLE_RATE)
+
+        def chunks() -> Iterator[PcmChunk]:
+            with self._lock:
+                for sentence in sentences:
+                    audio = model.generate(
+                        sentence,
+                        voice=voice_id,
+                        speed=speed,
+                        clean_text=True,
+                    )
+                    pcm = float_to_pcm16(np.asarray(audio))
+                    if not pcm:
+                        continue
+                    yield PcmChunk(pcm_int16=pcm, sample_rate=KITTEN_SAMPLE_RATE)
+
+        yield from with_sentence_pauses(chunks(), sentence_pause)
 
     def _load(self):
         if self._model is not None:

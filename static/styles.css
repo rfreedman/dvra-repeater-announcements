@@ -113,8 +113,37 @@ body {
 }
 
 .voice-row,
-.script {
+.script,
+.controls {
   margin-bottom: 22px;
+}
+
+.controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.control-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.control-head .label {
+  margin-bottom: 8px;
+}
+
+.control-head span {
+  color: var(--ink);
+  font-size: 0.88rem;
+  font-variant-numeric: tabular-nums;
+}
+
+input[type="range"] {
+  width: 100%;
+  accent-color: var(--copper);
 }
 
 select,
@@ -141,7 +170,8 @@ textarea {
 
 select:focus,
 textarea:focus,
-button:focus-visible {
+button:focus-visible,
+input[type="range"]:focus-visible {
   outline: 2px solid var(--copper);
   outline-offset: 2px;
 }
@@ -193,7 +223,8 @@ button:disabled {
 }
 
 @media (max-width: 640px) {
-  .engine-grid {
+  .engine-grid,
+  .controls {
     grid-template-columns: 1fr;
   }
 }

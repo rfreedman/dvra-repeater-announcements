@@ -68,6 +68,7 @@ class Engine(ABC):
         text: str,
         voice: str | None = None,
         speed: float = 1.0,
+        sentence_pause: float = 0.0,
     ) -> Iterator[PcmChunk]: ...
 
     def resolve(self, voice: str | None) -> str:

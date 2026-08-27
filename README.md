@@ -36,7 +36,7 @@ python -m app download --engine kitten # KittenTTS model (all 8 voices)
 python -m app serve
 ```
 
-Open [http://127.0.0.1:8000](http://127.0.0.1:8000). Pick Piper or KittenTTS, choose a voice, and press **Speak**. PCM audio is streamed to the browser and played with the Web Audio API.
+Open [http://127.0.0.1:8000](http://127.0.0.1:8000). Pick Piper or KittenTTS, choose a voice, adjust **rate** and **sentence pause** if you like, and press **Speak**. PCM audio is streamed to the browser and played with the Web Audio API.
 
 ## CLI
 
@@ -45,6 +45,7 @@ python -m app voices
 python -m app speak "Hello from the booth."
 python -m app speak -e kitten -v Jasper "This is KittenTTS."
 python -m app speak --voice amy "Piper voice aliases work too."
+python -m app speak --speed 0.75 --pause 0.6 "Hello. Take your time with this."
 echo "From a pipe" | python -m app speak --stdin
 ```
 
@@ -59,6 +60,8 @@ If you pass `--voice` without `--engine`, the voice name is matched against both
 | `TTS_DEFAULT_KITTEN_VOICE` | `Bella` | Default KittenTTS voice |
 | `TTS_KITTEN_MODEL` | `KittenML/kitten-tts-mini-0.8` | Hugging Face model id |
 | `TTS_VOICES_DIR` | `./voices` | Model cache |
+| `TTS_SPEED` | `1.0` | Speaking rate (`< 1` is slower) |
+| `TTS_SENTENCE_PAUSE` | `0.25` | Silence between sentences, in seconds |
 | `TTS_HOST` / `TTS_PORT` | `0.0.0.0` / `8000` | Bind address |
 
 On a Raspberry Pi, keep Piper on a **medium** voice. KittenTTS 0.8 currently pulls a heavier Python stack (including PyTorch via its phonemizer extras), so Piper is the practical Pi default. If you still want KittenTTS on a Pi 5, use the smaller model:
@@ -72,7 +75,7 @@ export TTS_KITTEN_MODEL=KittenML/kitten-tts-nano-0.8
 `POST /api/speak`
 
 ```json
-{ "text": "Hello", "engine": "kitten", "voice": "Luna" }
+{ "text": "Hello. Pause after this.", "engine": "piper", "voice": "en_US-lessac-medium", "speed": 0.75, "sentence_pause": 0.6 }
 ```
 
 Streams 16-bit little-endian mono PCM. Format headers:

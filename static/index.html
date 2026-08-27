@@ -33,6 +33,23 @@
         <select id="voice"></select>
       </section>
 
+      <section class="controls" aria-label="Delivery">
+        <div class="control">
+          <div class="control-head">
+            <label class="label" for="speed">Rate</label>
+            <span id="speed-value">1.00×</span>
+          </div>
+          <input id="speed" type="range" min="0.5" max="1.5" step="0.05" value="1" />
+        </div>
+        <div class="control">
+          <div class="control-head">
+            <label class="label" for="pause">Sentence pause</label>
+            <span id="pause-value">0.25s</span>
+          </div>
+          <input id="pause" type="range" min="0" max="1.5" step="0.05" value="0.25" />
+        </div>
+      </section>
+
       <section class="script">
         <label class="label" for="text">Script</label>
         <textarea

@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 from app.audio import PcmChunk
-from app.config import DEFAULT_ENGINE
+from app.config import DEFAULT_ENGINE, DEFAULT_SENTENCE_PAUSE, DEFAULT_SPEED
 from app.engines.base import Engine, VoiceError, VoiceInfo
 from app.engines.kitten import KittenEngine
 from app.engines.piper import PiperEngine
@@ -74,12 +74,18 @@ class EngineRegistry:
         text: str,
         engine_id: str | None = None,
         voice: str | None = None,
-        speed: float = 1.0,
+        speed: float = DEFAULT_SPEED,
+        sentence_pause: float = DEFAULT_SENTENCE_PAUSE,
     ) -> tuple[Engine, str, int, Iterator[PcmChunk]]:
         engine, voice_id = self.resolve(engine_id, voice)
         engine.prepare(voice_id)
         rate = engine.sample_rate(voice_id)
-        chunks = engine.synthesize(text, voice=voice_id, speed=speed)
+        chunks = engine.synthesize(
+            text,
+            voice=voice_id,
+            speed=speed,
+            sentence_pause=sentence_pause,
+        )
         return engine, voice_id, rate, chunks
 
     def voices_payload(self) -> dict[str, object]:
@@ -100,6 +106,8 @@ class EngineRegistry:
         return {
             "default_engine": default_engine.id,
             "default_voice": default_engine.default_voice_id(),
+            "speed": DEFAULT_SPEED,
+            "sentence_pause": DEFAULT_SENTENCE_PAUSE,
             "engines": engines,
         }
 
