@@ -1,18 +1,22 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+import asyncio
+import threading
+from collections.abc import AsyncIterator, Iterator
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from app.audio import PcmChunk
 from app.config import MAX_TEXT_CHARS, STATIC_DIR
 from app.engines.base import VoiceError
 from app.registry import get_registry
 
 app = FastAPI(title="TTS Stream", version="1.0.0")
 registry = get_registry()
+_END = object()
 
 
 class SpeakRequest(BaseModel):
@@ -49,29 +53,25 @@ def prepare(req: PrepareRequest) -> dict[str, str]:
 
 
 @app.post("/api/speak")
-def speak(req: SpeakRequest) -> StreamingResponse:
+async def speak(req: SpeakRequest, request: Request) -> StreamingResponse:
     text = req.text.strip()
     if not text:
         raise HTTPException(status_code=400, detail="Text is required")
     try:
-        engine, voice_id, sample_rate, chunks = registry.synthesize(
+        engine, voice_id, sample_rate, chunks = await asyncio.to_thread(
+            registry.synthesize,
             text,
-            engine_id=req.engine,
-            voice=req.voice,
-            speed=req.speed,
+            req.engine,
+            req.voice,
+            req.speed,
         )
     except VoiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    def stream() -> Iterator[bytes]:
-        for chunk in chunks:
-            if chunk.pcm_int16:
-                yield chunk.pcm_int16
-
     return StreamingResponse(
-        stream(),
+        _pcm_stream(request, chunks),
         media_type="application/octet-stream",
         headers={
             "Cache-Control": "no-store",
@@ -82,6 +82,39 @@ def speak(req: SpeakRequest) -> StreamingResponse:
             "X-Channels": "1",
         },
     )
+
+
+async def _pcm_stream(request: Request, chunks: Iterator[PcmChunk]) -> AsyncIterator[bytes]:
+    iterator = iter(chunks)
+    gen_lock = threading.Lock()
+
+    def take_next() -> PcmChunk | object:
+        with gen_lock:
+            return next(iterator, _END)
+
+    def close_gen() -> None:
+        with gen_lock:
+            close = getattr(iterator, "close", None)
+            if not callable(close):
+                return
+            try:
+                close()
+            except Exception:
+                pass
+
+    try:
+        while True:
+            if await request.is_disconnected():
+                break
+            chunk = await asyncio.to_thread(take_next)
+            if chunk is _END:
+                break
+            if await request.is_disconnected():
+                break
+            if chunk.pcm_int16:
+                yield chunk.pcm_int16
+    finally:
+        await asyncio.to_thread(close_gen)
 
 
 @app.get("/")
