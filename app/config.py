@@ -8,7 +8,7 @@ STATIC_DIR = ROOT_DIR / "static"
 VOICES_DIR = Path(os.environ.get("TTS_VOICES_DIR", ROOT_DIR / "voices")).expanduser()
 PIPER_VOICES_DIR = VOICES_DIR / "piper"
 
-DEFAULT_PIPER_VOICE = os.environ.get("TTS_DEFAULT_VOICE", "en_US-lessac-medium")
+DEFAULT_PIPER_VOICE = os.environ.get("TTS_DEFAULT_VOICE", "en_US-ryan-medium")
 
 HOST = os.environ.get("TTS_HOST", "0.0.0.0")
 PORT = int(os.environ.get("TTS_PORT", "8000"))

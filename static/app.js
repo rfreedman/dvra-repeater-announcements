@@ -9,14 +9,11 @@ const statusEl = document.getElementById("status");
 const speakBtn = document.getElementById("speak");
 const stopBtn = document.getElementById("stop");
 
-const SAMPLE = "The booth is live. This audio never touches disk — it is synthesized, streamed, and played entirely from memory.";
-
 let catalog = null;
 let player = null;
 let abort = null;
 let session = 0;
 
-textEl.value = SAMPLE;
 updateCount();
 updateDeliveryLabels();
 
@@ -34,6 +31,7 @@ pauseEl.addEventListener("input", () => {
 });
 
 loadVoices().catch((err) => setStatus(err.message, "error"));
+loadDefaultScript().catch((err) => setStatus(err.message, "error"));
 
 function updateCount() {
   countEl.textContent = `${textEl.value.length} / ${textEl.maxLength}`;
@@ -47,6 +45,13 @@ function updateDeliveryLabels() {
 function setStatus(text, kind = "") {
   statusEl.textContent = text;
   statusEl.className = kind;
+}
+
+async function loadDefaultScript() {
+  const res = await fetch("/static/default-announcement.txt");
+  if (!res.ok) throw new Error("Could not load default announcement");
+  textEl.value = (await res.text()).trim();
+  updateCount();
 }
 
 async function loadVoices() {
