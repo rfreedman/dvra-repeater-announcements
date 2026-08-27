@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Booth — local TTS</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="mast">
+        <p class="kicker">Local · in-memory · no files</p>
+        <h1>Booth</h1>
+        <p class="lede">
+          Type something. The server turns it into speech and streams raw audio
+          straight to this tab.
+        </p>
+      </header>
+
+      <section class="engines" aria-label="TTS engine">
+        <p class="label">Engine</p>
+        <div class="engine-grid" id="engines"></div>
+      </section>
+
+      <section class="voice-row">
+        <label class="label" for="voice">Voice</label>
+        <select id="voice"></select>
+      </section>
+
+      <section class="script">
+        <label class="label" for="text">Script</label>
+        <textarea
+          id="text"
+          rows="6"
+          maxlength="5000"
+          placeholder="Write what you want to hear…"
+        ></textarea>
+        <div class="script-meta">
+          <span id="count">0 / 5000</span>
+          <span id="status">Ready</span>
+        </div>
+      </section>
+
+      <div class="actions">
+        <button type="button" class="primary" id="speak">Speak</button>
+        <button type="button" class="ghost" id="stop" disabled>Stop</button>
+      </div>
+    </main>
+    <script src="/static/app.js" type="module"></script>
+  </body>
+</html>
