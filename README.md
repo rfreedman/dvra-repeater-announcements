@@ -31,7 +31,9 @@ python -m app download amy ryan
 python -m app serve
 ```
 
-Open [http://127.0.0.1:8000](http://127.0.0.1:8000). Choose a voice, adjust **rate** and **sentence pause** if you like, and press **Speak**. PCM audio is streamed to the browser and played with the Web Audio API.
+Open [http://127.0.0.1:8000](http://127.0.0.1:8000). The home screen lists saved schedules. **New schedule** opens the editor (voice, text, Speak preview, and hourly / daily / selected-days / once timing). Hourly schedules can list several minutes past the hour (for example :00 and :30). Selected-days schedules fire at chosen clock times on only the weekdays you check (for example Mondays and Wednesdays at 19:00), without using exclusions to carve those days out of a daily schedule. Select a row to edit. **Duplicate** opens a new unsaved copy of that schedule with a blank name. Delete asks for confirmation.
+
+Scheduled playback happens on the **server speakers** (with stub PTT key-up and a lead-in delay), even if the browser is closed. The Speak button is preview only and does not key the radio.
 
 Insert a timed silence in the script with `[pause:SECONDS]` (optional trailing `s`). The tag is not spoken. Duration is capped at 10 seconds; invalid tags such as `[pause]` are left as ordinary text.
 
@@ -60,6 +62,12 @@ echo "From a pipe" | python -m app speak --stdin
 | `TTS_SPEED` | `1.0` | Speaking rate (`< 1` is slower) |
 | `TTS_SENTENCE_PAUSE` | `0.25` | Silence between sentences, in seconds |
 | `TTS_HOST` / `TTS_PORT` | `0.0.0.0` / `8000` | Bind address |
+| `TTS_TIMEZONE` | `America/New_York` | Clock for schedules |
+| `TTS_DATA_DIR` | `./data` | Saved announcements JSON |
+| `TTS_PTT_LEAD_SECONDS` | `0.4` | Delay after PTT before audio |
+| `TTS_BUSY_RETRY_SECONDS` | `5` | Default retry while the channel is busy |
+| `TTS_BUSY_GIVE_UP_SECONDS` | `45` | Default drop this fire if still busy |
+| `TTS_SCHEDULER_MAX_WAIT_SECONDS` | `5` | How long the scheduler may sleep before checking the clock again |
 
 On a Raspberry Pi, keep a **medium** quality voice.
 
@@ -78,3 +86,9 @@ Streams 16-bit little-endian mono PCM. Format headers:
 - `X-Sample-Width` (`2`), `X-Channels` (`1`)
 
 `GET /api/voices` lists voices. `POST /api/prepare` downloads/loads a model without speaking.
+
+`GET /api/schedules` lists flattened schedules (name, summary, last run, next run). Announcements are `GET/POST /api/announcements` and `PUT/DELETE /api/announcements/{id}`. Schedules nest under `/api/announcements/{id}/schedules`.
+
+```bash
+pytest
+```

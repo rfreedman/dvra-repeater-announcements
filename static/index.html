@@ -3,63 +3,171 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title></title>
+    <title>W2ZQ Announcements</title>
+    <link rel="icon" href="/static/logo.svg" type="image/svg+xml" />
+    <link rel="icon" href="/static/favicon.png" type="image/png" sizes="32x32" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
-    <main class="shell">
+    <main class="shell wide">
       <header class="mast">
-        <!-- p class="kicker"> </p -->
-        <h1>W2ZQ Announcement Generator Voice Test</h1>
+        <img class="logo" src="/static/logo.svg" alt="" width="40" height="40" />
+        <h1>W2ZQ Announcements</h1>
       </header>
 
-      <section class="voice-row">
-        <label class="label" for="voice">Voice</label>
-        <select id="voice"></select>
+      <section id="view-grid" class="screen active">
+        <div class="toolbar">
+          <p class="lede tight">
+            Scheduled announcements play on the announcement server in the repeater cabinet. 
+            The browser is only for editing.</p>
+          <button type="button" class="primary" id="new-schedule">New schedule</button>
+        </div>
+        <div class="table-wrap">
+          <table class="schedules" id="schedule-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Schedule</th>
+                <th>Last run</th>
+                <th>Next run</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="schedule-rows"></tbody>
+          </table>
+          <p id="schedule-empty" class="empty hidden">No schedules yet. Create one to start automatic announcements.</p>
+        </div>
       </section>
 
-      <section class="controls" aria-label="Delivery">
-        <div class="control">
-          <div class="control-head">
-            <label class="label" for="speed">Speech Rate</label>
-            <span id="speed-value">1.00×</span>
+      <section id="view-editor" class="screen">
+        <div class="toolbar">
+          <button type="button" class="ghost" id="back-grid">Back</button>
+          <h2 id="editor-title" class="editor-title">New schedule</h2>
+        </div>
+
+        <section class="voice-row">
+          <label class="label" for="name">Name</label>
+          <input id="name" type="text" maxlength="120" placeholder="Station ID" />
+        </section>
+
+        <section class="voice-row">
+          <label class="label" for="voice">Voice</label>
+          <select id="voice"></select>
+        </section>
+
+        <section class="controls" aria-label="Delivery">
+          <div class="control">
+            <div class="control-head">
+              <label class="label" for="speed">Speech Rate</label>
+              <span id="speed-value">1.00×</span>
+            </div>
+            <input id="speed" type="range" min="0.5" max="1.5" step="0.05" value="1" />
           </div>
-          <input id="speed" type="range" min="0.5" max="1.5" step="0.05" value="1" />
-        </div>
-        <div class="control">
-          <div class="control-head">
-            <label class="label" for="pause">Sentence pause</label>
-            <span id="pause-value">0.25s</span>
+          <div class="control">
+            <div class="control-head">
+              <label class="label" for="pause">Sentence pause</label>
+              <span id="pause-value">0.25s</span>
+            </div>
+            <input id="pause" type="range" min="0" max="1.5" step="0.05" value="0.25" />
           </div>
-          <input id="pause" type="range" min="0" max="1.5" step="0.05" value="0.25" />
-        </div>
-      </section>
+        </section>
 
-      <section class="script">
-        <label class="label" for="text">Announcement</label>
-        <textarea
-          id="text"
-          rows="6"
-          maxlength="5000"
-          placeholder="Write what you want to hear…"
-        ></textarea>
-        <div class="script-meta">
-          <span id="count">0 / 5000</span>
-          <span id="status">Ready</span>
-        </div>
-      </section>
+        <section class="script">
+          <label class="label" for="text">Announcement</label>
+          <textarea
+            id="text"
+            rows="6"
+            maxlength="5000"
+            placeholder="Write what you want to hear…"
+          ></textarea>
+          <div class="script-meta">
+            <span id="count">0 / 5000</span>
+            <span id="status">Ready</span>
+          </div>
+        </section>
 
-      <div class="actions">
-        <button type="button" class="primary" id="speak">Speak</button>
-        <button type="button" class="ghost" id="stop" disabled>Stop</button>
-        <button type="button" class="ghost" id="reset">Reset</button>
-      </div>
+        <div class="actions">
+          <button type="button" class="primary" id="speak">Speak</button>
+          <button type="button" class="ghost" id="stop" disabled>Stop</button>
+          <button type="button" class="ghost" id="reset">Reset</button>
+        </div>
+
+        <section class="controls" aria-label="Busy wait">
+          <div class="control">
+            <div class="control-head">
+              <label class="label" for="busy-retry">Busy retry (seconds)</label>
+            </div>
+            <input id="busy-retry" type="number" min="1" max="120" step="1" value="5" />
+          </div>
+          <div class="control">
+            <div class="control-head">
+              <label class="label" for="busy-giveup">Give up after (seconds)</label>
+            </div>
+            <input id="busy-giveup" type="number" min="5" max="600" step="1" value="45" />
+          </div>
+        </section>
+
+        <section class="schedule-fields">
+          <label class="label" for="kind">Repeat</label>
+          <select id="kind">
+            <option value="hourly">Every hour</option>
+            <option value="daily">Daily</option>
+            <option value="weekly">Selected days</option>
+            <option value="once">Once</option>
+          </select>
+
+          <div id="fields-hourly" class="kind-fields">
+            <label class="label">Minutes past the hour</label>
+            <div id="hourly-minutes"></div>
+            <button type="button" class="ghost small" id="add-hourly-minute">Add minute</button>
+          </div>
+
+          <div id="fields-daily" class="kind-fields hidden">
+            <label class="label">Times</label>
+            <div id="daily-times"></div>
+            <button type="button" class="ghost small" id="add-time">Add time</button>
+          </div>
+
+          <div id="fields-weekly" class="kind-fields hidden">
+            <label class="label">Days</label>
+            <div id="weekly-days" class="day-chips"></div>
+            <label class="label">Times</label>
+            <div id="weekly-times"></div>
+            <button type="button" class="ghost small" id="add-weekly-time">Add time</button>
+          </div>
+
+          <div id="fields-once" class="kind-fields hidden">
+            <div class="controls">
+              <div class="control">
+                <label class="label" for="once-date">Date</label>
+                <input id="once-date" type="date" />
+              </div>
+              <div class="control">
+                <label class="label" for="once-time">Time (24-hour)</label>
+                <input id="once-time" class="time-24" type="text" inputmode="numeric" placeholder="HH:MM" maxlength="5" lang="en-GB" aria-label="Time, 24-hour HH:MM" />
+              </div>
+            </div>
+          </div>
+
+          <div id="fields-exclusions">
+            <label class="label">Exclusions</label>
+            <p class="lede tight">Leave the times blank to skip the whole day. Otherwise skip that range on the selected days. The note is optional and only for your reference.</p>
+            <div id="exclusion-rows"></div>
+            <button type="button" class="ghost small" id="add-exclusion">Add exclusion</button>
+          </div>
+        </section>
+
+        <div class="actions">
+          <button type="button" class="primary" id="save-schedule">Save</button>
+        </div>
+        <p id="editor-error" class="status-error" hidden></p>
+      </section>
     </main>
     <script src="/static/app.js" type="module"></script>
   </body>

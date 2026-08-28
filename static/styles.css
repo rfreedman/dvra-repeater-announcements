@@ -8,6 +8,7 @@
   --copper-2: #c47a4a;
   --moss: #8faf86;
   --danger: #d97a6a;
+  --warn: #e0c16d;
 }
 
 * {
@@ -32,15 +33,29 @@ body {
 }
 
 .shell {
-  width: min(720px, 100%);
+  width: min(960px, 100%);
+}
+
+.mast {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 28px;
 }
 
 .mast h1 {
   font-family: "IBM Plex Sans", sans-serif;
-  font-size: 2rem;
+  font-size: 1.7rem;
   font-weight: 500;
   letter-spacing: -0.04em;
-  margin: 0 0 12px;
+  margin: 0;
+}
+
+.logo {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  flex: none;
 }
 
 .kicker {
@@ -54,8 +69,157 @@ body {
 .lede {
   color: var(--muted);
   line-height: 1.5;
-  margin: 0 0 36px;
+  margin: 0;
   max-width: 42rem;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.subhead {
+  font-size: 1.1rem;
+  font-weight: 500;
+  margin: 0;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--bg-2);
+}
+
+.sched-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.sched-table th,
+.sched-table td {
+  text-align: left;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.sched-table th {
+  color: var(--muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+.sched-table tbody tr {
+  cursor: pointer;
+}
+
+.sched-table tbody tr:hover {
+  background: rgba(224, 155, 109, 0.08);
+}
+
+.sched-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.row-actions {
+  white-space: nowrap;
+  text-align: right;
+}
+
+.row-actions .ghost {
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  margin-right: 8px;
+}
+
+.danger {
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid rgba(217, 122, 106, 0.4);
+  padding: 6px 12px;
+  font-size: 0.82rem;
+}
+
+.empty {
+  color: var(--muted);
+  padding: 24px 14px;
+  margin: 0;
+}
+
+.kind-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.kind-row label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.kind-fields,
+.schedule-form {
+  margin-bottom: 22px;
+}
+
+.time-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.day-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+input[type="text"],
+input[type="number"],
+input[type="date"],
+input[type="time"] {
+  font: inherit;
+  background: var(--bg-2);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px 14px;
+  width: 100%;
+}
+
+.time-row input[type="time"],
+.time-row .time-24,
+.exclusion-main input[type="time"],
+.exclusion-main .time-24,
+.kind-fields input[type="number"] {
+  width: auto;
+}
+
+.time-24 {
+  font-variant-numeric: tabular-nums;
+}
+
+.form-error {
+  color: var(--danger);
+  margin-top: 12px;
+}
+
+.schedule-form {
+  margin-top: 36px;
+  padding-top: 8px;
 }
 
 .label {
@@ -145,6 +309,10 @@ input[type="range"]:focus-visible {
   gap: 12px;
 }
 
+.actions + .controls {
+  margin-top: 32px;
+}
+
 button {
   border: 0;
   border-radius: 999px;
@@ -175,6 +343,188 @@ button:disabled {
 
 #status.error {
   color: var(--danger);
+}
+
+.screen {
+  display: none;
+}
+
+.screen.active {
+  display: block;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.lede.tight {
+  margin: 0;
+}
+
+.editor-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 500;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--bg-2);
+}
+
+table.schedules {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+table.schedules th:nth-child(1),
+table.schedules td:nth-child(1) {
+  width: 22%;
+}
+
+table.schedules th,
+table.schedules td {
+  text-align: left;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+table.schedules th {
+  color: var(--muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+table.schedules tbody tr {
+  cursor: pointer;
+}
+
+table.schedules tbody tr:hover {
+  background: rgba(224, 155, 109, 0.08);
+}
+
+table.schedules tbody tr.disabled {
+  opacity: 0.55;
+}
+
+table.schedules tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.exclusion-line {
+  color: var(--muted);
+  font-size: 0.88em;
+  margin-top: 10px;
+}
+
+.exclusion-line + .exclusion-line {
+  margin-top: 12px;
+}
+
+table.schedules tbody tr.has-warning td:first-child {
+  box-shadow: inset 3px 0 0 var(--warn);
+}
+
+.empty {
+  color: var(--muted);
+  padding: 20px 14px;
+  margin: 0;
+}
+
+input[type="text"],
+input[type="number"],
+input[type="date"],
+input[type="time"] {
+  font: inherit;
+  width: 100%;
+  background: var(--bg-2);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px 14px;
+}
+
+.schedule-fields {
+  margin: 28px 0 18px;
+}
+
+.kind-fields {
+  margin: 16px 0;
+}
+
+.time-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.exclusion-main {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.exclusion-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.exclusion-note {
+  width: 100%;
+}
+
+.day-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 16px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+button.small {
+  padding: 8px 14px;
+  border-radius: 999px;
+}
+
+.danger-btn {
+  color: var(--danger);
+}
+
+.status-error {
+  color: var(--danger);
+  margin-top: 12px;
+}
+
+.status-warning {
+  color: var(--warn);
+  margin-top: 12px;
 }
 
 @media (max-width: 640px) {
