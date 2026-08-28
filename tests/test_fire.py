@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import threading
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -90,16 +91,18 @@ def _ctx() -> FireContext:
     )
 
 
-def test_clear_channel_keys_ptt_waits_lead_plays_and_unkeys():
+def test_clear_channel_keys_ptt_waits_lead_plays_and_unkeys(caplog):
     radio = StubRadio()
     announcement = _announcement()
     deps, extras = _deps(announcement, radio)
-    assert handle_fire(_ctx(), deps) == "transmitted"
+    with caplog.at_level(logging.INFO, logger="app.fire"):
+        assert handle_fire(_ctx(), deps) == "transmitted"
     assert extras["slept"] == [0.4]
     assert extras["played"] == ["play"]
     assert extras["last_runs"]
     assert radio.events == [("busy_check", False), ("ptt", True), ("ptt", False)]
     assert radio.ptt is False
+    assert "Fire transmitted; ID" in caplog.text
 
 
 def test_set_running_hooks_around_playback():

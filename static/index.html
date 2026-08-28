@@ -29,7 +29,36 @@
           <button type="button" class="primary" id="new-schedule">New schedule</button>
         </div>
         <div id="next-run" class="next-run hidden" aria-live="polite">
-          <p class="next-run-kicker">Next run</p>
+          <div class="next-run-head">
+            <p class="next-run-kicker">Next run</p>
+            <span id="next-run-led" class="led is-green" role="img" aria-label="Server connected" title="Server connected">
+              <svg viewBox="0 0 64 64" aria-hidden="true">
+                <defs>
+                  <radialGradient id="led-bezel" cx="32%" cy="28%" r="72%">
+                    <stop offset="0%" stop-color="#8a8378" />
+                    <stop offset="42%" stop-color="#3a3530" />
+                    <stop offset="78%" stop-color="#161310" />
+                    <stop offset="100%" stop-color="#050403" />
+                  </radialGradient>
+                  <radialGradient id="led-well" cx="50%" cy="58%" r="55%">
+                    <stop offset="0%" stop-color="#2a1208" />
+                    <stop offset="100%" stop-color="#050302" />
+                  </radialGradient>
+                  <radialGradient id="led-dome" cx="36%" cy="30%" r="68%">
+                    <stop offset="0%" stop-color="var(--led-core)" />
+                    <stop offset="38%" stop-color="var(--led)" />
+                    <stop offset="100%" stop-color="var(--led-edge)" />
+                  </radialGradient>
+                </defs>
+                <circle cx="32" cy="33" r="30" fill="#090807" />
+                <circle cx="32" cy="32" r="29" fill="url(#led-bezel)" />
+                <circle cx="32" cy="32" r="22.5" fill="url(#led-well)" />
+                <circle class="led-dome" cx="32" cy="32.5" r="19" fill="url(#led-dome)" />
+                <ellipse cx="24" cy="23" rx="8.5" ry="5.2" fill="#fff" opacity="0.42" />
+                <ellipse cx="38" cy="42" rx="9" ry="4.5" fill="#fff" opacity="0.08" />
+              </svg>
+            </span>
+          </div>
           <p class="next-run-name" id="next-run-name"></p>
           <p class="next-run-meta">
             <span id="next-run-when"></span>

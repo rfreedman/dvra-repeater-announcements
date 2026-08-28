@@ -48,6 +48,43 @@ let countdownTimer = null;
 let upcoming = null;
 let clockSkewMs = 0;
 let gridBusy = false;
+let ledFailed = false;
+let ledBlinkTimer = null;
+let ledBlinkUntil = 0;
+const nativeFetch = window.fetch.bind(window);
+
+function paintLed() {
+  const el = document.getElementById("next-run-led");
+  if (!el) return;
+  const off = Date.now() < ledBlinkUntil;
+  el.classList.toggle("is-off", off);
+  el.classList.toggle("is-green", !ledFailed);
+  el.classList.toggle("is-red", ledFailed);
+  const label = ledFailed ? "Last request failed" : "Server connected";
+  el.setAttribute("aria-label", label);
+  el.setAttribute("title", label);
+}
+
+function blinkLed() {
+  ledBlinkUntil = Date.now() + 90;
+  paintLed();
+  clearTimeout(ledBlinkTimer);
+  ledBlinkTimer = setTimeout(paintLed, 90);
+}
+
+window.fetch = async function trackedFetch(...args) {
+  blinkLed();
+  try {
+    const res = await nativeFetch(...args);
+    ledFailed = !res.ok;
+    paintLed();
+    return res;
+  } catch (err) {
+    ledFailed = true;
+    paintLed();
+    throw err;
+  }
+};
 let defaultScript = "";
 let editorBaseline = null;
 let editorKey = "";

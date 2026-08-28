@@ -74,6 +74,7 @@ def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
             lead_seconds=deps.ptt_lead_seconds,
         )
         deps.mark_last_run(ctx.announcement_id, ctx.schedule_id, deps.now)
+        log.info("Fire transmitted; %s", announcement.name or "Untitled")
         return "transmitted"
     finally:
         if deps.clear_running:
