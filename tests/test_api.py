@@ -41,6 +41,10 @@ def test_flatten_and_delete_one_schedule(store):
         assert len(remaining) == 1
         assert remaining[0]["schedule_id"] == other_id
         assert remaining[0]["summary"].startswith("19:00 every day")
+        payload = client.get("/api/schedules").json()
+        assert payload["upcoming"]["status"] == "waiting"
+        assert payload["upcoming"]["announcement_name"]
+        assert payload["upcoming"]["at"]
 
 
 def test_unscheduled_announcement_is_listed_and_deleted(store):
@@ -57,6 +61,7 @@ def test_unscheduled_announcement_is_listed_and_deleted(store):
         deleted = client.delete(f"/api/announcements/{stored.id}")
         assert deleted.status_code == 200
         assert client.get("/api/schedules").json()["schedules"] == []
+        assert client.get("/api/schedules").json()["upcoming"] is None
 
 
 def test_create_rejects_conflicting_schedule(store):
@@ -101,3 +106,31 @@ def test_speak_does_not_key_ptt(store, monkeypatch):
         assert res.content == b"\x00\x00"
     assert not any(event[0] == "ptt" for event in radio.events)
     set_radio(None)
+
+
+def test_upcoming_is_running_when_a_fire_is_in_progress(store, monkeypatch):
+    store.save(
+        Announcement(
+            name="Waiting ID",
+            text="ID",
+            schedules=[
+                Schedule.model_validate(
+                    {"kind": "hourly", "minutes": [0], "timezone": "America/New_York"}
+                )
+            ],
+        )
+    )
+    monkeypatch.setattr(
+        "app.server.get_running",
+        lambda: {
+            "announcement_id": "ann-live",
+            "announcement_name": "On-the-hour",
+            "schedule_id": "sched-live",
+            "started_at": "2026-08-28T12:00:00-04:00",
+        },
+    )
+    with TestClient(app) as client:
+        payload = client.get("/api/schedules").json()
+        assert payload["upcoming"]["status"] == "running"
+        assert payload["upcoming"]["announcement_name"] == "On-the-hour"
+        assert payload["upcoming"]["at"] == "2026-08-28T12:00:00-04:00"

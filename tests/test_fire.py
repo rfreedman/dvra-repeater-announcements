@@ -102,6 +102,29 @@ def test_clear_channel_keys_ptt_waits_lead_plays_and_unkeys():
     assert radio.ptt is False
 
 
+def test_set_running_hooks_around_playback():
+    radio = StubRadio()
+    announcement = _announcement()
+    deps, extras = _deps(announcement, radio)
+    seen: list[str] = []
+    deps.set_running = lambda _item, _sid: seen.append("start")
+    deps.clear_running = lambda: seen.append("end")
+    assert handle_fire(_ctx(), deps) == "transmitted"
+    assert seen == ["start", "end"]
+
+
+def test_set_running_not_called_when_busy():
+    radio = StubRadio()
+    radio.busy = True
+    announcement = _announcement()
+    deps, extras = _deps(announcement, radio)
+    seen: list[str] = []
+    deps.set_running = lambda _item, _sid: seen.append("start")
+    deps.clear_running = lambda: seen.append("end")
+    assert handle_fire(_ctx(), deps) == "deferred"
+    assert seen == []
+
+
 def test_play_error_still_unkeys_ptt():
     radio = StubRadio()
     announcement = _announcement()

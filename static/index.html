@@ -28,6 +28,15 @@
             The browser is only for editing.</p>
           <button type="button" class="primary" id="new-schedule">New schedule</button>
         </div>
+        <div id="next-run" class="next-run hidden" aria-live="polite">
+          <p class="next-run-kicker">Next run</p>
+          <p class="next-run-name" id="next-run-name"></p>
+          <p class="next-run-meta">
+            <span id="next-run-when"></span>
+            <span class="next-run-status" id="next-run-status"></span>
+            <span class="next-run-countdown" id="next-run-countdown"></span>
+          </p>
+        </div>
         <div class="table-wrap">
           <table class="schedules" id="schedule-table">
             <thead>

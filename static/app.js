@@ -44,6 +44,10 @@ let abort = null;
 let session = 0;
 let editing = { announcementId: null, scheduleId: null };
 let pollTimer = null;
+let countdownTimer = null;
+let upcoming = null;
+let clockSkewMs = 0;
+let gridBusy = false;
 let defaultScript = "";
 let editorBaseline = null;
 let editorKey = "";
@@ -396,47 +400,115 @@ function formatWhen(iso) {
   return `${month} ${dt.getDate()}, ${hh}:${mm}`;
 }
 
-async function refreshGrid() {
+function formatCountdown(ms) {
+  if (ms <= 0) return "0:00";
+  const total = Math.ceil(ms / 1000);
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function renderUpcoming() {
+  const box = document.getElementById("next-run");
+  if (!box) return;
+  if (!upcoming) {
+    box.classList.add("hidden");
+    return;
+  }
+  box.classList.remove("hidden");
+  document.getElementById("next-run-name").textContent = upcoming.announcement_name || "Untitled";
+  document.getElementById("next-run-when").textContent = upcoming.at ? formatWhen(upcoming.at) : "—";
+  const statusEl = document.getElementById("next-run-status");
+  const running = upcoming.status === "running";
+  statusEl.textContent = running ? "Running" : "Waiting";
+  statusEl.classList.toggle("is-running", running);
+  const countEl = document.getElementById("next-run-countdown");
+  if (running) {
+    countEl.textContent = "Now";
+    return;
+  }
+  const at = upcoming.at ? new Date(upcoming.at).getTime() : NaN;
+  if (Number.isNaN(at)) {
+    countEl.textContent = "—";
+    return;
+  }
+  countEl.textContent = `in ${formatCountdown(at - (Date.now() + clockSkewMs))}`;
+}
+
+async function fetchSchedulePayload() {
   const res = await fetch("/api/schedules");
   if (!res.ok) throw new Error("Could not load schedules");
   const payload = await res.json();
-  const rows = payload.schedules || [];
-  schedBody.replaceChildren();
-  schedEmpty.classList.toggle("hidden", rows.length > 0);
-  for (const row of rows) {
-    const tr = document.createElement("tr");
-    if (row.warning) tr.classList.add("has-warning");
-    const warning = row.warning
-      ? `<div class="sched-warning">${escapeHtml(row.warning)}</div>`
-      : "";
-    tr.innerHTML = `
+  if (payload.now) {
+    const serverNow = Date.parse(payload.now);
+    if (!Number.isNaN(serverNow)) clockSkewMs = serverNow - Date.now();
+  }
+  upcoming = payload.upcoming || null;
+  renderUpcoming();
+  return payload;
+}
+
+function tickUpcoming() {
+  renderUpcoming();
+  if (!upcoming) return;
+  if (upcoming.status === "running") {
+    fetchSchedulePayload().catch(() => {});
+    return;
+  }
+  if (!upcoming.at) return;
+  const left = new Date(upcoming.at).getTime() - (Date.now() + clockSkewMs);
+  if (left <= 15000) fetchSchedulePayload().catch(() => {});
+}
+
+async function refreshGrid() {
+  if (gridBusy) return;
+  gridBusy = true;
+  try {
+    const payload = await fetchSchedulePayload();
+    const rows = payload.schedules || [];
+    schedBody.replaceChildren();
+    schedEmpty.classList.toggle("hidden", rows.length > 0);
+    for (const row of rows) {
+      const tr = document.createElement("tr");
+      if (row.warning) tr.classList.add("has-warning");
+      const warning = row.warning
+        ? `<div class="sched-warning">${escapeHtml(row.warning)}</div>`
+        : "";
+      tr.innerHTML = `
       <td>${escapeHtml(row.announcement_name)}</td>
       <td>${summaryHtml(row.summary)}${warning}</td>
       <td>${escapeHtml(row.last_run_at ? formatWhen(row.last_run_at) : "Never")}</td>
       <td>${escapeHtml(row.next_run_at ? formatWhen(row.next_run_at) : "—")}</td>
       <td class="row-actions"></td>
     `;
-    const dup = document.createElement("button");
-    dup.type = "button";
-    dup.className = "ghost";
-    dup.textContent = "Duplicate";
-    dup.addEventListener("click", (event) => {
-      event.stopPropagation();
-      goToHash(rowHash("copy", row));
-    });
-    const del = document.createElement("button");
-    del.type = "button";
-    del.className = "danger";
-    del.textContent = "Delete";
-    del.addEventListener("click", (event) => {
-      event.stopPropagation();
-      deleteSchedule(row);
-    });
-    tr.querySelector(".row-actions").append(dup, del);
-    tr.addEventListener("click", () => {
-      goToHash(rowHash("edit", row));
-    });
-    schedBody.append(tr);
+      const dup = document.createElement("button");
+      dup.type = "button";
+      dup.className = "ghost";
+      dup.textContent = "Duplicate";
+      dup.addEventListener("click", (event) => {
+        event.stopPropagation();
+        goToHash(rowHash("copy", row));
+      });
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "danger";
+      del.textContent = "Delete";
+      del.addEventListener("click", (event) => {
+        event.stopPropagation();
+        deleteSchedule(row);
+      });
+      tr.querySelector(".row-actions").append(dup, del);
+      tr.addEventListener("click", () => {
+        goToHash(rowHash("edit", row));
+      });
+      schedBody.append(tr);
+    }
+  } finally {
+    gridBusy = false;
   }
 }
 
@@ -499,6 +571,7 @@ function showGrid() {
   viewGrid.classList.add("active");
   viewEdit.classList.remove("active");
   if (!pollTimer) pollTimer = setInterval(() => refreshGrid().catch(() => {}), 15000);
+  if (!countdownTimer) countdownTimer = setInterval(tickUpcoming, 1000);
   refreshGrid().catch((err) => setStatus(err.message, "error"));
 }
 
@@ -508,6 +581,10 @@ function showEdit() {
   if (pollTimer) {
     clearInterval(pollTimer);
     pollTimer = null;
+  }
+  if (countdownTimer) {
+    clearInterval(countdownTimer);
+    countdownTimer = null;
   }
 }
 

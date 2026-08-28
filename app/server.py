@@ -28,7 +28,7 @@ from app.engines.base import VoiceError
 from app.models import Announcement, Schedule
 from app.registry import get_registry
 from app.schedule_logic import find_conflicts, next_run_at, summarize, trigger_warning
-from app.scheduler import start_scheduler, stop_scheduler, sync_jobs
+from app.scheduler import get_running, start_scheduler, stop_scheduler, sync_jobs
 from app.store import get_store
 
 log = logging.getLogger("app.server")
@@ -242,9 +242,44 @@ async def _pcm_stream(request: Request, chunks: Iterator[PcmChunk]) -> AsyncIter
         await asyncio.to_thread(close_gen)
 
 
+def _upcoming(rows: list[dict[str, object]], running: dict[str, object] | None) -> dict[str, object] | None:
+    if running:
+        return {
+            "announcement_id": running.get("announcement_id"),
+            "announcement_name": running.get("announcement_name"),
+            "schedule_id": running.get("schedule_id"),
+            "at": running.get("started_at"),
+            "status": "running",
+        }
+    soonest: dict[str, object] | None = None
+    soonest_dt: datetime | None = None
+    for row in rows:
+        iso = row.get("next_run_at")
+        if not iso:
+            continue
+        when = datetime.fromisoformat(str(iso))
+        if soonest_dt is None or when < soonest_dt:
+            soonest = row
+            soonest_dt = when
+    if soonest is None:
+        return None
+    return {
+        "announcement_id": soonest.get("announcement_id"),
+        "announcement_name": soonest.get("announcement_name"),
+        "schedule_id": soonest.get("schedule_id"),
+        "at": soonest.get("next_run_at"),
+        "status": "waiting",
+    }
+
+
 @app.get("/api/schedules")
 def list_schedules() -> dict[str, object]:
-    return {"schedules": _flatten_schedules()}
+    rows = _flatten_schedules()
+    return {
+        "now": datetime.now(ZoneInfo(TIMEZONE)).isoformat(),
+        "upcoming": _upcoming(rows, get_running()),
+        "schedules": rows,
+    }
 
 
 @app.get("/api/announcements")

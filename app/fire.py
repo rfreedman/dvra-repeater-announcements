@@ -35,6 +35,8 @@ class FireDeps:
     mark_last_run: Callable[[str, str, datetime], None]
     load: Callable[[], tuple[Announcement, Schedule] | None]
     ptt_lead_seconds: float = PTT_LEAD_SECONDS
+    set_running: Callable[[Announcement, str], None] | None = None
+    clear_running: Callable[[], None] | None = None
 
 
 def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
@@ -61,6 +63,8 @@ def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
         log.info("Fire skipped; another announcement is playing")
         return "skipped_lock"
     try:
+        if deps.set_running:
+            deps.set_running(announcement, ctx.schedule_id)
         chunks = deps.synthesize(announcement)
         transmit(
             chunks,
@@ -72,4 +76,6 @@ def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
         deps.mark_last_run(ctx.announcement_id, ctx.schedule_id, deps.now)
         return "transmitted"
     finally:
+        if deps.clear_running:
+            deps.clear_running()
         deps.playback_lock.release()

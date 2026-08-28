@@ -26,6 +26,8 @@ log = logging.getLogger("app.scheduler")
 _scheduler: BackgroundScheduler | None = None
 _playback_lock = threading.Lock()
 _idle_assertion: c_uint32 | None = None
+_running_lock = threading.Lock()
+_running: dict[str, object] | None = None
 
 
 class PromptBackgroundScheduler(BackgroundScheduler):
@@ -94,6 +96,28 @@ def _allow_idle_sleep() -> None:
     except Exception:
         log.debug("Could not release idle-sleep assertion", exc_info=True)
     _idle_assertion = None
+
+
+def get_running() -> dict[str, object] | None:
+    with _running_lock:
+        return dict(_running) if _running else None
+
+
+def _set_running(announcement, schedule_id: str) -> None:
+    global _running
+    with _running_lock:
+        _running = {
+            "announcement_id": announcement.id,
+            "announcement_name": announcement.name,
+            "schedule_id": schedule_id,
+            "started_at": datetime.now(ZoneInfo(TIMEZONE)).isoformat(),
+        }
+
+
+def _clear_running() -> None:
+    global _running
+    with _running_lock:
+        _running = None
 
 
 def _job_id(schedule_id: str) -> str:
@@ -188,6 +212,8 @@ def run_scheduled_fire(
         mark_last_run=store.set_last_run,
         load=load,
         ptt_lead_seconds=PTT_LEAD_SECONDS,
+        set_running=_set_running,
+        clear_running=_clear_running,
     )
     return handle_fire(ctx, deps)
 
@@ -286,5 +312,6 @@ def stop_scheduler() -> None:
         return
     _scheduler.shutdown(wait=False)
     _scheduler = None
+    _clear_running()
     _allow_idle_sleep()
     log.info("Scheduler stopped")

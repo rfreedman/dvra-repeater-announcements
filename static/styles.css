@@ -81,6 +81,54 @@ body {
   margin-bottom: 20px;
 }
 
+.next-run {
+  margin: 0 0 18px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--bg-2);
+}
+
+.next-run-kicker {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.72rem;
+  color: var(--copper);
+  margin: 0 0 6px;
+}
+
+.next-run-name {
+  font-size: 1.15rem;
+  font-weight: 500;
+  margin: 0 0 8px;
+}
+
+.next-run-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 12px 20px;
+  margin: 0;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.next-run-status {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.78rem;
+  color: var(--copper);
+}
+
+.next-run-status.is-running {
+  color: var(--moss);
+}
+
+.next-run-countdown {
+  color: var(--ink);
+  font-size: 1.05rem;
+}
+
 .subhead {
   font-size: 1.1rem;
   font-weight: 500;
