@@ -37,7 +37,11 @@ _END = object()
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
     start_scheduler()
     yield
     stop_scheduler()
