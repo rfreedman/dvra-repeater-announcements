@@ -1,4 +1,4 @@
-# Booth
+# Announcements
 
 Local Piper text-to-speech with a FastAPI UI and a CLI. Audio is generated and played **entirely in memory** — nothing is written to disk as a WAV/MP3.
 
@@ -47,7 +47,7 @@ This is w2-zee-q. [pause:2] The Delaware Valley Radio Association...
 
 ```bash
 python -m app voices
-python -m app speak "Hello from the booth."
+python -m app speak "Hello from the announcements."
 python -m app speak --voice amy "Piper voice aliases work too."
 python -m app speak --speed 0.75 --pause 0.6 "Hello. Take your time with this."
 echo "From a pipe" | python -m app speak --stdin
@@ -64,6 +64,7 @@ echo "From a pipe" | python -m app speak --stdin
 | `TTS_HOST` / `TTS_PORT` | `0.0.0.0` / `8000` | Bind address |
 | `TTS_TIMEZONE` | `America/New_York` | Clock for schedules |
 | `TTS_DATA_DIR` | `./data` | Saved announcements JSON |
+| `TTS_LOG_DIR` | `./data/logs` | Daily `announcements.log` files (30 days; uvicorn access lines are not written here) |
 | `TTS_PTT_LEAD_SECONDS` | `0.4` | Delay after PTT before audio |
 | `TTS_BUSY_RETRY_SECONDS` | `5` | Default retry while the channel is busy |
 | `TTS_BUSY_GIVE_UP_SECONDS` | `45` | Default drop this fire if still busy |

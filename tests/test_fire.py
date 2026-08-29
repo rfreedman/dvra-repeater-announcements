@@ -147,25 +147,28 @@ def test_play_error_still_unkeys_ptt():
     assert extras["last_runs"] == []
 
 
-def test_exclusion_does_not_key_or_play():
+def test_exclusion_does_not_key_or_play(caplog):
     radio = StubRadio()
     announcement = _announcement(
         schedule={"exclusions": [Exclusion(kind="day", days=["thu"]).model_dump()]}
     )
     deps, extras = _deps(announcement, radio)
     # 2026-08-27 is a Thursday
-    assert handle_fire(_ctx(), deps) == "excluded"
+    with caplog.at_level(logging.INFO, logger="app.fire"):
+        assert handle_fire(_ctx(), deps) == "excluded"
     assert extras["played"] == []
     assert extras["last_runs"] == []
     assert not any(event[0] == "ptt" for event in radio.events)
+    assert "Fire skipped; ID; excluded at" in caplog.text
 
 
-def test_busy_then_clear_defers_without_writing_last_run():
+def test_busy_then_clear_defers_without_writing_last_run(caplog):
     radio = StubRadio()
     radio.busy = True
     announcement = _announcement()
     deps, extras = _deps(announcement, radio)
-    assert handle_fire(_ctx(), deps) == "deferred"
+    with caplog.at_level(logging.INFO, logger="app.fire"):
+        assert handle_fire(_ctx(), deps) == "deferred"
     assert extras["deferred"]
     assert extras["played"] == []
     assert extras["last_runs"] == []
@@ -173,9 +176,10 @@ def test_busy_then_clear_defers_without_writing_last_run():
     retry_at, ctx = extras["deferred"][0]
     assert ctx.fired_at == NOW
     assert retry_at == NOW + timedelta(seconds=5)
+    assert "Fire deferred; ID;" in caplog.text
 
 
-def test_busy_past_deadline_drops_without_ptt():
+def test_busy_past_deadline_drops_without_ptt(caplog):
     radio = StubRadio()
     radio.busy = True
     announcement = _announcement()
@@ -183,10 +187,12 @@ def test_busy_past_deadline_drops_without_ptt():
     ctx = _ctx()
     ctx.deadline = NOW
     deps.now = NOW + timedelta(seconds=1)
-    assert handle_fire(ctx, deps) == "dropped"
+    with caplog.at_level(logging.INFO, logger="app.fire"):
+        assert handle_fire(ctx, deps) == "dropped"
     assert extras["deferred"] == []
     assert extras["played"] == []
     assert not any(event[0] == "ptt" for event in radio.events)
+    assert "Fire dropped; ID; channel still busy after" in caplog.text
 
 
 def test_transmit_uses_injected_lead_not_announcement():

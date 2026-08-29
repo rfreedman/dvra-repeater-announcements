@@ -45,22 +45,23 @@ def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
         log.info("Fire skipped; announcement or schedule missing")
         return "missing"
     announcement, schedule = loaded
+    label = announcement.name or "Untitled"
     if not schedule.enabled:
-        log.info("Fire skipped; schedule %s disabled", schedule.id)
+        log.info("Fire skipped; %s; schedule %s disabled", label, schedule.id)
         return "disabled"
     if is_excluded(schedule, deps.now):
-        log.info("Fire skipped; excluded at %s", deps.now.isoformat())
+        log.info("Fire skipped; %s; excluded at %s", label, deps.now.isoformat())
         return "excluded"
     if deps.radio.channel_busy():
         if deps.now >= ctx.deadline:
-            log.info("Fire dropped; channel still busy after %s", ctx.deadline.isoformat())
+            log.info("Fire dropped; %s; channel still busy after %s", label, ctx.deadline.isoformat())
             return "dropped"
         retry_at = deps.now + timedelta(seconds=announcement.busy_retry_seconds)
         deps.schedule_defer(retry_at, ctx)
-        log.info("Fire deferred to %s; channel busy", retry_at.isoformat())
+        log.info("Fire deferred; %s; retry at %s; channel busy", label, retry_at.isoformat())
         return "deferred"
     if not deps.playback_lock.acquire(blocking=False):
-        log.info("Fire skipped; another announcement is playing")
+        log.info("Fire skipped; %s; another announcement is playing", label)
         return "skipped_lock"
     try:
         if deps.set_running:
@@ -74,7 +75,7 @@ def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
             lead_seconds=deps.ptt_lead_seconds,
         )
         deps.mark_last_run(ctx.announcement_id, ctx.schedule_id, deps.now)
-        log.info("Fire transmitted; %s", announcement.name or "Untitled")
+        log.info("Fire transmitted; %s", label)
         return "transmitted"
     finally:
         if deps.clear_running:

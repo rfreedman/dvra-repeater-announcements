@@ -99,30 +99,15 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         voice_id = registry.prepare()
         print(f"Preloaded {voice_id}", file=sys.stderr)
     import uvicorn
-    from uvicorn.config import LOGGING_CONFIG
 
-    log_config = {
-        **LOGGING_CONFIG,
-        "formatters": {
-            **LOGGING_CONFIG["formatters"],
-            "default": {
-                **LOGGING_CONFIG["formatters"]["default"],
-                "fmt": "%(asctime)s %(levelprefix)s %(message)s",
-                "datefmt": "%Y-%m-%d %H:%M:%S",
-            },
-            "access": {
-                **LOGGING_CONFIG["formatters"]["access"],
-                "fmt": '%(asctime)s %(levelprefix)s %(client_addr)s - "%(request_line)s" %(status_code)s',
-                "datefmt": "%Y-%m-%d %H:%M:%S",
-            },
-        },
-    }
+    from app.logging_setup import serve_log_config
+
     uvicorn.run(
         "app.server:app",
         host=args.host,
         port=args.port,
         reload=False,
-        log_config=log_config,
+        log_config=serve_log_config(),
     )
     return 0
 

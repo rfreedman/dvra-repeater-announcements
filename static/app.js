@@ -27,7 +27,7 @@ const weeklyDaysEl = document.getElementById("weekly-days");
 const hourlyMinutesEl = document.getElementById("hourly-minutes");
 const exclusionListEl = document.getElementById("exclusion-rows");
 const kindEl = document.getElementById("kind");
-const PREFS_KEY = "booth-prefs";
+const PREFS_KEY = "announcements-prefs";
 const DAYS = [
   ["mon", "Mon"],
   ["tue", "Tue"],
