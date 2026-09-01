@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.base import BaseTrigger
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 
@@ -19,6 +20,7 @@ from app.playback import play_chunks
 from app.radio import get_radio
 from app.registry import get_registry
 from app.models import parse_hhmm
+from app.schedule_logic import next_run_at
 from app.store import get_store
 
 log = logging.getLogger("app.scheduler")
@@ -46,6 +48,25 @@ class PromptBackgroundScheduler(BackgroundScheduler):
         if wait is None:
             return self.max_wait_seconds
         return min(float(wait), self.max_wait_seconds)
+
+
+class MonthlyWeekdayTrigger(BaseTrigger):
+    """Fire on the nth (or last) weekday of selected months."""
+
+    def __init__(self, schedule, stamp: str):
+        self._schedule = schedule.model_copy(update={"times": [stamp]})
+
+    def get_next_fire_time(self, previous_fire_time, now):
+        after = previous_fire_time if previous_fire_time is not None else now
+        return next_run_at(self._schedule, after)
+
+
+def _included_months(skip_months: list[int]) -> str | None:
+    skip = set(skip_months or [])
+    months = [str(month) for month in range(1, 13) if month not in skip]
+    if not months or len(months) == 12:
+        return None
+    return ",".join(months)
 
 
 def _inhibit_idle_sleep() -> None:
@@ -251,6 +272,34 @@ def _add_schedule_jobs(scheduler: BackgroundScheduler, announcement_id: str, sch
                 misfire_grace_time=30,
             )
         return
+    if schedule.kind == "monthly":
+        if not schedule.times or len(set(schedule.skip_months or [])) >= 12:
+            return
+        month = _included_months(schedule.skip_months)
+        for stamp in schedule.times:
+            hour, minute = parse_hhmm(stamp)
+            job_id = f"{_job_id(schedule.id)}:{stamp.replace(':', '')}"
+            if schedule.monthdays:
+                trigger_kwargs = {
+                    "day": ",".join(str(day) for day in schedule.monthdays),
+                    "hour": hour,
+                    "minute": minute,
+                    "timezone": tz,
+                }
+                if month:
+                    trigger_kwargs["month"] = month
+                trigger = CronTrigger(**trigger_kwargs)
+            else:
+                trigger = MonthlyWeekdayTrigger(schedule, stamp)
+            scheduler.add_job(
+                run_scheduled_fire,
+                trigger,
+                id=job_id,
+                replace_existing=True,
+                kwargs=job_kwargs,
+                misfire_grace_time=30,
+            )
+        return
     if schedule.at is not None:
         when = schedule.at if schedule.at.tzinfo else schedule.at.replace(tzinfo=tz)
         if when > datetime.now(tz):
@@ -273,7 +322,7 @@ def sync_jobs() -> None:
         for schedule in announcement.schedules:
             if not schedule.enabled:
                 continue
-            if schedule.kind in {"daily", "weekly"}:
+            if schedule.kind in {"daily", "weekly", "monthly"}:
                 for stamp in schedule.times:
                     wanted.add(f"{_job_id(schedule.id)}:{stamp.replace(':', '')}")
             else:

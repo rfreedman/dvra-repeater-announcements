@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+import calendar
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from app.models import DAY_LABELS, DAY_NAMES, Announcement, Schedule, parse_hhmm
+from app.models import DAY_LABELS, DAY_NAMES, MONTH_LABELS, Announcement, Schedule, parse_hhmm
 
 
 def zone_for(schedule: Schedule) -> ZoneInfo:
@@ -105,6 +106,58 @@ def _next_weekly(schedule: Schedule, after: datetime) -> datetime | None:
     return None
 
 
+def nth_weekday_date(year: int, month: int, weekday: int, occurrence: int) -> date | None:
+    days = [
+        item
+        for item in calendar.Calendar(firstweekday=0).itermonthdates(year, month)
+        if item.month == month and item.weekday() == weekday
+    ]
+    if not days:
+        return None
+    if occurrence == -1:
+        return days[-1]
+    index = occurrence - 1
+    if index < 0 or index >= len(days):
+        return None
+    return days[index]
+
+
+def _shift_month(year: int, month: int, delta: int = 1) -> tuple[int, int]:
+    month += delta
+    year += (month - 1) // 12
+    month = (month - 1) % 12 + 1
+    return year, month
+
+
+def monthly_dates_in_month(schedule: Schedule, year: int, month: int) -> list[date]:
+    if month in set(schedule.skip_months):
+        return []
+    if schedule.monthdays:
+        last = calendar.monthrange(year, month)[1]
+        return [date(year, month, day) for day in schedule.monthdays if 1 <= day <= last]
+    if not schedule.days or schedule.occurrence is None:
+        return []
+    found = nth_weekday_date(year, month, DAY_NAMES.index(schedule.days[0]), schedule.occurrence)
+    return [found] if found else []
+
+
+def _next_monthly(schedule: Schedule, after: datetime) -> datetime | None:
+    local = aware(after, schedule)
+    slots = [parse_hhmm(item) for item in schedule.times]
+    zone = zone_for(schedule)
+    year, month = local.year, local.month
+    cursor = local
+    for _ in range(16):
+        for day in monthly_dates_in_month(schedule, year, month):
+            for hour, minute in slots:
+                candidate = datetime(day.year, day.month, day.day, hour, minute, tzinfo=zone)
+                if candidate > cursor and not is_excluded(schedule, candidate):
+                    return candidate
+        year, month = _shift_month(year, month)
+        cursor = datetime(year, month, 1, tzinfo=zone) - timedelta(microseconds=1)
+    return None
+
+
 def next_run_at(schedule: Schedule, after: datetime) -> datetime | None:
     if not schedule.enabled:
         return None
@@ -114,6 +167,8 @@ def next_run_at(schedule: Schedule, after: datetime) -> datetime | None:
         return _next_daily(schedule, after)
     if schedule.kind == "weekly":
         return _next_weekly(schedule, after)
+    if schedule.kind == "monthly":
+        return _next_monthly(schedule, after)
     if schedule.at is None:
         return None
     when = aware(schedule.at, schedule)
@@ -128,6 +183,18 @@ def _join_en(parts: list[str]) -> str:
     if len(parts) == 2:
         return f"{parts[0]} and {parts[1]}"
     return f"{', '.join(parts[:-1])}, and {parts[-1]}"
+
+
+def _ordinal(n: int) -> str:
+    if 10 <= n % 100 <= 20:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
+def _month_phrase(months: list[int]) -> str:
+    return _join_en([MONTH_LABELS[month] for month in months])
 
 
 def _day_phrase(days: list[str], plural: bool) -> str:
@@ -153,7 +220,7 @@ def exclusion_lines(schedule: Schedule) -> list[str]:
 
 
 def summarize(schedule: Schedule) -> str:
-    extra = summarize_exclusions(schedule)
+    extra_lines = exclusion_lines(schedule)
     if schedule.kind == "hourly":
         stamps = [f":{minute:02d}" for minute in _hourly_minutes(schedule)]
         base = f"Every hour at {_join_en(stamps)}"
@@ -163,12 +230,24 @@ def summarize(schedule: Schedule) -> str:
     elif schedule.kind == "weekly":
         times = _join_en(list(schedule.times))
         base = f"{times} on {_day_phrase(schedule.days, plural=True)}"
+    elif schedule.kind == "monthly":
+        times = _join_en(list(schedule.times))
+        if schedule.monthdays:
+            ords = _join_en([_ordinal(day) for day in schedule.monthdays])
+            base = f"{times} on the {ords} of every month"
+        else:
+            occ = "last" if schedule.occurrence == -1 else _ordinal(schedule.occurrence or 1)
+            weekday = DAY_LABELS[schedule.days[0]] if schedule.days else "day"
+            base = f"{times} on the {occ} {weekday} of every month"
+        if schedule.skip_months:
+            extra_lines.append(f"except {_month_phrase(schedule.skip_months)}")
     else:
         when = aware(schedule.at, schedule) if schedule.at else None
         if when is None:
             return "Once"
         base = f"Once on {when.strftime('%b')} {when.day}, {when.year} at {when.strftime('%H:%M')}"
-        extra = ""
+        extra_lines = []
+    extra = "\n".join(extra_lines)
     if extra:
         return f"{base}\n{extra}"
     return base
@@ -219,7 +298,9 @@ def find_conflicts(
         return []
     zone = zone_for(candidate)
     start = now or datetime.now(zone)
-    until = start + timedelta(days=8)
+    kinds = {candidate.kind, *(other.kind for _, other in others)}
+    horizon = 70 if "monthly" in kinds else 8
+    until = start + timedelta(days=horizon)
     mine = {
         item.astimezone(zone).replace(second=0, microsecond=0)
         for item in iter_fire_times(candidate, start - timedelta(microseconds=1), until)

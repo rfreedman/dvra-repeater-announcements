@@ -74,12 +74,15 @@ class ExclusionIn(BaseModel):
 class ScheduleIn(BaseModel):
     id: str | None = None
     enabled: bool = True
-    kind: Literal["hourly", "daily", "weekly", "once"]
+    kind: Literal["hourly", "daily", "weekly", "monthly", "once"]
     timezone: str = TIMEZONE
     minute: int | None = None
     minutes: list[int] = Field(default_factory=list)
     times: list[str] = Field(default_factory=list)
     days: list[str] = Field(default_factory=list)
+    monthdays: list[int] = Field(default_factory=list)
+    occurrence: int | None = None
+    skip_months: list[int] = Field(default_factory=list)
     at: datetime | None = None
     exclusions: list[ExclusionIn] = Field(default_factory=list)
 

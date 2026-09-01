@@ -25,6 +25,20 @@ DAY_LABELS = {
     "sat": "Saturday",
     "sun": "Sunday",
 }
+MONTH_LABELS = {
+    1: "January",
+    2: "February",
+    3: "March",
+    4: "April",
+    5: "May",
+    6: "June",
+    7: "July",
+    8: "August",
+    9: "September",
+    10: "October",
+    11: "November",
+    12: "December",
+}
 
 
 def normalize_days(value: list[str]) -> list[str]:
@@ -53,6 +67,30 @@ def _normalize_times(values: list[str]) -> list[str]:
             normalized.append(stamp)
     normalized.sort(key=lambda stamp: parse_hhmm(stamp))
     return normalized
+
+
+def _normalize_monthdays(values: list[int]) -> list[int]:
+    out: list[int] = []
+    for item in values:
+        if item < 1 or item > 31:
+            raise ValueError("day of month must be 1–31")
+        if item not in out:
+            out.append(item)
+    if not out:
+        raise ValueError("monthly schedule needs at least one day of the month")
+    out.sort()
+    return out
+
+
+def _normalize_skip_months(values: list[int]) -> list[int]:
+    out: list[int] = []
+    for item in values:
+        if item < 1 or item > 12:
+            raise ValueError("month must be 1–12")
+        if item not in out:
+            out.append(item)
+    out.sort()
+    return out
 
 
 def parse_hhmm(value: str) -> tuple[int, int]:
@@ -122,12 +160,15 @@ class Exclusion(BaseModel):
 class Schedule(BaseModel):
     id: str = Field(default_factory=new_id)
     enabled: bool = True
-    kind: Literal["hourly", "daily", "weekly", "once"]
+    kind: Literal["hourly", "daily", "weekly", "monthly", "once"]
     timezone: str = TIMEZONE
     minute: int | None = None
     minutes: list[int] = Field(default_factory=list)
     times: list[str] = Field(default_factory=list)
     days: list[str] = Field(default_factory=list)
+    monthdays: list[int] = Field(default_factory=list)
+    occurrence: int | None = None
+    skip_months: list[int] = Field(default_factory=list)
     at: datetime | None = None
     exclusions: list[Exclusion] = Field(default_factory=list)
     last_run_at: datetime | None = None
@@ -151,19 +192,51 @@ class Schedule(BaseModel):
             self.minute = None
             self.times = []
             self.days = []
+            self.monthdays = []
+            self.occurrence = None
+            self.skip_months = []
             self.at = None
         elif self.kind == "daily":
             self.times = _normalize_times(self.times)
             self.minute = None
             self.minutes = []
             self.days = []
+            self.monthdays = []
+            self.occurrence = None
+            self.skip_months = []
             self.at = None
         elif self.kind == "weekly":
             self.times = _normalize_times(self.times)
             self.days = normalize_days(self.days)
             self.minute = None
             self.minutes = []
+            self.monthdays = []
+            self.occurrence = None
+            self.skip_months = []
             self.at = None
+        elif self.kind == "monthly":
+            self.times = _normalize_times(self.times)
+            self.skip_months = _normalize_skip_months(self.skip_months)
+            self.minute = None
+            self.minutes = []
+            self.at = None
+            by_date = bool(self.monthdays)
+            by_weekday = bool(self.days) or self.occurrence is not None
+            if by_date and by_weekday:
+                raise ValueError("monthly schedule is either day-of-month or weekday, not both")
+            if by_date:
+                self.monthdays = _normalize_monthdays(self.monthdays)
+                self.days = []
+                self.occurrence = None
+            elif self.days and self.occurrence is not None:
+                if self.occurrence not in {1, 2, 3, 4, -1}:
+                    raise ValueError("occurrence must be 1–4 or last")
+                self.days = normalize_days(self.days)
+                if len(self.days) != 1:
+                    raise ValueError("monthly weekday schedule needs exactly one weekday")
+                self.monthdays = []
+            else:
+                raise ValueError("monthly schedule needs month days or a weekday occurrence")
         else:
             if self.at is None:
                 raise ValueError("once schedule needs a date and time")
@@ -176,6 +249,9 @@ class Schedule(BaseModel):
             self.minutes = []
             self.times = []
             self.days = []
+            self.monthdays = []
+            self.occurrence = None
+            self.skip_months = []
             self.exclusions = []
         if self.last_run_at is not None and self.last_run_at.tzinfo is None:
             self.last_run_at = self.last_run_at.replace(tzinfo=ZoneInfo(self.timezone))

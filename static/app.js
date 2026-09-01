@@ -27,6 +27,11 @@ const weeklyDaysEl = document.getElementById("weekly-days");
 const hourlyMinutesEl = document.getElementById("hourly-minutes");
 const exclusionListEl = document.getElementById("exclusion-rows");
 const kindEl = document.getElementById("kind");
+const monthlyDaysEl = document.getElementById("monthly-days");
+const monthlyTimesEl = document.getElementById("monthly-times");
+const monthlyWeekdayEl = document.getElementById("monthly-weekday");
+const monthlySkipEl = document.getElementById("monthly-skip");
+const monthlyOccurrenceEl = document.getElementById("monthly-occurrence");
 const PREFS_KEY = "announcements-prefs";
 const DAYS = [
   ["mon", "Mon"],
@@ -36,6 +41,20 @@ const DAYS = [
   ["fri", "Fri"],
   ["sat", "Sat"],
   ["sun", "Sun"],
+];
+const MONTHS = [
+  [1, "Jan"],
+  [2, "Feb"],
+  [3, "Mar"],
+  [4, "Apr"],
+  [5, "May"],
+  [6, "Jun"],
+  [7, "Jul"],
+  [8, "Aug"],
+  [9, "Sep"],
+  [10, "Oct"],
+  [11, "Nov"],
+  [12, "Dec"],
 ];
 
 let catalog = null;
@@ -120,6 +139,11 @@ document.getElementById("once-time").addEventListener("blur", () => {
 document.getElementById("add-time").addEventListener("click", () => addListedTime(dailyTimesEl, "12:00"));
 document.getElementById("add-weekly-time").addEventListener("click", () => addListedTime(weeklyTimesEl, "12:00"));
 document.getElementById("add-hourly-minute").addEventListener("click", () => addHourlyMinute(0));
+document.getElementById("add-monthly-day").addEventListener("click", () => addMonthlyDay(1));
+document.getElementById("add-monthly-time").addEventListener("click", () => addListedTime(monthlyTimesEl, "12:00"));
+for (const radio of document.querySelectorAll('input[name="monthly-mode"]')) {
+  radio.addEventListener("change", syncMonthlyMode);
+}
 document.getElementById("add-exclusion").addEventListener("click", () => addExclusionRow());
 
 function updateCount() {
@@ -151,8 +175,20 @@ function syncKindFields() {
   document.getElementById("fields-hourly").classList.toggle("hidden", kind !== "hourly");
   document.getElementById("fields-daily").classList.toggle("hidden", kind !== "daily");
   document.getElementById("fields-weekly").classList.toggle("hidden", kind !== "weekly");
+  document.getElementById("fields-monthly").classList.toggle("hidden", kind !== "monthly");
   document.getElementById("fields-once").classList.toggle("hidden", kind !== "once");
   document.getElementById("fields-exclusions").classList.toggle("hidden", kind === "once");
+  if (kind === "monthly") syncMonthlyMode();
+}
+
+function monthlyMode() {
+  return document.querySelector('input[name="monthly-mode"]:checked')?.value || "date";
+}
+
+function syncMonthlyMode() {
+  const byDate = monthlyMode() === "date";
+  document.getElementById("monthly-date-fields").classList.toggle("hidden", !byDate);
+  document.getElementById("monthly-weekday-fields").classList.toggle("hidden", byDate);
 }
 
 function normalizeHhMm(raw) {
@@ -201,6 +237,57 @@ function addHourlyMinute(value) {
   });
   row.append(input, remove);
   hourlyMinutesEl.append(row);
+}
+
+function addMonthlyDay(value) {
+  const row = document.createElement("div");
+  row.className = "time-row";
+  const input = document.createElement("input");
+  input.type = "number";
+  input.min = "1";
+  input.max = "31";
+  input.step = "1";
+  input.value = String(value ?? 1);
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "ghost";
+  remove.textContent = "Remove";
+  remove.addEventListener("click", () => {
+    if (monthlyDaysEl.children.length > 1) row.remove();
+  });
+  row.append(input, remove);
+  monthlyDaysEl.append(row);
+}
+
+function fillSingleWeekday(container, selected) {
+  container.replaceChildren();
+  const chosen = selected || "tue";
+  for (const [id, label] of DAYS) {
+    const chip = document.createElement("label");
+    chip.className = "day-chip";
+    const box = document.createElement("input");
+    box.type = "radio";
+    box.name = "monthly-weekday";
+    box.value = id;
+    box.checked = id === chosen;
+    chip.append(box, document.createTextNode(label));
+    container.append(chip);
+  }
+}
+
+function fillMonthSkip(container, selected) {
+  container.replaceChildren();
+  const chosen = (selected || []).map(Number);
+  for (const [id, label] of MONTHS) {
+    const chip = document.createElement("label");
+    chip.className = "day-chip";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.value = String(id);
+    box.checked = chosen.includes(id);
+    chip.append(box, document.createTextNode(label));
+    container.append(chip);
+  }
 }
 
 function addListedTime(container, value) {
@@ -316,6 +403,17 @@ function readSchedulePayload() {
   } else if (kind === "weekly") {
     payload.days = readWeeklyDays();
     payload.times = readTimes(weeklyTimesEl);
+  } else if (kind === "monthly") {
+    payload.times = readTimes(monthlyTimesEl);
+    payload.skip_months = [...monthlySkipEl.querySelectorAll("input:checked")].map((el) => Number(el.value));
+    if (monthlyMode() === "date") {
+      payload.monthdays = [...monthlyDaysEl.querySelectorAll('input[type="number"]')]
+        .map((el) => Number(el.value))
+        .filter((value) => Number.isFinite(value));
+    } else {
+      payload.days = [...monthlyWeekdayEl.querySelectorAll("input:checked")].map((el) => el.value);
+      payload.occurrence = Number(monthlyOccurrenceEl.value);
+    }
   } else {
     const date = document.getElementById("once-date").value;
     const time = normalizeHhMm(document.getElementById("once-time").value);
@@ -328,9 +426,11 @@ function fillScheduleForm(schedule) {
   dailyTimesEl.replaceChildren();
   weeklyTimesEl.replaceChildren();
   hourlyMinutesEl.replaceChildren();
+  monthlyDaysEl.replaceChildren();
+  monthlyTimesEl.replaceChildren();
   exclusionListEl.replaceChildren();
   const kind = schedule?.kind === "interval" ? "hourly" : schedule?.kind || "hourly";
-  kindEl.value = ["hourly", "daily", "weekly", "once"].includes(kind) ? kind : "hourly";
+  kindEl.value = ["hourly", "daily", "weekly", "monthly", "once"].includes(kind) ? kind : "hourly";
   const minutes = schedule?.minutes?.length
     ? schedule.minutes
     : [schedule?.minute ?? 0];
@@ -347,6 +447,19 @@ function fillScheduleForm(schedule) {
   } else {
     addListedTime(weeklyTimesEl, "19:00");
   }
+  const byWeekday = kind === "monthly" && schedule?.days?.length && schedule?.occurrence != null;
+  document.querySelector('input[name="monthly-mode"][value="date"]').checked = !byWeekday;
+  document.querySelector('input[name="monthly-mode"][value="weekday"]').checked = byWeekday;
+  const monthdays = kind === "monthly" && schedule?.monthdays?.length ? schedule.monthdays : [1];
+  monthdays.forEach((day) => addMonthlyDay(day));
+  fillSingleWeekday(monthlyWeekdayEl, byWeekday ? schedule.days[0] : "tue");
+  monthlyOccurrenceEl.value = String(byWeekday ? schedule.occurrence : 3);
+  if (kind === "monthly" && schedule?.times?.length) {
+    schedule.times.forEach((time) => addListedTime(monthlyTimesEl, time));
+  } else {
+    addListedTime(monthlyTimesEl, "12:00");
+  }
+  fillMonthSkip(monthlySkipEl, kind === "monthly" ? schedule?.skip_months : []);
   if (kind === "once" && schedule?.at) {
     const dt = new Date(schedule.at);
     const y = dt.getFullYear();
@@ -790,10 +903,18 @@ async function saveCurrent() {
     return;
   }
   if (
-    (body.schedule?.kind === "daily" || body.schedule?.kind === "weekly") &&
+    (body.schedule?.kind === "daily" || body.schedule?.kind === "weekly" || body.schedule?.kind === "monthly") &&
     !body.schedule.times?.length
   ) {
     showFormError("Add at least one time.");
+    return;
+  }
+  if (body.schedule?.kind === "monthly" && monthlyMode() === "date" && !body.schedule.monthdays?.length) {
+    showFormError("Add at least one day of the month.");
+    return;
+  }
+  if (body.schedule?.kind === "monthly" && monthlyMode() === "weekday" && !body.schedule.days?.length) {
+    showFormError("Select a weekday.");
     return;
   }
   persist();

@@ -157,6 +157,7 @@
             <option value="hourly">Every hour</option>
             <option value="daily">Daily</option>
             <option value="weekly">Selected days</option>
+            <option value="monthly">Monthly</option>
             <option value="once">Once</option>
           </select>
 
@@ -178,6 +179,43 @@
             <label class="label">Times</label>
             <div id="weekly-times"></div>
             <button type="button" class="ghost small" id="add-weekly-time">Add time</button>
+          </div>
+
+          <div id="fields-monthly" class="kind-fields hidden">
+            <label class="label">When</label>
+            <div class="day-chips monthly-mode">
+              <label class="day-chip">
+                <input type="radio" name="monthly-mode" value="date" checked />
+                Day of month
+              </label>
+              <label class="day-chip">
+                <input type="radio" name="monthly-mode" value="weekday" />
+                Weekday in month
+              </label>
+            </div>
+            <div id="monthly-date-fields">
+              <label class="label">Days of the month</label>
+              <div id="monthly-days"></div>
+              <button type="button" class="ghost small" id="add-monthly-day">Add day</button>
+            </div>
+            <div id="monthly-weekday-fields" class="hidden">
+              <label class="label" for="monthly-occurrence">Occurrence</label>
+              <select id="monthly-occurrence">
+                <option value="1">1st</option>
+                <option value="2">2nd</option>
+                <option value="3">3rd</option>
+                <option value="4">4th</option>
+                <option value="-1">Last</option>
+              </select>
+              <label class="label">Weekday</label>
+              <div id="monthly-weekday" class="day-chips"></div>
+            </div>
+            <label class="label">Times</label>
+            <div id="monthly-times"></div>
+            <button type="button" class="ghost small" id="add-monthly-time">Add time</button>
+            <label class="label">Skip months</label>
+            <p class="lede tight">Checked months are skipped.</p>
+            <div id="monthly-skip" class="day-chips"></div>
           </div>
 
           <div id="fields-once" class="kind-fields hidden">

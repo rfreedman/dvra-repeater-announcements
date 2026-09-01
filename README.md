@@ -31,7 +31,7 @@ python -m app download amy ryan
 python -m app serve
 ```
 
-Open [http://127.0.0.1:8000](http://127.0.0.1:8000). The home screen lists saved schedules. **New schedule** opens the editor (voice, text, Speak preview, and hourly / daily / selected-days / once timing). Hourly schedules can list several minutes past the hour (for example :00 and :30). Selected-days schedules fire at chosen clock times on only the weekdays you check (for example Mondays and Wednesdays at 19:00), without using exclusions to carve those days out of a daily schedule. Select a row to edit. **Duplicate** opens a new unsaved copy of that schedule with a blank name. Delete asks for confirmation.
+Open [http://127.0.0.1:8000](http://127.0.0.1:8000). The home screen lists saved schedules. **New schedule** opens the editor (voice, text, Speak preview, and hourly / daily / selected-days / monthly / once timing). Hourly schedules can list several minutes past the hour (for example :00 and :30). Selected-days schedules fire at chosen clock times on only the weekdays you check (for example Mondays and Wednesdays at 19:00), without using exclusions to carve those days out of a daily schedule. Monthly schedules fire on calendar days (the 1st, the 15th) or on a weekday occurrence (the 3rd Tuesday), at one or more times, and can skip months. Select a row to edit. **Duplicate** opens a new unsaved copy of that schedule with a blank name. Delete asks for confirmation.
 
 Scheduled playback happens on the **server speakers** (with stub PTT key-up and a lead-in delay), even if the browser is closed. The Speak button is preview only and does not key the radio.
 

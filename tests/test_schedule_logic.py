@@ -184,3 +184,166 @@ def test_past_once_has_warning():
     assert trigger_warning(item, schedule, now=datetime(2026, 8, 27, 12, 0, tzinfo=TZ)) == (
         "Won't play — the date and time have already passed."
     )
+
+
+def monthly(**kwargs) -> Schedule:
+    data = {
+        "kind": "monthly",
+        "times": ["12:00"],
+        "monthdays": [1],
+        "timezone": "America/New_York",
+    }
+    data.update(kwargs)
+    return Schedule.model_validate(data)
+
+
+def test_monthly_first_at_noon():
+    schedule = monthly()
+    assert summarize(schedule) == "12:00 on the 1st of every month"
+    after = datetime(2026, 8, 27, 12, 0, tzinfo=TZ)
+    assert next_run_at(schedule, after) == datetime(2026, 9, 1, 12, 0, tzinfo=TZ)
+
+
+def test_monthly_fifteenth_at_1900():
+    schedule = monthly(monthdays=[15], times=["19:00"])
+    assert summarize(schedule) == "19:00 on the 15th of every month"
+    after = datetime(2026, 8, 27, 12, 0, tzinfo=TZ)
+    assert next_run_at(schedule, after) == datetime(2026, 9, 15, 19, 0, tzinfo=TZ)
+
+
+def test_monthly_third_tuesday():
+    schedule = monthly(monthdays=[], days=["tue"], occurrence=3, times=["19:00"])
+    assert summarize(schedule) == "19:00 on the 3rd Tuesday of every month"
+    after = datetime(2026, 8, 27, 12, 0, tzinfo=TZ)
+    assert next_run_at(schedule, after) == datetime(2026, 9, 15, 19, 0, tzinfo=TZ)
+
+
+def test_monthly_last_tuesday():
+    schedule = monthly(monthdays=[], days=["tue"], occurrence=-1, times=["19:00"])
+    assert summarize(schedule) == "19:00 on the last Tuesday of every month"
+    after = datetime(2026, 8, 27, 12, 0, tzinfo=TZ)
+    assert next_run_at(schedule, after) == datetime(2026, 9, 29, 19, 0, tzinfo=TZ)
+
+
+def test_monthly_skips_february():
+    schedule = monthly(skip_months=[2])
+    assert summarize(schedule) == "12:00 on the 1st of every month\nexcept February"
+    after = datetime(2026, 1, 15, 12, 0, tzinfo=TZ)
+    assert next_run_at(schedule, after) == datetime(2026, 3, 1, 12, 0, tzinfo=TZ)
+
+
+def test_monthly_thirty_first_skips_april():
+    schedule = monthly(monthdays=[31], times=["12:00"])
+    after = datetime(2026, 3, 31, 12, 1, tzinfo=TZ)
+    assert next_run_at(schedule, after) == datetime(2026, 5, 31, 12, 0, tzinfo=TZ)
+
+
+def test_monthly_conflicts_on_shared_slot():
+    from app.schedule_logic import find_conflicts
+
+    one = monthly()
+    other = monthly()
+    hits = find_conflicts(one, [("Other", other)], now=datetime(2026, 8, 27, 12, 0, tzinfo=TZ))
+    assert hits
+
+
+def test_monthly_weekday_trigger_uses_next_run():
+    from app.scheduler import MonthlyWeekdayTrigger
+
+    schedule = monthly(monthdays=[], days=["tue"], occurrence=3, times=["19:00"])
+    nxt = MonthlyWeekdayTrigger(schedule, "19:00").get_next_fire_time(
+        None, datetime(2026, 8, 27, 12, 0, tzinfo=TZ)
+    )
+    assert nxt == datetime(2026, 9, 15, 19, 0, tzinfo=TZ)
+    import pytest
+
+    with pytest.raises(Exception):
+        Schedule.model_validate(
+            {
+                "kind": "monthly",
+                "times": ["12:00"],
+                "monthdays": [1],
+                "days": ["tue"],
+                "occurrence": 3,
+                "timezone": "America/New_York",
+            }
+        )
+
+
+def monthly(**kwargs) -> Schedule:
+    data = {
+        "kind": "monthly",
+        "times": ["12:00"],
+        "monthdays": [1],
+        "timezone": "America/New_York",
+    }
+    data.update(kwargs)
+    return Schedule.model_validate(data)
+
+
+def test_monthly_first_at_noon():
+    schedule = monthly()
+    assert summarize(schedule) == "12:00 on the 1st of every month"
+    after = datetime(2026, 8, 27, 12, 0, tzinfo=TZ)
+    assert next_run_at(schedule, after) == datetime(2026, 9, 1, 12, 0, tzinfo=TZ)
+
+
+def test_monthly_fifteenth_at_1900():
+    schedule = monthly(monthdays=[15], times=["19:00"])
+    assert summarize(schedule) == "19:00 on the 15th of every month"
+    after = datetime(2026, 8, 27, 12, 0, tzinfo=TZ)
+    assert next_run_at(schedule, after) == datetime(2026, 9, 15, 19, 0, tzinfo=TZ)
+
+
+def test_monthly_third_tuesday():
+    schedule = monthly(monthdays=[], days=["tue"], occurrence=3, times=["19:00"])
+    assert summarize(schedule) == "19:00 on the 3rd Tuesday of every month"
+    after = datetime(2026, 8, 27, 12, 0, tzinfo=TZ)
+    assert next_run_at(schedule, after) == datetime(2026, 9, 15, 19, 0, tzinfo=TZ)
+
+
+def test_monthly_last_tuesday():
+    schedule = monthly(monthdays=[], days=["tue"], occurrence=-1, times=["19:00"])
+    assert summarize(schedule) == "19:00 on the last Tuesday of every month"
+    after = datetime(2026, 8, 27, 12, 0, tzinfo=TZ)
+    assert next_run_at(schedule, after) == datetime(2026, 9, 29, 19, 0, tzinfo=TZ)
+
+
+def test_monthly_skip_february():
+    schedule = monthly(skip_months=[2])
+    assert summarize(schedule) == "12:00 on the 1st of every month\nexcept February"
+    after = datetime(2026, 1, 15, 12, 0, tzinfo=TZ)
+    assert next_run_at(schedule, after) == datetime(2026, 3, 1, 12, 0, tzinfo=TZ)
+
+
+def test_monthly_31st_skips_april():
+    schedule = monthly(monthdays=[31], times=["12:00"])
+    after = datetime(2026, 4, 1, 0, 0, tzinfo=TZ)
+    assert next_run_at(schedule, after) == datetime(2026, 5, 31, 12, 0, tzinfo=TZ)
+
+
+def test_monthly_cannot_mix_date_and_weekday():
+    import pytest
+
+    with pytest.raises(Exception):
+        monthly(monthdays=[1], days=["tue"], occurrence=3)
+
+
+def test_monthly_conflicts_with_same_slot():
+    from app.schedule_logic import find_conflicts
+
+    one = monthly()
+    other = monthly(times=["12:00"], monthdays=[1])
+    hits = find_conflicts(one, [("Club", other)], now=datetime(2026, 8, 27, 12, 0, tzinfo=TZ))
+    assert hits
+    different = monthly(monthdays=[15])
+    assert find_conflicts(one, [("Other", different)], now=datetime(2026, 8, 27, 12, 0, tzinfo=TZ)) == []
+
+
+def test_monthly_weekday_trigger_uses_next_run():
+    from app.scheduler import MonthlyWeekdayTrigger
+
+    schedule = monthly(monthdays=[], days=["tue"], occurrence=3, times=["19:00"])
+    trigger = MonthlyWeekdayTrigger(schedule, "19:00")
+    now = datetime(2026, 8, 27, 12, 0, tzinfo=TZ)
+    assert trigger.get_next_fire_time(None, now) == datetime(2026, 9, 15, 19, 0, tzinfo=TZ)
