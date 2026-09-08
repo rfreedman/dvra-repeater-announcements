@@ -1,9 +1,6 @@
 This is w2-zee-queue [pause:0.5]
 
-The Delaware Valley Radio Association invites you to join us on this repeater 
-for our upcoming on-air net. Please stand-by as we prepare to take check-ins shortly. 
-
-For a full schedule of our nets and club-meetings, visit w2-zee-q.com., 
+Your announcement goes here.
 
 [pause:0.5]
 w2-zee-q

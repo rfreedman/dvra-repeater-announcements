@@ -4,155 +4,186 @@ import json
 import threading
 from pathlib import Path
 
-from pydantic import TypeAdapter
-
 from app.config import ANNOUNCEMENTS_PATH
-from app.models import Announcement, Schedule, new_id
+from app.models import (
+    Announcement,
+    Rotation,
+    Schedule,
+    Settings,
+    StoreDocument,
+)
+from app.schedule_logic import effective_baseline_order, next_rotation
 
-_ADAPTER = TypeAdapter(list[Announcement])
 _lock = threading.Lock()
 _store: AnnouncementStore | None = None
+
+
+def empty_document() -> StoreDocument:
+    return StoreDocument()
 
 
 class AnnouncementStore:
     def __init__(self, path: Path) -> None:
         self.path = path
 
-    def _read(self) -> list[Announcement]:
+    def _read(self) -> StoreDocument:
         if not self.path.exists():
-            return []
-        raw = json.loads(self.path.read_text(encoding="utf-8") or "[]")
-        if isinstance(raw, dict):
-            raw = raw.get("announcements", [])
-        return _ADAPTER.validate_python(raw)
+            return empty_document()
+        raw = json.loads(self.path.read_text(encoding="utf-8") or "{}")
+        if not isinstance(raw, dict) or raw.get("version") != 2:
+            return empty_document()
+        return StoreDocument.model_validate(raw)
 
-    def _write(self, items: list[Announcement]) -> None:
+    def _write(self, document: StoreDocument) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        payload = json.dumps(
-            {"announcements": [item.model_dump(mode="json") for item in items]},
-            indent=2,
-        )
+        payload = json.dumps(document.model_dump(mode="json"), indent=2)
         tmp = self.path.with_suffix(".tmp")
         tmp.write_text(payload + "\n", encoding="utf-8")
         tmp.replace(self.path)
 
-    def list_announcements(self) -> list[Announcement]:
+    def document(self) -> StoreDocument:
         with _lock:
             return self._read()
 
-    def get(self, announcement_id: str) -> Announcement | None:
-        for item in self.list_announcements():
-            if item.id == announcement_id:
-                return item
-        return None
-
-    def save(self, announcement: Announcement) -> Announcement:
+    def replace(self, document: StoreDocument) -> StoreDocument:
         with _lock:
-            items = self._read()
+            self._write(document)
+            return document
+
+    def list_announcements(self) -> list[Announcement]:
+        return self.document().announcements
+
+    def get(self, announcement_id: str) -> Announcement | None:
+        return self.document().announcement_by_id(announcement_id)
+
+    def save_announcement(self, announcement: Announcement) -> Announcement:
+        with _lock:
+            document = self._read()
+            items = list(document.announcements)
+            replaced = False
             for index, item in enumerate(items):
                 if item.id == announcement.id:
                     items[index] = announcement
-                    self._write(items)
-                    return announcement
-            items.append(announcement)
-            self._write(items)
+                    replaced = True
+                    break
+            if not replaced:
+                items.append(announcement)
+            self._write(document.model_copy(update={"announcements": items}))
             return announcement
-
-    def upsert(self, announcement: Announcement) -> Announcement:
-        return self.save(announcement)
 
     def delete_announcement(self, announcement_id: str) -> bool:
         with _lock:
-            items = self._read()
-            kept = [item for item in items if item.id != announcement_id]
-            if len(kept) == len(items):
+            document = self._read()
+            users = [item.name for item in document.schedules if item.announcement_id == announcement_id]
+            if users:
+                raise ValueError("Announcement is used by: " + ", ".join(users))
+            kept = [item for item in document.announcements if item.id != announcement_id]
+            if len(kept) == len(document.announcements):
                 return False
-            self._write(kept)
+            self._write(document.model_copy(update={"announcements": kept}))
             return True
 
-    def upsert_schedule(self, announcement_id: str, schedule: Schedule) -> Announcement | None:
-        with _lock:
-            items = self._read()
-            for index, item in enumerate(items):
-                if item.id != announcement_id:
-                    continue
-                schedules = list(item.schedules)
-                replaced = False
-                for s_index, existing in enumerate(schedules):
-                    if existing.id == schedule.id:
-                        schedule.last_run_at = existing.last_run_at
-                        schedules[s_index] = schedule
-                        replaced = True
-                        break
-                if not replaced:
-                    if not schedule.id:
-                        schedule.id = new_id()
-                    schedules.append(schedule)
-                updated = item.model_copy(update={"schedules": schedules})
-                items[index] = updated
-                self._write(items)
-                return updated
-            return None
+    def list_schedules(self) -> list[Schedule]:
+        return self.document().schedules
 
-    def add_schedule(self, announcement_id: str, schedule: Schedule) -> Announcement | None:
-        return self.upsert_schedule(announcement_id, schedule)
+    def get_schedule(self, schedule_id: str) -> Schedule | None:
+        return self.document().schedule_by_id(schedule_id)
 
-    def delete_schedule(self, announcement_id: str, schedule_id: str) -> Announcement | None:
+    def save_schedule(self, schedule: Schedule) -> Schedule:
         with _lock:
-            items = self._read()
+            document = self._read()
+            items = list(document.schedules)
+            replaced = False
             for index, item in enumerate(items):
-                if item.id != announcement_id:
-                    continue
-                schedules = [row for row in item.schedules if row.id != schedule_id]
-                if len(schedules) == len(item.schedules):
-                    return None
-                updated = item.model_copy(update={"schedules": schedules})
-                items[index] = updated
-                self._write(items)
-                return updated
-            return None
+                if item.id == schedule.id:
+                    schedule = schedule.model_copy(update={"last_run_at": item.last_run_at})
+                    items[index] = schedule
+                    replaced = True
+                    break
+            if not replaced:
+                items.append(schedule)
+            updated = document.model_copy(update={"schedules": items})
+            updated = _refresh_rotation(updated)
+            self._write(updated)
+            return schedule
 
-    def set_enabled(self, announcement_id: str, schedule_id: str, enabled: bool) -> Announcement | None:
+    def delete_schedule(self, schedule_id: str) -> bool:
         with _lock:
-            items = self._read()
-            for index, item in enumerate(items):
-                if item.id != announcement_id:
-                    continue
-                schedules = []
-                found = False
-                for row in item.schedules:
-                    if row.id == schedule_id:
-                        schedules.append(row.model_copy(update={"enabled": enabled}))
-                        found = True
-                    else:
-                        schedules.append(row)
-                if not found:
-                    return None
-                updated = item.model_copy(update={"schedules": schedules})
-                items[index] = updated
-                self._write(items)
-                return updated
-            return None
+            document = self._read()
+            kept = [item for item in document.schedules if item.id != schedule_id]
+            if len(kept) == len(document.schedules):
+                return False
+            updated = document.model_copy(update={"schedules": kept})
+            updated = _refresh_rotation(updated)
+            self._write(updated)
+            return True
+
+    def set_enabled(self, schedule_id: str, enabled: bool) -> Schedule | None:
+        with _lock:
+            document = self._read()
+            items: list[Schedule] = []
+            found: Schedule | None = None
+            for item in document.schedules:
+                if item.id == schedule_id:
+                    found = item.model_copy(update={"enabled": enabled})
+                    items.append(found)
+                else:
+                    items.append(item)
+            if found is None:
+                return None
+            updated = document.model_copy(update={"schedules": items})
+            updated = _refresh_rotation(updated)
+            self._write(updated)
+            return found
 
     def set_last_run(self, announcement_id: str, schedule_id: str, when) -> None:
         with _lock:
-            items = self._read()
-            for index, item in enumerate(items):
-                if item.id != announcement_id:
-                    continue
-                schedules = []
-                found = False
-                for row in item.schedules:
-                    if row.id == schedule_id:
-                        schedules.append(row.model_copy(update={"last_run_at": when}))
-                        found = True
-                    else:
-                        schedules.append(row)
-                if not found:
-                    return
-                items[index] = item.model_copy(update={"schedules": schedules})
-                self._write(items)
+            document = self._read()
+            items: list[Schedule] = []
+            found = False
+            for item in document.schedules:
+                if item.id == schedule_id:
+                    items.append(item.model_copy(update={"last_run_at": when}))
+                    found = True
+                else:
+                    items.append(item)
+            if not found:
                 return
+            self._write(document.model_copy(update={"schedules": items}))
+
+    def consume_baseline_slot(self, schedule_id: str, slot_key: str) -> None:
+        with _lock:
+            document = self._read()
+            schedule = document.schedule_by_id(schedule_id)
+            if schedule is None or schedule.kind != "baseline":
+                return
+            order, index, consumed = next_rotation(document, slot_key)
+            self._write(
+                document.model_copy(
+                    update={
+                        "rotation": Rotation(order=order, index=index, last_consumed_slot=consumed),
+                    }
+                )
+            )
+
+    def save_settings(self, settings: Settings) -> Settings:
+        with _lock:
+            document = self._read()
+            updated = document.model_copy(update={"settings": settings})
+            updated = _refresh_rotation(updated)
+            self._write(updated)
+            return settings
+
+
+def _refresh_rotation(document: StoreDocument) -> StoreDocument:
+    order = effective_baseline_order(document)
+    index = document.rotation.index
+    if order:
+        index = index % len(order)
+    else:
+        index = 0
+    rotation = document.rotation.model_copy(update={"order": order, "index": index})
+    return document.model_copy(update={"rotation": rotation})
 
 
 def get_store() -> AnnouncementStore:

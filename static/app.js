@@ -1,38 +1,11 @@
-const voiceEl = document.getElementById("voice");
-const speedEl = document.getElementById("speed");
-const pauseEl = document.getElementById("pause");
-const speedValueEl = document.getElementById("speed-value");
-const pauseValueEl = document.getElementById("pause-value");
-const textEl = document.getElementById("text");
-const countEl = document.getElementById("count");
-const statusEl = document.getElementById("status");
-const speakBtn = document.getElementById("speak");
-const stopBtn = document.getElementById("stop");
-const resetBtn = document.getElementById("reset");
-const nameEl = document.getElementById("name");
-const busyRetryEl = document.getElementById("busy-retry");
-const busyGiveupEl = document.getElementById("busy-giveup");
-const saveBtn = document.getElementById("save-schedule");
-const backBtn = document.getElementById("back-grid");
-const newBtn = document.getElementById("new-schedule");
-const schedBody = document.getElementById("schedule-rows");
-const schedEmpty = document.getElementById("schedule-empty");
-const viewGrid = document.getElementById("view-grid");
-const viewEdit = document.getElementById("view-editor");
-const editTitle = document.getElementById("editor-title");
-const formError = document.getElementById("editor-error");
-const dailyTimesEl = document.getElementById("daily-times");
-const weeklyTimesEl = document.getElementById("weekly-times");
-const weeklyDaysEl = document.getElementById("weekly-days");
-const hourlyMinutesEl = document.getElementById("hourly-minutes");
-const exclusionListEl = document.getElementById("exclusion-rows");
-const kindEl = document.getElementById("kind");
-const monthlyDaysEl = document.getElementById("monthly-days");
-const monthlyTimesEl = document.getElementById("monthly-times");
-const monthlyWeekdayEl = document.getElementById("monthly-weekday");
-const monthlySkipEl = document.getElementById("monthly-skip");
-const monthlyOccurrenceEl = document.getElementById("monthly-occurrence");
 const PREFS_KEY = "announcements-prefs";
+const NEW_ANNOUNCEMENT = {
+  voice: "en_US-ryan-medium",
+  speed: 0.8,
+  sentence_pause: 0.25,
+  busy_retry_seconds: 30,
+  busy_give_up_seconds: 300,
+};
 const DAYS = [
   ["mon", "Mon"],
   ["tue", "Tue"],
@@ -56,20 +29,78 @@ const MONTHS = [
   [11, "Nov"],
   [12, "Dec"],
 ];
+const TEMPLATES = {
+  baseline: { name: "Baseline", kind: "baseline", offset_minutes: 0 },
+  weekly: {
+    name: "Weekly Net",
+    kind: "weekly",
+    days: ["sun"],
+    slots: ["21:00"],
+    offset_minutes: -5,
+    priority: 50,
+  },
+  monthly: {
+    name: "Monthly Net",
+    kind: "monthly",
+    days: ["wed"],
+    occurrence: 1,
+    slots: ["19:00"],
+    offset_minutes: -5,
+    skip_months: [],
+    priority: 50,
+  },
+  range: { name: "Event countdown", kind: "range", offset_minutes: 0, priority: 20 },
+  monthly_range: {
+    name: "Monthly countdown",
+    kind: "monthly_range",
+    days: ["wed"],
+    occurrence: 1,
+    event_slot: "19:00",
+    days_before: 7,
+    offset_minutes: 0,
+    priority: 20,
+  },
+  once: { name: "Once", kind: "once", slots: ["12:00"], offset_minutes: 0, priority: 50 },
+  silence: {
+    name: "Silence",
+    kind: "weekly",
+    days: ["sun"],
+    slots: ["21:30"],
+    offset_minutes: 0,
+    announcement_id: null,
+    priority: 50,
+  },
+  emergency: { name: "Emergency", kind: "emergency", offset_minutes: 0, priority: 100 },
+};
+
+const voiceEl = document.getElementById("voice");
+const speedEl = document.getElementById("speed");
+const pauseEl = document.getElementById("pause");
+const textEl = document.getElementById("text");
+const nameEl = document.getElementById("name");
 
 let catalog = null;
 let player = null;
 let abort = null;
 let session = 0;
-let editing = { announcementId: null, scheduleId: null };
 let pollTimer = null;
 let countdownTimer = null;
 let upcoming = null;
 let clockSkewMs = 0;
-let gridBusy = false;
+let homeBusy = false;
 let ledFailed = false;
 let ledBlinkTimer = null;
 let ledBlinkUntil = 0;
+let defaultScript = "";
+let announcements = [];
+let settings = { slot_half_window_minutes: 10, baseline_randomize: false };
+let editingAnnouncementId = null;
+let editingScheduleId = null;
+let editorBaseline = null;
+let editorKey = "";
+let ignoreHashChange = false;
+let boot = Promise.resolve();
+
 const nativeFetch = window.fetch.bind(window);
 
 function paintLed() {
@@ -104,440 +135,28 @@ window.fetch = async function trackedFetch(...args) {
     throw err;
   }
 };
-let defaultScript = "";
-let editorBaseline = null;
-let editorKey = "";
-let ignoreHashChange = false;
-let boot = Promise.resolve();
 
-textEl.addEventListener("input", updateCount);
-speakBtn.addEventListener("click", speak);
-stopBtn.addEventListener("click", stop);
-resetBtn.addEventListener("click", resetPrefs);
-saveBtn.addEventListener("click", saveCurrent);
-backBtn.addEventListener("click", () => {
-  goToHash("#/");
-});
-newBtn.addEventListener("click", () => {
-  goToHash("#/new");
-});
-voiceEl.addEventListener("change", persist);
-speedEl.addEventListener("input", () => {
-  updateDeliveryLabels();
-  persist();
-});
-pauseEl.addEventListener("input", () => {
-  updateDeliveryLabels();
-  persist();
-});
-kindEl.addEventListener("change", syncKindFields);
-document.getElementById("once-time").addEventListener("blur", () => {
-  const el = document.getElementById("once-time");
-  const next = normalizeHhMm(el.value);
-  if (next) el.value = next;
-});
-document.getElementById("add-time").addEventListener("click", () => addListedTime(dailyTimesEl, "12:00"));
-document.getElementById("add-weekly-time").addEventListener("click", () => addListedTime(weeklyTimesEl, "12:00"));
-document.getElementById("add-hourly-minute").addEventListener("click", () => addHourlyMinute(0));
-document.getElementById("add-monthly-day").addEventListener("click", () => addMonthlyDay(1));
-document.getElementById("add-monthly-time").addEventListener("click", () => addListedTime(monthlyTimesEl, "12:00"));
-for (const radio of document.querySelectorAll('input[name="monthly-mode"]')) {
-  radio.addEventListener("change", syncMonthlyMode);
-}
-document.getElementById("add-exclusion").addEventListener("click", () => addExclusionRow());
-
-function updateCount() {
-  countEl.textContent = `${textEl.value.length} / ${textEl.maxLength}`;
-}
-
-function updateDeliveryLabels() {
-  speedValueEl.textContent = `${Number(speedEl.value).toFixed(2)}×`;
-  pauseValueEl.textContent = `${Number(pauseEl.value).toFixed(2)}s`;
-}
-
-function setStatus(text, kind = "") {
-  statusEl.textContent = text;
-  statusEl.className = kind;
-}
-
-function showFormError(text, kind = "error") {
-  formError.hidden = !text;
-  formError.textContent = text || "";
-  formError.className = kind === "warning" ? "status-warning" : "status-error";
-}
-
-function currentKind() {
-  return kindEl.value || "hourly";
-}
-
-function syncKindFields() {
-  const kind = currentKind();
-  document.getElementById("fields-hourly").classList.toggle("hidden", kind !== "hourly");
-  document.getElementById("fields-daily").classList.toggle("hidden", kind !== "daily");
-  document.getElementById("fields-weekly").classList.toggle("hidden", kind !== "weekly");
-  document.getElementById("fields-monthly").classList.toggle("hidden", kind !== "monthly");
-  document.getElementById("fields-once").classList.toggle("hidden", kind !== "once");
-  document.getElementById("fields-exclusions").classList.toggle("hidden", kind === "once");
-  if (kind === "monthly") syncMonthlyMode();
-}
-
-function monthlyMode() {
-  return document.querySelector('input[name="monthly-mode"]:checked')?.value || "date";
-}
-
-function syncMonthlyMode() {
-  const byDate = monthlyMode() === "date";
-  document.getElementById("monthly-date-fields").classList.toggle("hidden", !byDate);
-  document.getElementById("monthly-weekday-fields").classList.toggle("hidden", byDate);
-}
-
-function normalizeHhMm(raw) {
-  const text = String(raw || "").trim();
-  if (!text) return "";
-  const match = text.match(/^(\d{1,2})(?::(\d{1,2}))?$/);
-  if (!match) return text;
-  const hour = Number(match[1]);
-  const minute = Number(match[2] || "0");
-  if (hour > 23 || minute > 59) return text;
-  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-}
-
-function createTimeInput(value, className) {
-  const input = document.createElement("input");
-  input.type = "text";
-  input.inputMode = "numeric";
-  input.placeholder = "HH:MM";
-  input.maxLength = 5;
-  input.lang = "en-GB";
-  input.className = ["time-24", className].filter(Boolean).join(" ");
-  input.setAttribute("aria-label", "Time, 24-hour HH:MM");
-  input.value = value || "";
-  input.addEventListener("blur", () => {
-    const next = normalizeHhMm(input.value);
-    if (next) input.value = next;
-  });
-  return input;
-}
-
-function addHourlyMinute(value) {
-  const row = document.createElement("div");
-  row.className = "time-row";
-  const input = document.createElement("input");
-  input.type = "number";
-  input.min = "0";
-  input.max = "59";
-  input.step = "1";
-  input.value = String(value ?? 0);
-  const remove = document.createElement("button");
-  remove.type = "button";
-  remove.className = "ghost";
-  remove.textContent = "Remove";
-  remove.addEventListener("click", () => {
-    if (hourlyMinutesEl.children.length > 1) row.remove();
-  });
-  row.append(input, remove);
-  hourlyMinutesEl.append(row);
-}
-
-function addMonthlyDay(value) {
-  const row = document.createElement("div");
-  row.className = "time-row";
-  const input = document.createElement("input");
-  input.type = "number";
-  input.min = "1";
-  input.max = "31";
-  input.step = "1";
-  input.value = String(value ?? 1);
-  const remove = document.createElement("button");
-  remove.type = "button";
-  remove.className = "ghost";
-  remove.textContent = "Remove";
-  remove.addEventListener("click", () => {
-    if (monthlyDaysEl.children.length > 1) row.remove();
-  });
-  row.append(input, remove);
-  monthlyDaysEl.append(row);
-}
-
-function fillSingleWeekday(container, selected) {
-  container.replaceChildren();
-  const chosen = selected || "tue";
-  for (const [id, label] of DAYS) {
-    const chip = document.createElement("label");
-    chip.className = "day-chip";
-    const box = document.createElement("input");
-    box.type = "radio";
-    box.name = "monthly-weekday";
-    box.value = id;
-    box.checked = id === chosen;
-    chip.append(box, document.createTextNode(label));
-    container.append(chip);
+function showScreen(id) {
+  for (const el of document.querySelectorAll(".screen")) {
+    el.classList.toggle("active", el.id === id);
   }
 }
 
-function fillMonthSkip(container, selected) {
-  container.replaceChildren();
-  const chosen = (selected || []).map(Number);
-  for (const [id, label] of MONTHS) {
-    const chip = document.createElement("label");
-    chip.className = "day-chip";
-    const box = document.createElement("input");
-    box.type = "checkbox";
-    box.value = String(id);
-    box.checked = chosen.includes(id);
-    chip.append(box, document.createTextNode(label));
-    container.append(chip);
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function slotStamps() {
+  const stamps = [];
+  for (let hour = 0; hour < 24; hour += 1) {
+    stamps.push(`${String(hour).padStart(2, "0")}:00`);
+    stamps.push(`${String(hour).padStart(2, "0")}:30`);
   }
-}
-
-function addListedTime(container, value) {
-  const row = document.createElement("div");
-  row.className = "time-row";
-  const input = createTimeInput(value || "12:00");
-  const remove = document.createElement("button");
-  remove.type = "button";
-  remove.className = "ghost";
-  remove.textContent = "Remove";
-  remove.addEventListener("click", () => {
-    if (container.children.length > 1) row.remove();
-  });
-  row.append(input, remove);
-  container.append(row);
-}
-
-function fillDayChips(container, selected) {
-  container.replaceChildren();
-  const chosen = selected || [];
-  for (const [id, label] of DAYS) {
-    const chip = document.createElement("label");
-    chip.className = "day-chip";
-    const box = document.createElement("input");
-    box.type = "checkbox";
-    box.value = id;
-    box.checked = chosen.includes(id);
-    chip.append(box, document.createTextNode(label));
-    container.append(chip);
-  }
-}
-
-function readTimes(container) {
-  return [...container.querySelectorAll(".time-24")].map((el) => normalizeHhMm(el.value)).filter(Boolean);
-}
-
-function readWeeklyDays() {
-  return [...weeklyDaysEl.querySelectorAll('input[type="checkbox"]:checked')].map((el) => el.value);
-}
-
-function addExclusionRow(init = {}) {
-  const row = document.createElement("div");
-  row.className = "exclusion-row";
-  const main = document.createElement("div");
-  main.className = "exclusion-main";
-  for (const [id, label] of DAYS) {
-    const chip = document.createElement("label");
-    chip.className = "day-chip";
-    const box = document.createElement("input");
-    box.type = "checkbox";
-    box.value = id;
-    box.checked = (init.days || ["sun"]).includes(id);
-    chip.append(box, document.createTextNode(label));
-    main.append(chip);
-  }
-  const start = createTimeInput(
-    init.start || (init.time && !init.end ? init.time : ""),
-    "exclusion-start",
-  );
-  start.title = "Range start; leave blank with end blank to skip the whole day";
-  const end = createTimeInput(
-    init.end || (init.time && !init.start ? init.time : ""),
-    "exclusion-end",
-  );
-  end.title = "Range end";
-  const remove = document.createElement("button");
-  remove.type = "button";
-  remove.className = "ghost";
-  remove.textContent = "Remove";
-  remove.addEventListener("click", () => row.remove());
-  main.append(start, end, remove);
-  const note = document.createElement("input");
-  note.type = "text";
-  note.className = "exclusion-note";
-  note.placeholder = "Note (optional)";
-  note.maxLength = 120;
-  note.value = init.note || "";
-  note.setAttribute("aria-label", "Exclusion note");
-  row.append(main, note);
-  exclusionListEl.append(row);
-}
-
-function readExclusions() {
-  return [...exclusionListEl.querySelectorAll(".exclusion-row")]
-    .map((row) => {
-      const days = [...row.querySelectorAll('input[type="checkbox"]:checked')].map((el) => el.value);
-      const start = normalizeHhMm(row.querySelector(".exclusion-start")?.value);
-      const end = normalizeHhMm(row.querySelector(".exclusion-end")?.value);
-      const note = row.querySelector(".exclusion-note")?.value.trim();
-      if (!days.length) return null;
-      const item = note ? { note } : {};
-      if (start && end) return { kind: "day_time", days, start, end, ...item };
-      if (!start && !end) return { kind: "day", days, ...item };
-      return { kind: "day_time", days, start: start || end, end: end || start, ...item };
-    })
-    .filter(Boolean);
-}
-
-function readSchedulePayload() {
-  const kind = currentKind();
-  const payload = {
-    id: editing.scheduleId || undefined,
-    enabled: true,
-    kind,
-    exclusions: kind === "once" ? [] : readExclusions(),
-  };
-  if (kind === "hourly") {
-    payload.minutes = [...hourlyMinutesEl.querySelectorAll('input[type="number"]')]
-      .map((el) => Number(el.value))
-      .filter((value) => Number.isFinite(value));
-  } else if (kind === "daily") {
-    payload.times = readTimes(dailyTimesEl);
-  } else if (kind === "weekly") {
-    payload.days = readWeeklyDays();
-    payload.times = readTimes(weeklyTimesEl);
-  } else if (kind === "monthly") {
-    payload.times = readTimes(monthlyTimesEl);
-    payload.skip_months = [...monthlySkipEl.querySelectorAll("input:checked")].map((el) => Number(el.value));
-    if (monthlyMode() === "date") {
-      payload.monthdays = [...monthlyDaysEl.querySelectorAll('input[type="number"]')]
-        .map((el) => Number(el.value))
-        .filter((value) => Number.isFinite(value));
-    } else {
-      payload.days = [...monthlyWeekdayEl.querySelectorAll("input:checked")].map((el) => el.value);
-      payload.occurrence = Number(monthlyOccurrenceEl.value);
-    }
-  } else {
-    const date = document.getElementById("once-date").value;
-    const time = normalizeHhMm(document.getElementById("once-time").value);
-    if (date && time) payload.at = `${date}T${time}:00`;
-  }
-  return payload;
-}
-
-function fillScheduleForm(schedule) {
-  dailyTimesEl.replaceChildren();
-  weeklyTimesEl.replaceChildren();
-  hourlyMinutesEl.replaceChildren();
-  monthlyDaysEl.replaceChildren();
-  monthlyTimesEl.replaceChildren();
-  exclusionListEl.replaceChildren();
-  const kind = schedule?.kind === "interval" ? "hourly" : schedule?.kind || "hourly";
-  kindEl.value = ["hourly", "daily", "weekly", "monthly", "once"].includes(kind) ? kind : "hourly";
-  const minutes = schedule?.minutes?.length
-    ? schedule.minutes
-    : [schedule?.minute ?? 0];
-  minutes.forEach((minute) => addHourlyMinute(minute));
-  if (!hourlyMinutesEl.children.length) addHourlyMinute(0);
-  if (kind === "daily" && schedule?.times?.length) {
-    schedule.times.forEach((time) => addListedTime(dailyTimesEl, time));
-  } else {
-    addListedTime(dailyTimesEl, "09:00");
-  }
-  fillDayChips(weeklyDaysEl, kind === "weekly" ? schedule?.days : []);
-  if (kind === "weekly" && schedule?.times?.length) {
-    schedule.times.forEach((time) => addListedTime(weeklyTimesEl, time));
-  } else {
-    addListedTime(weeklyTimesEl, "19:00");
-  }
-  const byWeekday = kind === "monthly" && schedule?.days?.length && schedule?.occurrence != null;
-  document.querySelector('input[name="monthly-mode"][value="date"]').checked = !byWeekday;
-  document.querySelector('input[name="monthly-mode"][value="weekday"]').checked = byWeekday;
-  const monthdays = kind === "monthly" && schedule?.monthdays?.length ? schedule.monthdays : [1];
-  monthdays.forEach((day) => addMonthlyDay(day));
-  fillSingleWeekday(monthlyWeekdayEl, byWeekday ? schedule.days[0] : "tue");
-  monthlyOccurrenceEl.value = String(byWeekday ? schedule.occurrence : 3);
-  if (kind === "monthly" && schedule?.times?.length) {
-    schedule.times.forEach((time) => addListedTime(monthlyTimesEl, time));
-  } else {
-    addListedTime(monthlyTimesEl, "12:00");
-  }
-  fillMonthSkip(monthlySkipEl, kind === "monthly" ? schedule?.skip_months : []);
-  if (kind === "once" && schedule?.at) {
-    const dt = new Date(schedule.at);
-    const y = dt.getFullYear();
-    const m = String(dt.getMonth() + 1).padStart(2, "0");
-    const d = String(dt.getDate()).padStart(2, "0");
-    const hh = String(dt.getHours()).padStart(2, "0");
-    const mm = String(dt.getMinutes()).padStart(2, "0");
-    document.getElementById("once-date").value = `${y}-${m}-${d}`;
-    document.getElementById("once-time").value = `${hh}:${mm}`;
-  }
-  (schedule?.exclusions || []).forEach((item) => addExclusionRow(item));
-  syncKindFields();
-}
-
-async function loadDefaultScript() {
-  const res = await fetch("/static/default-announcement.txt");
-  if (!res.ok) throw new Error("Could not load default announcement");
-  defaultScript = (await res.text()).trim();
-  if (!editing.announcementId && !textEl.value) {
-    textEl.value = defaultScript;
-    updateCount();
-  }
-}
-
-async function loadVoices() {
-  const res = await fetch("/api/voices");
-  if (!res.ok) throw new Error("Could not load voices");
-  catalog = await res.json();
-  const saved = readPrefs();
-  speedEl.value = String(saved.speed ?? catalog.speed ?? 1);
-  pauseEl.value = String(saved.sentence_pause ?? catalog.sentence_pause ?? 0.25);
-  updateDeliveryLabels();
-  renderVoices(saved.voice);
-}
-
-function renderVoices(preferred) {
-  const selected = preferred || catalog.default_voice;
-  voiceEl.replaceChildren();
-  for (const voice of catalog.voices) {
-    const option = document.createElement("option");
-    option.value = voice.id;
-    const bits = [voice.name, voice.gender, voice.locale, voice.quality].filter(Boolean);
-    option.textContent = bits.join(" · ");
-    option.selected = voice.id === selected;
-    voiceEl.appendChild(option);
-  }
-  if (![...voiceEl.options].some((opt) => opt.selected) && voiceEl.options.length) {
-    voiceEl.options[0].selected = true;
-  }
-}
-
-function persist() {
-  localStorage.setItem(
-    PREFS_KEY,
-    JSON.stringify({
-      voice: voiceEl.value,
-      speed: Number(speedEl.value),
-      sentence_pause: Number(pauseEl.value),
-    }),
-  );
-}
-
-function readPrefs() {
-  try {
-    return JSON.parse(localStorage.getItem(PREFS_KEY) || "{}");
-  } catch {
-    return {};
-  }
-}
-
-function resetPrefs() {
-  localStorage.removeItem(PREFS_KEY);
-  if (catalog) {
-    speedEl.value = String(catalog.speed ?? 1);
-    pauseEl.value = String(catalog.sentence_pause ?? 0.25);
-    renderVoices(catalog.default_voice);
-    updateDeliveryLabels();
-  }
+  return stamps;
 }
 
 function formatWhen(iso) {
@@ -560,6 +179,49 @@ function formatCountdown(ms) {
     return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
   }
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function goToHash(hash) {
+  const current = location.hash || "#/";
+  if (current === hash || (hash === "#/" && (current === "" || current === "#"))) {
+    route();
+    return;
+  }
+  location.hash = hash;
+}
+
+function confirmDiscardEdits() {
+  return window.confirm("You have unsaved changes. If you leave, those changes will be lost.");
+}
+
+function formSnapshot() {
+  if (document.getElementById("view-announcement").classList.contains("active")) {
+    return JSON.stringify({
+      name: nameEl.value,
+      text: textEl.value,
+      voice: voiceEl.value,
+      speed: speedEl.value,
+      pause: pauseEl.value,
+      busyRetry: document.getElementById("busy-retry").value,
+      busyGiveup: document.getElementById("busy-giveup").value,
+    });
+  }
+  if (document.getElementById("view-schedule").classList.contains("active")) {
+    return JSON.stringify(readSchedulePayload());
+  }
+  return "";
+}
+
+function isEditorDirty() {
+  return editorBaseline !== null && formSnapshot() !== editorBaseline;
+}
+
+function markEditorClean() {
+  editorBaseline = formSnapshot();
+}
+
+function clearEditorGuard() {
+  editorBaseline = null;
 }
 
 function renderUpcoming() {
@@ -589,145 +251,355 @@ function renderUpcoming() {
   countEl.textContent = `in ${formatCountdown(at - (Date.now() + clockSkewMs))}`;
 }
 
-async function fetchSchedulePayload() {
-  const res = await fetch("/api/schedules");
-  if (!res.ok) throw new Error("Could not load schedules");
-  const payload = await res.json();
-  if (payload.now) {
-    const serverNow = Date.parse(payload.now);
-    if (!Number.isNaN(serverNow)) clockSkewMs = serverNow - Date.now();
-  }
-  upcoming = payload.upcoming || null;
-  renderUpcoming();
-  return payload;
-}
-
 function tickUpcoming() {
   renderUpcoming();
   if (!upcoming) return;
-  if (upcoming.status === "running") {
-    fetchSchedulePayload().catch(() => {});
-    return;
+  if (upcoming.status === "running" || (upcoming.at && new Date(upcoming.at).getTime() - (Date.now() + clockSkewMs) <= 15000)) {
+    refreshHome().catch(() => {});
   }
-  if (!upcoming.at) return;
-  const left = new Date(upcoming.at).getTime() - (Date.now() + clockSkewMs);
-  if (left <= 15000) fetchSchedulePayload().catch(() => {});
 }
 
-async function refreshGrid() {
-  if (gridBusy) return;
-  gridBusy = true;
-  try {
-    const payload = await fetchSchedulePayload();
-    const rows = payload.schedules || [];
-    schedBody.replaceChildren();
-    schedEmpty.classList.toggle("hidden", rows.length > 0);
-    for (const row of rows) {
-      const tr = document.createElement("tr");
-      if (row.warning) tr.classList.add("has-warning");
-      const warning = row.warning
-        ? `<div class="sched-warning">${escapeHtml(row.warning)}</div>`
-        : "";
-      tr.innerHTML = `
-      <td>${escapeHtml(row.announcement_name)}</td>
-      <td>${summaryHtml(row.summary)}${warning}</td>
+function fillDayChips(container, selected, { exclusive = false } = {}) {
+  container.replaceChildren();
+  for (const [value, label] of DAYS) {
+    const chip = document.createElement("label");
+    chip.className = "chip";
+    const input = document.createElement("input");
+    input.type = exclusive ? "radio" : "checkbox";
+    input.name = exclusive ? container.id : value;
+    input.value = value;
+    input.checked = exclusive ? selected === value : (selected || []).includes(value);
+    chip.append(input, document.createTextNode(label));
+    container.append(chip);
+  }
+}
+
+function fillMonthSkip(container, selected) {
+  container.replaceChildren();
+  for (const [value, label] of MONTHS) {
+    const chip = document.createElement("label");
+    chip.className = "chip";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = String(value);
+    input.checked = (selected || []).includes(value);
+    chip.append(input, document.createTextNode(label));
+    container.append(chip);
+  }
+}
+
+function fillSlotChips(selected) {
+  const container = document.getElementById("slot-chips");
+  container.replaceChildren();
+  for (const stamp of slotStamps()) {
+    const chip = document.createElement("label");
+    chip.className = "chip";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = stamp;
+    input.checked = (selected || []).includes(stamp);
+    chip.append(input, document.createTextNode(stamp));
+    container.append(chip);
+  }
+}
+
+function fillEventSlotSelect(selected) {
+  const el = document.getElementById("range-event-slot");
+  el.replaceChildren();
+  for (const stamp of slotStamps()) {
+    const option = document.createElement("option");
+    option.value = stamp;
+    option.textContent = stamp;
+    option.selected = stamp === (selected || "19:00");
+    el.append(option);
+  }
+}
+
+function fillAnnouncementSelect(selected, { allowSilence = false } = {}) {
+  const el = document.getElementById("sched-announcement");
+  el.replaceChildren();
+  if (allowSilence) {
+    const silence = document.createElement("option");
+    silence.value = "";
+    silence.textContent = "Silence — no transmission";
+    el.append(silence);
+  }
+  for (const item of announcements) {
+    const option = document.createElement("option");
+    option.value = item.id;
+    option.textContent = item.name;
+    el.append(option);
+  }
+  if (selected === null || selected === "") {
+    el.value = "";
+  } else if (selected) {
+    el.value = selected;
+  } else if (announcements[0]) {
+    el.value = announcements[0].id;
+  }
+}
+
+function isCountdownKind(kind) {
+  return kind === "range" || kind === "monthly_range";
+}
+
+function isMonthlyKind(kind) {
+  return kind === "monthly" || kind === "monthly_range";
+}
+
+function currentKind() {
+  return document.getElementById("sched-kind").value;
+}
+
+function syncKindFields() {
+  const kind = currentKind();
+  const overlay = kind !== "baseline";
+  document.getElementById("fields-overlay").classList.toggle("hidden", !overlay);
+  document.getElementById("fields-weekly").classList.toggle("hidden", kind !== "weekly");
+  document.getElementById("fields-monthly").classList.toggle("hidden", !isMonthlyKind(kind));
+  document.getElementById("fields-once").classList.toggle("hidden", kind !== "once");
+  document.getElementById("fields-range").classList.toggle("hidden", kind !== "range");
+  document.getElementById("fields-days-before").classList.toggle("hidden", kind !== "monthly_range");
+  document.getElementById("fields-event-end").classList.toggle("hidden", !isCountdownKind(kind));
+  const showSlots =
+    kind === "weekly" ||
+    kind === "monthly" ||
+    kind === "once" ||
+    (isCountdownKind(kind) && !document.getElementById("range-all-slots").checked);
+  document.getElementById("fields-slots").classList.toggle("hidden", !showSlots);
+  document.getElementById("field-priority").classList.toggle("hidden", kind === "baseline" || kind === "emergency");
+  document.getElementById("silence-hint").classList.toggle("hidden", kind === "baseline");
+  fillAnnouncementSelect(document.getElementById("sched-announcement").value, { allowSilence: kind !== "baseline" });
+  const windowMin = settings.slot_half_window_minutes ?? 10;
+  const offset = document.getElementById("sched-offset");
+  offset.min = String(-windowMin);
+  offset.max = String(windowMin);
+}
+
+function readSchedulePayload() {
+  const kind = currentKind();
+  const announcementValue = document.getElementById("sched-announcement").value;
+  const payload = {
+    name: document.getElementById("sched-name").value.trim(),
+    enabled: document.getElementById("sched-enabled").checked,
+    kind,
+    announcement_id: announcementValue || null,
+    offset_minutes: kind === "baseline" ? 0 : Number(document.getElementById("sched-offset").value || 0),
+    priority: Number(document.getElementById("sched-priority").value || 0) || undefined,
+  };
+  if (kind === "weekly" || isMonthlyKind(kind)) {
+    const dayBox = kind === "weekly" ? document.getElementById("weekly-days") : document.getElementById("monthly-weekday");
+    payload.days = [...dayBox.querySelectorAll("input:checked")].map((el) => el.value);
+  }
+  if (isMonthlyKind(kind)) {
+    payload.occurrence = Number(document.getElementById("monthly-occurrence").value);
+    payload.skip_months = [...document.getElementById("monthly-skip").querySelectorAll("input:checked")].map((el) => Number(el.value));
+  }
+  if (kind === "once") payload.on_date = document.getElementById("once-date").value || null;
+  if (kind === "range") {
+    payload.start_date = document.getElementById("range-start").value || null;
+    payload.event_date = document.getElementById("range-event-date").value || null;
+    payload.event_slot = document.getElementById("range-event-slot").value || null;
+  }
+  if (kind === "monthly_range") {
+    payload.days_before = Number(document.getElementById("days-before").value);
+    payload.event_slot = document.getElementById("range-event-slot").value || null;
+  }
+  const needSlots =
+    kind === "weekly" ||
+    kind === "monthly" ||
+    kind === "once" ||
+    (isCountdownKind(kind) && !document.getElementById("range-all-slots").checked);
+  payload.slots = needSlots
+    ? [...document.getElementById("slot-chips").querySelectorAll("input:checked")].map((el) => el.value)
+    : [];
+  return payload;
+}
+
+function fillScheduleForm(schedule) {
+  const kind = schedule?.kind || "baseline";
+  document.getElementById("sched-name").value = schedule?.name || "";
+  document.getElementById("sched-kind").value = kind;
+  document.getElementById("sched-enabled").checked = schedule?.enabled !== false;
+  document.getElementById("sched-offset").value = String(schedule?.offset_minutes ?? 0);
+  document.getElementById("sched-priority").value = String(
+    schedule?.priority || (isCountdownKind(kind) ? 20 : 50),
+  );
+  fillDayChips(document.getElementById("weekly-days"), schedule?.days || ["sun"]);
+  fillDayChips(document.getElementById("monthly-weekday"), schedule?.days?.[0] || "wed", { exclusive: true });
+  document.getElementById("monthly-occurrence").value = String(schedule?.occurrence || 1);
+  fillMonthSkip(document.getElementById("monthly-skip"), schedule?.skip_months || []);
+  document.getElementById("once-date").value = schedule?.on_date || "";
+  document.getElementById("range-start").value = schedule?.start_date || "";
+  document.getElementById("range-event-date").value = schedule?.event_date || "";
+  document.getElementById("days-before").value = String(schedule?.days_before ?? 7);
+  fillEventSlotSelect(schedule?.event_slot || "19:00");
+  document.getElementById("range-all-slots").checked = !isCountdownKind(kind) || !(schedule?.slots || []).length;
+  fillSlotChips(schedule?.slots || (kind === "weekly" ? ["21:00"] : kind === "monthly" ? ["19:00"] : ["12:00"]));
+  fillAnnouncementSelect(schedule?.announcement_id ?? announcements[0]?.id, { allowSilence: kind !== "baseline" });
+  if (schedule && Object.prototype.hasOwnProperty.call(schedule, "announcement_id") && !schedule.announcement_id) {
+    document.getElementById("sched-announcement").value = "";
+  }
+  syncKindFields();
+}
+
+function renderClock(clock) {
+  const grid = document.getElementById("clock-grid");
+  grid.replaceChildren();
+  for (const row of clock || []) {
+    const cell = document.createElement("div");
+    cell.className = `clock-cell source-${row.source || "none"}`;
+    const stamp = document.createElement("span");
+    stamp.className = "clock-stamp";
+    stamp.textContent = row.slot;
+    const label = document.createElement("span");
+    label.className = "clock-label";
+    const fire = row.fire_at && row.fire_at !== row.slot_at ? ` → ${formatWhen(row.fire_at).split(", ")[1] || ""}` : "";
+    label.textContent = `${row.label || "—"}${fire}`;
+    cell.append(stamp, label);
+    if (row.schedule_id) {
+      cell.addEventListener("click", () => goToHash(`#/schedules/${row.schedule_id}`));
+    }
+    grid.append(cell);
+  }
+}
+
+function nextRunSortKey(value) {
+  if (!value) return Number.POSITIVE_INFINITY;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? Number.POSITIVE_INFINITY : ms;
+}
+
+function renderSchedules(rows) {
+  const body = document.getElementById("schedule-rows");
+  const empty = document.getElementById("schedule-empty");
+  body.replaceChildren();
+  empty.classList.toggle("hidden", rows.length > 0);
+  const sorted = [...rows].sort((a, b) => {
+    const diff = nextRunSortKey(a.next_run_at) - nextRunSortKey(b.next_run_at);
+    if (diff !== 0) return diff;
+    return String(a.name || "").localeCompare(String(b.name || ""));
+  });
+  for (const row of sorted) {
+    const tr = document.createElement("tr");
+    if (row.warning) tr.classList.add("has-warning");
+    if (!row.enabled) tr.classList.add("disabled");
+    tr.innerHTML = `
+      <td>${escapeHtml(row.name)}</td>
+      <td>${escapeHtml(row.summary)}${row.warning ? `<div class="exclusion-line">${escapeHtml(row.warning)}</div>` : ""}</td>
+      <td>${escapeHtml(row.announcement_name || (row.summary.includes("silence") ? "Silence" : "—"))}</td>
       <td>${escapeHtml(row.last_run_at ? formatWhen(row.last_run_at) : "Never")}</td>
       <td>${escapeHtml(row.next_run_at ? formatWhen(row.next_run_at) : "—")}</td>
       <td class="row-actions"></td>
     `;
-      const dup = document.createElement("button");
-      dup.type = "button";
-      dup.className = "ghost";
-      dup.textContent = "Duplicate";
-      dup.addEventListener("click", (event) => {
-        event.stopPropagation();
-        goToHash(rowHash("copy", row));
-      });
-      const del = document.createElement("button");
-      del.type = "button";
-      del.className = "danger";
-      del.textContent = "Delete";
-      del.addEventListener("click", (event) => {
-        event.stopPropagation();
-        deleteSchedule(row);
-      });
-      tr.querySelector(".row-actions").append(dup, del);
-      tr.addEventListener("click", () => {
-        goToHash(rowHash("edit", row));
-      });
-      schedBody.append(tr);
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "danger";
+    del.textContent = "Delete";
+    del.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      if (!window.confirm(`Delete schedule “${row.name}”?`)) return;
+      const res = await fetch(`/api/schedules/${row.schedule_id}`, { method: "DELETE" });
+      if (res.ok) refreshHome();
+    });
+    tr.querySelector(".row-actions").append(del);
+    tr.addEventListener("click", () => goToHash(`#/schedules/${row.schedule_id}`));
+    body.append(tr);
+  }
+}
+
+function renderLibrary(items) {
+  const body = document.getElementById("library-rows");
+  const empty = document.getElementById("library-empty");
+  body.replaceChildren();
+  empty.classList.toggle("hidden", items.length > 0);
+  for (const item of items) {
+    const tr = document.createElement("tr");
+    const preview = (item.text || "").replace(/\s+/g, " ").slice(0, 90);
+    tr.innerHTML = `
+      <td>${escapeHtml(item.name)}</td>
+      <td>${escapeHtml(preview)}${preview.length === 90 ? "…" : ""}</td>
+      <td class="row-actions"></td>
+    `;
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "danger";
+    del.textContent = "Delete";
+    del.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      if (!window.confirm(`Delete announcement “${item.name}”?`)) return;
+      const res = await fetch(`/api/announcements/${item.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        let detail = res.statusText;
+        try {
+          detail = (await res.json()).detail || detail;
+        } catch {
+          /* ignore */
+        }
+        window.alert(typeof detail === "string" ? detail : "Could not delete");
+        return;
+      }
+      refreshHome();
+    });
+    tr.querySelector(".row-actions").append(del);
+    tr.addEventListener("click", () => goToHash(`#/announcements/${item.id}`));
+    body.append(tr);
+  }
+}
+
+function weekdayFromDateStamp(stamp) {
+  const [year, month, day] = String(stamp || "").split("-").map(Number);
+  if (!year || !month || !day) return "";
+  return new Date(year, month - 1, day).toLocaleDateString("en-US", { weekday: "long" });
+}
+
+function updateClockWeekday(clockDate) {
+  const el = document.getElementById("clock-weekday");
+  if (el) el.textContent = weekdayFromDateStamp(clockDate);
+}
+
+async function refreshHome() {
+  if (homeBusy) return;
+  homeBusy = true;
+  try {
+    const dateField = document.getElementById("clock-date");
+    const dateQuery = dateField.value ? `?clock_date=${dateField.value}` : "";
+    const [schedRes, libRes] = await Promise.all([
+      fetch(`/api/schedules${dateQuery}`),
+      fetch("/api/announcements"),
+    ]);
+    if (!schedRes.ok) throw new Error("Could not load schedules");
+    const payload = await schedRes.json();
+    const library = libRes.ok ? await libRes.json() : { announcements: [] };
+    announcements = library.announcements || [];
+    settings = payload.settings || settings;
+    if (payload.now) {
+      const serverNow = Date.parse(payload.now);
+      if (!Number.isNaN(serverNow)) clockSkewMs = serverNow - Date.now();
     }
+    upcoming = payload.upcoming || null;
+    renderUpcoming();
+    const warn = document.getElementById("home-warnings");
+    const notes = payload.warnings || [];
+    warn.classList.toggle("hidden", notes.length === 0);
+    warn.textContent = notes.join(" ");
+    if (payload.clock_date && !dateField.value) dateField.value = payload.clock_date;
+    updateClockWeekday(dateField.value || payload.clock_date);
+    renderClock(payload.clock || []);
+    renderSchedules(payload.schedules || []);
+    renderLibrary(announcements);
+    document.getElementById("baseline-randomize").checked = Boolean(settings.baseline_randomize);
   } finally {
-    gridBusy = false;
+    homeBusy = false;
   }
 }
 
-function rowHash(kind, row) {
-  return row.schedule_id
-    ? `#/${kind}/${row.announcement_id}/${row.schedule_id}`
-    : `#/${kind}/${row.announcement_id}`;
-}
-
-function goToHash(hash) {
-  const current = location.hash || "#/";
-  if (current === hash || (hash === "#/" && (current === "" || current === "#"))) {
-    route();
-    return;
-  }
-  location.hash = hash;
-}
-
-function summaryHtml(summary) {
-  const lines = String(summary || "")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-  if (!lines.length) return "";
-  const [base, ...rest] = lines;
-  if (!rest.length) return escapeHtml(base);
-  const extras = rest
-    .map((line) => `<div class="exclusion-line">${escapeHtml(line)}</div>`)
-    .join("");
-  return `${escapeHtml(base)}${extras}`;
-}
-
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
-}
-
-async function deleteSchedule(row) {
-  const ok = window.confirm(
-    row.schedule_id
-      ? `Delete schedule “${String(row.summary || "").split("\n")[0]}” on ${row.announcement_name}?`
-      : `Delete announcement “${row.announcement_name}”?`,
-  );
-  if (!ok) return;
-  const url = row.schedule_id
-    ? `/api/announcements/${row.announcement_id}/schedules/${row.schedule_id}`
-    : `/api/announcements/${row.announcement_id}`;
-  const res = await fetch(url, { method: "DELETE" });
-  if (!res.ok) {
-    setStatus("Could not delete", "error");
-    return;
-  }
-  await refreshGrid();
-}
-
-function showGrid() {
-  viewGrid.classList.add("active");
-  viewEdit.classList.remove("active");
-  if (!pollTimer) pollTimer = setInterval(() => refreshGrid().catch(() => {}), 15000);
+function startHomePolling() {
+  if (!pollTimer) pollTimer = setInterval(() => refreshHome().catch(() => {}), 15000);
   if (!countdownTimer) countdownTimer = setInterval(tickUpcoming, 1000);
-  refreshGrid().catch((err) => setStatus(err.message, "error"));
 }
 
-function showEdit() {
-  viewGrid.classList.remove("active");
-  viewEdit.classList.add("active");
+function stopHomePolling() {
   if (pollTimer) {
     clearInterval(pollTimer);
     pollTimer = null;
@@ -738,206 +610,175 @@ function showEdit() {
   }
 }
 
-function formSnapshot() {
-  return JSON.stringify({
-    name: nameEl.value,
-    text: textEl.value,
-    voice: voiceEl.value,
-    speed: speedEl.value,
-    pause: pauseEl.value,
-    busyRetry: busyRetryEl.value,
-    busyGiveup: busyGiveupEl.value,
-    schedule: readSchedulePayload(),
-  });
+function updateCount() {
+  document.getElementById("count").textContent = `${textEl.value.length} / ${textEl.maxLength}`;
 }
 
-function isEditorDirty() {
-  return editorBaseline !== null && formSnapshot() !== editorBaseline;
+function updateDeliveryLabels() {
+  document.getElementById("speed-value").textContent = `${Number(speedEl.value).toFixed(2)}×`;
+  document.getElementById("pause-value").textContent = `${Number(pauseEl.value).toFixed(2)}s`;
 }
 
-function markEditorClean() {
-  editorBaseline = formSnapshot();
+function setStatus(text, kind = "") {
+  const el = document.getElementById("status");
+  el.textContent = text;
+  el.className = kind;
 }
 
-function clearEditorGuard() {
-  editorBaseline = null;
+function showError(id, text) {
+  const el = document.getElementById(id);
+  el.hidden = !text;
+  el.textContent = text || "";
 }
 
-function routeKey(hash = location.hash) {
-  const raw = String(hash || "").replace(/^#/, "") || "/";
-  const parts = raw.split("/").filter(Boolean);
-  if (parts[0] === "new") return "new";
-  if ((parts[0] === "copy" || parts[0] === "edit") && parts[1]) {
-    return `${parts[0]}/${parts[1]}/${parts[2] || ""}`;
+function persist() {
+  localStorage.setItem(
+    PREFS_KEY,
+    JSON.stringify({
+      voice: voiceEl.value,
+      speed: Number(speedEl.value),
+      sentence_pause: Number(pauseEl.value),
+    }),
+  );
+}
+
+function readPrefs() {
+  try {
+    return JSON.parse(localStorage.getItem(PREFS_KEY) || "{}");
+  } catch {
+    return {};
   }
-  return "grid";
 }
 
-function hashForKey(key) {
-  if (!key || key === "grid") return "#/";
-  if (key === "new") return "#/new";
-  return `#/${key}`;
+function renderVoices(preferred) {
+  const selected = preferred || catalog.default_voice;
+  voiceEl.replaceChildren();
+  for (const voice of catalog.voices) {
+    const option = document.createElement("option");
+    option.value = voice.id;
+    const bits = [voice.name, voice.gender, voice.locale, voice.quality].filter(Boolean);
+    option.textContent = bits.join(" · ");
+    option.selected = voice.id === selected;
+    voiceEl.append(option);
+  }
 }
 
-function confirmDiscardEdits() {
-  return window.confirm("You have unsaved changes. If you leave, those changes will be lost.");
+async function loadVoices() {
+  const res = await fetch("/api/voices");
+  if (!res.ok) throw new Error("Could not load voices");
+  catalog = await res.json();
+  const saved = readPrefs();
+  speedEl.value = String(saved.speed ?? catalog.speed ?? 1);
+  pauseEl.value = String(saved.sentence_pause ?? catalog.sentence_pause ?? 0.25);
+  updateDeliveryLabels();
+  renderVoices(saved.voice);
 }
 
-function restoreEditorHash() {
-  ignoreHashChange = true;
-  history.replaceState(null, "", hashForKey(editorKey));
-  ignoreHashChange = false;
+async function loadDefaultScript() {
+  const res = await fetch("/static/default-announcement.txt");
+  if (!res.ok) return;
+  defaultScript = (await res.text()).trim();
 }
 
-async function route() {
-  await boot;
-  const parts = (location.hash.replace(/^#/, "") || "/").split("/").filter(Boolean);
-  const nextKey = routeKey();
-  if (nextKey !== editorKey && isEditorDirty()) {
-    if (!confirmDiscardEdits()) {
-      restoreEditorHash();
-      return;
-    }
-    clearEditorGuard();
-  }
-  if (nextKey === editorKey && nextKey !== "grid") {
-    return;
-  }
-  showFormError("");
-  if (parts[0] === "new") {
-    editing = { announcementId: null, scheduleId: null };
-    editTitle.textContent = "New schedule";
-    nameEl.value = "";
-    busyRetryEl.value = "5";
-    busyGiveupEl.value = "45";
-    textEl.value = defaultScript;
-    updateCount();
-    fillScheduleForm(null);
-    showEdit();
-    editorKey = nextKey;
-    markEditorClean();
-    return;
-  }
-  if (parts[0] === "copy" && parts[1]) {
-    editing = { announcementId: null, scheduleId: null };
-    editTitle.textContent = "New schedule";
-    showEdit();
-    try {
-      await loadAnnouncement(parts[1], parts[2] || null, { asCopy: true });
-      nameEl.focus();
-    } catch (err) {
-      showFormError(err.message);
-    }
-    editorKey = nextKey;
-    markEditorClean();
-    return;
-  }
-  if (parts[0] === "edit" && parts[1]) {
-    editing = { announcementId: parts[1], scheduleId: parts[2] || null };
-    editTitle.textContent = "Edit schedule";
-    showEdit();
-    try {
-      await loadAnnouncement(parts[1], parts[2] || null);
-    } catch (err) {
-      showFormError(err.message);
-    }
-    editorKey = nextKey;
-    markEditorClean();
-    return;
-  }
-  editing = { announcementId: null, scheduleId: null };
-  editorKey = "grid";
-  clearEditorGuard();
-  showGrid();
+function blankAnnouncement() {
+  editingAnnouncementId = null;
+  document.getElementById("announcement-title").textContent = "New announcement";
+  nameEl.value = "";
+  textEl.value = defaultScript;
+  speedEl.value = String(NEW_ANNOUNCEMENT.speed);
+  pauseEl.value = String(NEW_ANNOUNCEMENT.sentence_pause);
+  document.getElementById("busy-retry").value = String(NEW_ANNOUNCEMENT.busy_retry_seconds);
+  document.getElementById("busy-giveup").value = String(NEW_ANNOUNCEMENT.busy_give_up_seconds);
+  if (catalog) renderVoices(NEW_ANNOUNCEMENT.voice);
+  updateCount();
+  updateDeliveryLabels();
 }
 
-async function loadAnnouncement(announcementId, scheduleId, { asCopy = false } = {}) {
-  const res = await fetch(`/api/announcements/${announcementId}`);
+async function loadAnnouncement(id) {
+  const res = await fetch(`/api/announcements/${id}`);
   if (!res.ok) throw new Error("Announcement not found");
   const item = await res.json();
-  nameEl.value = asCopy ? "" : item.name || "";
+  editingAnnouncementId = item.id;
+  document.getElementById("announcement-title").textContent = "Edit announcement";
+  nameEl.value = item.name || "";
   textEl.value = item.text || "";
-  busyRetryEl.value = String(item.busy_retry_seconds ?? 5);
-  busyGiveupEl.value = String(item.busy_give_up_seconds ?? 45);
+  document.getElementById("busy-retry").value = String(item.busy_retry_seconds ?? 5);
+  document.getElementById("busy-giveup").value = String(item.busy_give_up_seconds ?? 45);
   speedEl.value = String(item.speed ?? 1);
   pauseEl.value = String(item.sentence_pause ?? 0.25);
-  updateDeliveryLabels();
-  updateCount();
   if (item.voice) renderVoices(item.voice);
-  const schedule = scheduleId
-    ? (item.schedules || []).find((row) => row.id === scheduleId)
-    : null;
-  if (scheduleId && !schedule) throw new Error("Schedule not found");
-  fillScheduleForm(schedule || null);
-  if (asCopy) return;
-  const warnings = [];
-  if (!(item.text || "").trim()) warnings.push("announcement text is empty");
-  if (!schedule) warnings.push("no schedule is set");
-  if (warnings.length) {
-    showFormError("Won't play until you fix this: " + warnings.join(" and ") + ".", "warning");
-  }
+  updateCount();
+  updateDeliveryLabels();
 }
 
-async function saveCurrent() {
-  showFormError("");
+async function saveAnnouncement() {
+  showError("announcement-error", "");
   const body = {
     name: nameEl.value.trim(),
     text: textEl.value.trim(),
     voice: voiceEl.value,
     speed: Number(speedEl.value),
     sentence_pause: Number(pauseEl.value),
-    busy_retry_seconds: Number(busyRetryEl.value),
-    busy_give_up_seconds: Number(busyGiveupEl.value),
-    schedule: readSchedulePayload(),
+    busy_retry_seconds: Number(document.getElementById("busy-retry").value),
+    busy_give_up_seconds: Number(document.getElementById("busy-giveup").value),
   };
   if (!body.name) {
-    showFormError("Name is required.");
+    showError("announcement-error", "Name is required.");
     return;
   }
   if (!body.text) {
-    showFormError("Announcement text is required.");
-    return;
-  }
-  if (body.schedule?.kind === "weekly" && !body.schedule.days?.length) {
-    showFormError("Select at least one day.");
-    return;
-  }
-  if (
-    (body.schedule?.kind === "daily" || body.schedule?.kind === "weekly" || body.schedule?.kind === "monthly") &&
-    !body.schedule.times?.length
-  ) {
-    showFormError("Add at least one time.");
-    return;
-  }
-  if (body.schedule?.kind === "monthly" && monthlyMode() === "date" && !body.schedule.monthdays?.length) {
-    showFormError("Add at least one day of the month.");
-    return;
-  }
-  if (body.schedule?.kind === "monthly" && monthlyMode() === "weekday" && !body.schedule.days?.length) {
-    showFormError("Select a weekday.");
+    showError("announcement-error", "Announcement text is required.");
     return;
   }
   persist();
-  const isNew = !editing.announcementId;
-  const url = isNew ? "/api/announcements" : `/api/announcements/${editing.announcementId}`;
-  const res = await fetch(url, {
+  const isNew = !editingAnnouncementId;
+  const res = await fetch(isNew ? "/api/announcements" : `/api/announcements/${editingAnnouncementId}`, {
     method: isNew ? "POST" : "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    let detail = res.statusText;
-    try {
-      const payload = await res.json();
-      detail = payload.detail || detail;
-    } catch {
-      /* ignore */
-    }
-    showFormError(typeof detail === "string" ? detail : "Could not save");
+    showError("announcement-error", await errorDetail(res));
     return;
   }
   clearEditorGuard();
-  location.hash = "#/";
+  goToHash("#/");
+}
+
+async function saveSchedule() {
+  showError("schedule-error", "");
+  const body = readSchedulePayload();
+  if (!body.name) {
+    showError("schedule-error", "Name is required.");
+    return;
+  }
+  if (body.kind === "baseline" && !body.announcement_id) {
+    showError("schedule-error", "Pick an announcement for the baseline.");
+    return;
+  }
+  const isNew = !editingScheduleId;
+  const res = await fetch(isNew ? "/api/schedules" : `/api/schedules/${editingScheduleId}`, {
+    method: isNew ? "POST" : "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    showError("schedule-error", await errorDetail(res));
+    return;
+  }
+  clearEditorGuard();
+  goToHash("#/");
+}
+
+async function errorDetail(res) {
+  try {
+    const payload = await res.json();
+    const detail = payload.detail;
+    if (typeof detail === "string") return detail;
+  } catch {
+    /* ignore */
+  }
+  return res.statusText || "Could not save";
 }
 
 async function speak() {
@@ -953,8 +794,8 @@ async function speak() {
   abort = controller;
   const currentPlayer = new PcmPlayer();
   player = currentPlayer;
-  speakBtn.disabled = true;
-  stopBtn.disabled = false;
+  document.getElementById("speak").disabled = true;
+  document.getElementById("stop").disabled = false;
   setStatus("Preparing voice…");
   try {
     const res = await fetch("/api/speak", {
@@ -969,16 +810,7 @@ async function speak() {
       signal: controller.signal,
     });
     if (mySession !== session) return;
-    if (!res.ok) {
-      let detail = res.statusText;
-      try {
-        const payload = await res.json();
-        detail = payload.detail || detail;
-      } catch {
-        /* ignore */
-      }
-      throw new Error(detail);
-    }
+    if (!res.ok) throw new Error(await errorDetail(res));
     const sampleRate = Number(res.headers.get("X-Sample-Rate") || "22050");
     setStatus("Streaming…", "playing");
     await currentPlayer.play(res.body, sampleRate, controller.signal);
@@ -986,23 +818,20 @@ async function speak() {
     if (!controller.signal.aborted) setStatus("Done");
   } catch (err) {
     if (mySession !== session) return;
-    if (err.name === "AbortError" || controller.signal.aborted) {
-      setStatus("Stopped");
-    } else {
-      setStatus(err.message || "Playback failed", "error");
-    }
+    if (err.name === "AbortError" || controller.signal.aborted) setStatus("Stopped");
+    else setStatus(err.message || "Playback failed", "error");
   } finally {
     if (mySession !== session) return;
-    speakBtn.disabled = false;
-    stopBtn.disabled = true;
+    document.getElementById("speak").disabled = false;
+    document.getElementById("stop").disabled = true;
   }
 }
 
 function stop() {
   const hadPlayback = Boolean(abort || player);
   cancelInFlight();
-  speakBtn.disabled = false;
-  stopBtn.disabled = true;
+  document.getElementById("speak").disabled = false;
+  document.getElementById("stop").disabled = true;
   if (hadPlayback) setStatus("Stopped");
 }
 
@@ -1031,9 +860,7 @@ class PcmPlayer {
     this.ctx = new AudioContext({ sampleRate });
     const reader = stream.getReader();
     this.reader = reader;
-    const onAbort = () => {
-      this.stop();
-    };
+    const onAbort = () => this.stop();
     signal.addEventListener("abort", onAbort, { once: true });
     if (signal.aborted) {
       onAbort();
@@ -1079,9 +906,7 @@ class PcmPlayer {
         });
       }
     } catch (err) {
-      if (this.stopped || signal.aborted || err.name === "AbortError" || err.name === "InvalidStateError") {
-        return;
-      }
+      if (this.stopped || signal.aborted || err.name === "AbortError" || err.name === "InvalidStateError") return;
       throw err;
     } finally {
       signal.removeEventListener("abort", onAbort);
@@ -1114,19 +939,151 @@ class PcmPlayer {
   }
 }
 
-boot = Promise.all([
-  loadVoices().catch((err) => setStatus(err.message, "error")),
-  loadDefaultScript().catch((err) => setStatus(err.message, "error")),
-]);
+function routeKey(hash = location.hash) {
+  const raw = String(hash || "").replace(/^#/, "") || "/";
+  const [path] = raw.split("?");
+  const parts = path.split("/").filter(Boolean);
+  if (!parts.length) return "home";
+  if (parts[0] === "help") return "help";
+  if (parts[0] === "announcements") return parts[1] === "new" ? "ann-new" : `ann/${parts[1]}`;
+  if (parts[0] === "schedules") {
+    if (parts[1] === "new") return `sched-new${location.hash.includes("?") ? location.hash.slice(location.hash.indexOf("?")) : ""}`;
+    return `sched/${parts[1]}`;
+  }
+  return "home";
+}
+
+async function route() {
+  await boot;
+  const nextKey = routeKey();
+  if (nextKey !== editorKey && isEditorDirty() && !confirmDiscardEdits()) {
+    ignoreHashChange = true;
+    history.replaceState(null, "", editorKey === "home" ? "#/" : location.hash);
+    ignoreHashChange = false;
+    return;
+  }
+  const raw = (location.hash.replace(/^#/, "") || "/").split("?")[0];
+  const parts = raw.split("/").filter(Boolean);
+  const params = new URLSearchParams((location.hash.split("?")[1] || "").replace(/#/g, ""));
+  showError("announcement-error", "");
+  showError("schedule-error", "");
+  if (parts[0] === "help") {
+    stopHomePolling();
+    showScreen("view-help");
+    editorKey = "help";
+    clearEditorGuard();
+    return;
+  }
+  if (parts[0] === "announcements") {
+    stopHomePolling();
+    showScreen("view-announcement");
+    if (parts[1] === "new") blankAnnouncement();
+    else await loadAnnouncement(parts[1]);
+    editorKey = nextKey;
+    markEditorClean();
+    return;
+  }
+  if (parts[0] === "schedules") {
+    stopHomePolling();
+    showScreen("view-schedule");
+    if (!announcements.length) {
+      const lib = await fetch("/api/announcements");
+      announcements = lib.ok ? (await lib.json()).announcements || [] : [];
+    }
+    if (parts[1] === "new") {
+      editingScheduleId = null;
+      document.getElementById("schedule-title").textContent = "New schedule";
+      const template = TEMPLATES[params.get("template") || "baseline"] || TEMPLATES.baseline;
+      fillScheduleForm(template);
+    } else {
+      editingScheduleId = parts[1];
+      document.getElementById("schedule-title").textContent = "Edit schedule";
+      const res = await fetch(`/api/schedules/${parts[1]}`);
+      if (!res.ok) throw new Error("Schedule not found");
+      fillScheduleForm(await res.json());
+    }
+    editorKey = nextKey;
+    markEditorClean();
+    return;
+  }
+  editorKey = "home";
+  clearEditorGuard();
+  showScreen("view-home");
+  startHomePolling();
+  await refreshHome();
+}
+
+document.getElementById("new-announcement").addEventListener("click", () => goToHash("#/announcements/new"));
+document.getElementById("nav-home").addEventListener("click", () => goToHash("#/"));
+document.getElementById("nav-help").addEventListener("click", () => goToHash("#/help"));
+document.getElementById("clock-date").addEventListener("change", () => {
+  refreshHome().catch(() => {});
+});
+document.getElementById("clock-today").addEventListener("click", () => {
+  document.getElementById("clock-date").value = "";
+  refreshHome().catch(() => {});
+});
+document.getElementById("back-announcement").addEventListener("click", () => goToHash("#/"));
+document.getElementById("back-schedule").addEventListener("click", () => goToHash("#/"));
+document.getElementById("save-announcement").addEventListener("click", saveAnnouncement);
+document.getElementById("save-schedule").addEventListener("click", saveSchedule);
+document.getElementById("speak").addEventListener("click", speak);
+document.getElementById("stop").addEventListener("click", stop);
+document.getElementById("reset").addEventListener("click", () => {
+  localStorage.removeItem(PREFS_KEY);
+  if (catalog) {
+    speedEl.value = String(catalog.speed ?? 1);
+    pauseEl.value = String(catalog.sentence_pause ?? 0.25);
+    renderVoices(catalog.default_voice);
+    updateDeliveryLabels();
+  }
+});
+textEl.addEventListener("input", updateCount);
+speedEl.addEventListener("input", () => {
+  updateDeliveryLabels();
+  persist();
+});
+pauseEl.addEventListener("input", () => {
+  updateDeliveryLabels();
+  persist();
+});
+voiceEl.addEventListener("change", persist);
+document.getElementById("sched-kind").addEventListener("change", syncKindFields);
+document.getElementById("range-all-slots").addEventListener("change", syncKindFields);
+
+const menu = document.getElementById("template-menu");
+document.getElementById("new-schedule").addEventListener("click", (event) => {
+  event.stopPropagation();
+  menu.classList.toggle("hidden");
+});
+menu.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-template]");
+  if (!button) return;
+  menu.classList.add("hidden");
+  goToHash(`#/schedules/new?template=${button.dataset.template}`);
+});
+document.addEventListener("click", () => menu.classList.add("hidden"));
+
+document.getElementById("baseline-randomize").addEventListener("change", async (event) => {
+  await fetch("/api/settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ baseline_randomize: event.target.checked }),
+  });
+  refreshHome();
+});
+
 window.addEventListener("hashchange", () => {
   if (ignoreHashChange) return;
-  route();
+  route().catch((err) => window.alert(err.message));
 });
 window.addEventListener("beforeunload", (event) => {
   if (!isEditorDirty()) return;
   event.preventDefault();
   event.returnValue = "";
 });
+
+boot = Promise.all([loadVoices().catch(() => {}), loadDefaultScript()]);
 updateCount();
 updateDeliveryLabels();
-route();
+route().catch((err) => window.alert(err.message));

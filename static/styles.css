@@ -36,11 +36,21 @@ body {
   width: min(960px, 100%);
 }
 
+.shell.wide {
+  width: min(1120px, 100%);
+}
+
 .mast {
   display: flex;
   align-items: center;
   gap: 14px;
   margin-bottom: 28px;
+}
+
+.mast-nav {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
 }
 
 .mast h1 {
@@ -644,4 +654,187 @@ button.small {
   .controls {
     grid-template-columns: 1fr;
   }
+}
+
+.panel {
+  margin: 28px 0;
+}
+
+.clock-fold > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 0;
+}
+
+.clock-fold > summary::-webkit-details-marker {
+  display: none;
+}
+
+.clock-fold > summary::before {
+  content: "";
+  width: 0.45em;
+  height: 0.45em;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(-45deg);
+  flex: none;
+}
+
+.clock-fold[open] > summary::before {
+  transform: rotate(45deg);
+  margin-top: -0.2em;
+}
+
+.clock-fold[open] > summary {
+  margin-bottom: 16px;
+}
+
+.clock-fold .subhead {
+  margin: 0;
+}
+
+.toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+#clock-date {
+  width: auto;
+  min-width: 12.5rem;
+}
+
+.clock-weekday {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  min-width: 6.5rem;
+}
+
+.inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.banner-warn {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(224, 193, 109, 0.4);
+  color: var(--warn);
+  background: rgba(224, 193, 109, 0.08);
+}
+
+.dropdown {
+  position: relative;
+}
+
+.menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  min-width: 200px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 6px;
+  z-index: 5;
+  display: grid;
+}
+
+.menu button {
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+
+.menu button:hover {
+  background: rgba(224, 155, 109, 0.12);
+}
+
+.clock-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.clock-cell {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  font-size: 0.85rem;
+  cursor: default;
+}
+
+.clock-cell[class*="source-overlay"],
+.clock-cell.source-overlay,
+.clock-cell.source-emergency,
+.clock-cell.source-silence {
+  cursor: pointer;
+}
+
+.clock-stamp {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  min-width: 3.4em;
+}
+
+.clock-label {
+  color: var(--ink);
+}
+
+.clock-cell.source-overlay {
+  box-shadow: inset 3px 0 0 var(--copper);
+}
+
+.clock-cell.source-emergency {
+  box-shadow: inset 3px 0 0 var(--danger);
+}
+
+.clock-cell.source-silence {
+  box-shadow: inset 3px 0 0 var(--muted);
+}
+
+.clock-cell.source-none {
+  opacity: 0.55;
+}
+
+.help {
+  color: var(--ink);
+  line-height: 1.55;
+  max-width: 46rem;
+}
+
+.help h2,
+.help h3 {
+  font-weight: 500;
+}
+
+.help h3 {
+  margin-top: 1.6em;
+}
+
+.help ul,
+.help ol {
+  color: var(--muted);
+}
+
+.mast-nav .ghost {
+  text-decoration: none;
+}
+
+a.ghost {
+  display: inline-flex;
+  align-items: center;
 }
