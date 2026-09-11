@@ -4,11 +4,14 @@ from collections.abc import Iterable
 
 import numpy as np
 
-from app.audio import PcmChunk
+from app.audio import PcmChunk, materialize_chunks
 
 
 def play_chunks(chunks: Iterable[PcmChunk]) -> None:
     """Play 16-bit PCM chunks from memory. No files are written."""
+    buffered = [chunk for chunk in materialize_chunks(chunks) if chunk.pcm_int16]
+    if not buffered:
+        return
     try:
         import sounddevice as sd
     except OSError as exc:
@@ -19,16 +22,14 @@ def play_chunks(chunks: Iterable[PcmChunk]) -> None:
 
     stream: sd.OutputStream | None = None
     try:
-        for chunk in chunks:
-            if not chunk.pcm_int16:
-                continue
-            if stream is None:
-                stream = sd.OutputStream(
-                    samplerate=chunk.sample_rate,
-                    channels=chunk.channels,
-                    dtype="int16",
-                )
-                stream.start()
+        first = buffered[0]
+        stream = sd.OutputStream(
+            samplerate=first.sample_rate,
+            channels=first.channels,
+            dtype="int16",
+        )
+        stream.start()
+        for chunk in buffered:
             samples = np.frombuffer(chunk.pcm_int16, dtype=np.int16)
             if chunk.channels > 1:
                 samples = samples.reshape(-1, chunk.channels)

@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from app.audio import PcmChunk
+from app.audio import PcmChunk, materialize_chunks
 from app.config import PTT_LEAD_SECONDS
 from app.models import Announcement, Schedule
 from app.radio import Radio, transmit
@@ -76,9 +76,9 @@ def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
         log.info("Fire skipped; %s; another announcement is playing", label)
         return "skipped_lock"
     try:
+        chunks = materialize_chunks(deps.synthesize(announcement))
         if deps.set_running:
             deps.set_running(announcement, schedule.id)
-        chunks = deps.synthesize(announcement)
         transmit(
             chunks,
             radio=deps.radio,

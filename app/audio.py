@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 
 MAX_PAUSE_SECONDS = 10.0
@@ -78,3 +78,8 @@ def with_sentence_pauses(chunks: Iterator[PcmChunk], seconds: float) -> Iterator
         pending = chunk
     if pending is not None:
         yield pending
+
+
+def materialize_chunks(chunks: Iterable[PcmChunk]) -> list[PcmChunk]:
+    """Drain a PCM generator so speech and tagged silence exist before playback."""
+    return list(chunks)

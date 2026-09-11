@@ -124,6 +124,37 @@ def test_set_running_hooks_around_playback():
     assert seen == ["start", "end"]
 
 
+def test_fire_renders_pcm_before_keying_ptt():
+    radio = StubRadio()
+    announcement = _announcement()
+    deps, extras = _deps(announcement, radio)
+    events: list[str] = []
+
+    def synthesize(_item):
+        def gen():
+            events.append("synth")
+            yield PcmChunk(pcm_int16=b"\x00\x00", sample_rate=22050)
+            events.append("pause")
+            yield PcmChunk(pcm_int16=b"\x00" * 100, sample_rate=22050)
+            events.append("synth2")
+            yield PcmChunk(pcm_int16=b"\x00\x00", sample_rate=22050)
+
+        return gen()
+
+    def play(chunks) -> None:
+        events.append("play")
+        extras["played"].append("play")
+        assert list(chunks)
+
+    deps.synthesize = synthesize
+    deps.play_fn = play
+    assert handle_fire(_ctx(), deps) == "transmitted"
+    assert events == ["synth", "pause", "synth2", "play"]
+    ptt_on = next(i for i, event in enumerate(radio.events) if event == ("ptt", True))
+    assert events.index("synth2") < events.index("play")
+    assert radio.events[ptt_on:][0] == ("ptt", True)
+
+
 def test_set_running_not_called_when_busy():
     radio = StubRadio()
     radio.busy = True

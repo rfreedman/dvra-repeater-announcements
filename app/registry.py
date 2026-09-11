@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Sequence
 
-from app.audio import PcmChunk
+from app.audio import PcmChunk, materialize_chunks
 from app.config import DEFAULT_SENTENCE_PAUSE, DEFAULT_SPEED
 from app.engines.base import VoiceInfo
 from app.engines.piper import PiperEngine
@@ -24,14 +24,16 @@ class EngineRegistry:
         voice: str | None = None,
         speed: float = DEFAULT_SPEED,
         sentence_pause: float = DEFAULT_SENTENCE_PAUSE,
-    ) -> tuple[str, int, Iterator[PcmChunk]]:
+    ) -> tuple[str, int, Sequence[PcmChunk]]:
         voice_id = self.engine.prepare(voice)
         rate = self.engine.sample_rate(voice_id)
-        chunks = self.engine.synthesize(
-            text,
-            voice=voice_id,
-            speed=speed,
-            sentence_pause=sentence_pause,
+        chunks = materialize_chunks(
+            self.engine.synthesize(
+                text,
+                voice=voice_id,
+                speed=speed,
+                sentence_pause=sentence_pause,
+            )
         )
         return voice_id, rate, chunks
 
