@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
@@ -183,15 +184,25 @@ class PiperEngine(Engine):
         return voice_id
 
     def preload(self) -> list[str]:
+        ids = self._preload_ids()
         loaded: list[str] = []
-        for voice_id in self._preload_ids():
+        started = time.perf_counter()
+        log.info("Preloading %s voices", len(ids))
+        for voice_id in ids:
+            voice_started = time.perf_counter()
+            log.info("Preloading %s", voice_id)
             try:
                 self._load(voice_id)
                 self._warmup(voice_id)
                 loaded.append(voice_id)
-                log.info("Preloaded %s", voice_id)
+                log.info("Preloaded %s in %.1fs", voice_id, time.perf_counter() - voice_started)
             except Exception:
-                log.exception("Failed to preload %s", voice_id)
+                log.exception(
+                    "Failed to preload %s in %.1fs",
+                    voice_id,
+                    time.perf_counter() - voice_started,
+                )
+        log.info("Preloaded %s of %s voices in %.1fs", len(loaded), len(ids), time.perf_counter() - started)
         return loaded
 
     def sample_rate(self, voice: str | None = None) -> int:

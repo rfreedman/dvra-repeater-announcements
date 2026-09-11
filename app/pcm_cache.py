@@ -5,6 +5,7 @@ import json
 import logging
 import shutil
 import threading
+import time
 from pathlib import Path
 
 from app.audio import PcmChunk
@@ -133,6 +134,8 @@ def _fingerprint_for(announcement: Announcement, voice_id: str, voice_mtime_ns: 
 def chunks_for_announcement(announcement: Announcement) -> list[PcmChunk]:
     from app.registry import get_registry
 
+    started = time.perf_counter()
+    log.info("Caching %s", announcement.name)
     registry = get_registry()
     voice_id = registry.prepare(announcement.voice)
     voice_mtime_ns = registry.engine.voice_mtime_ns(voice_id)
@@ -140,8 +143,9 @@ def chunks_for_announcement(announcement: Announcement) -> list[PcmChunk]:
     cache = get_pcm_cache()
     with _lock:
         hit = cache.read(announcement.id, expected)
+        elapsed = time.perf_counter() - started
         if hit is not None:
-            log.info("PCM cache hit; %s", announcement.name)
+            log.info("PCM cache hit; %s in %.1fs", announcement.name, elapsed)
             return hit
         _voice, _rate, chunks = registry.synthesize(
             announcement.text,
@@ -151,21 +155,29 @@ def chunks_for_announcement(announcement: Announcement) -> list[PcmChunk]:
         )
         rendered = list(chunks)
         cache.write(announcement.id, expected, rendered)
-        log.info("PCM cache stored; %s", announcement.name)
+        log.info("PCM cache stored; %s in %.1fs", announcement.name, time.perf_counter() - started)
         return rendered
 
 
 def warm_announcement(announcement: Announcement) -> None:
+    started = time.perf_counter()
     try:
         chunks_for_announcement(announcement)
     except Exception:
-        log.exception("Failed to cache PCM for %s", announcement.name)
+        log.exception(
+            "Failed to cache PCM for %s in %.1fs",
+            announcement.name,
+            time.perf_counter() - started,
+        )
 
 
 def warm_all(announcements: list[Announcement] | None = None) -> None:
     from app.store import get_store
 
     items = list(announcements if announcements is not None else get_store().list_announcements())
+    started = time.perf_counter()
+    log.info("Caching %s announcements", len(items))
     get_pcm_cache().prune({item.id for item in items})
     for item in items:
         warm_announcement(item)
+    log.info("Cached %s announcements in %.1fs", len(items), time.perf_counter() - started)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+import time
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from datetime import date, datetime
@@ -52,9 +53,12 @@ async def lifespan(_app: FastAPI):
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
+    started = time.perf_counter()
+    log.info("Starting up")
     await asyncio.to_thread(get_registry().preload)
     await asyncio.to_thread(warm_all)
     start_scheduler()
+    log.info("Startup complete in %.1fs", time.perf_counter() - started)
     yield
     stop_scheduler()
 
