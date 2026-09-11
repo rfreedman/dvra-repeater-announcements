@@ -18,6 +18,7 @@ DEFAULT_SENTENCE_PAUSE = float(os.environ.get("TTS_SENTENCE_PAUSE", "0.25"))
 
 DATA_DIR = Path(os.environ.get("TTS_DATA_DIR", ROOT_DIR / "data")).expanduser()
 ANNOUNCEMENTS_PATH = DATA_DIR / "announcements.json"
+PCM_CACHE_DIR = Path(os.environ.get("TTS_PCM_CACHE_DIR", DATA_DIR / "pcm")).expanduser()
 LOG_DIR = Path(os.environ.get("TTS_LOG_DIR", DATA_DIR / "logs")).expanduser()
 LOG_KEEP_DAYS = int(os.environ.get("TTS_LOG_KEEP_DAYS", "30"))
 TIMEZONE = os.environ.get("TTS_TIMEZONE", "America/New_York")

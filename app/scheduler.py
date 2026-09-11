@@ -14,9 +14,9 @@ from apscheduler.triggers.date import DateTrigger
 
 from app.config import LOOKAHEAD_HOURS, PTT_LEAD_SECONDS, SCHEDULER_MAX_WAIT_SECONDS, TIMEZONE
 from app.fire import FireContext, FireDeps, LoadedFire, handle_fire
+from app.pcm_cache import chunks_for_announcement
 from app.playback import play_chunks
 from app.radio import get_radio
-from app.registry import get_registry
 from app.schedule_logic import resolve_slot, resolve_window
 from app.slots import slot_from_key, zone_for
 from app.store import get_store
@@ -173,13 +173,7 @@ def run_scheduled_fire(
         )
 
     def synthesize(item) -> object:
-        _voice, _rate, chunks = get_registry().synthesize(
-            item.text,
-            voice=item.voice,
-            speed=item.speed,
-            sentence_pause=item.sentence_pause,
-        )
-        return chunks
+        return chunks_for_announcement(item)
 
     def defer(run_at: datetime, fire_ctx: FireContext) -> None:
         sched = get_scheduler()

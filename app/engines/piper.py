@@ -246,6 +246,12 @@ class PiperEngine(Engine):
     def _model_path(self, voice_id: str) -> Path:
         return self.voices_dir / f"{voice_id}.onnx"
 
+    def voice_mtime_ns(self, voice_id: str) -> int | None:
+        path = self._model_path(voice_id)
+        if not path.exists():
+            return None
+        return path.stat().st_mtime_ns
+
     def _preload_ids(self) -> list[str]:
         ids = [meta.id for meta in FEATURED_VOICES]
         seen = set(ids)

@@ -36,6 +36,7 @@ from app.schedule_logic import (
     next_transmission,
     offset_allowed,
 )
+from app.pcm_cache import get_pcm_cache, warm_all, warm_announcement
 from app.scheduler import get_running, start_scheduler, stop_scheduler, sync_jobs
 from app.store import get_store
 
@@ -51,6 +52,7 @@ async def lifespan(_app: FastAPI):
         datefmt="%Y-%m-%d %H:%M:%S",
     )
     await asyncio.to_thread(get_registry().preload)
+    await asyncio.to_thread(warm_all)
     start_scheduler()
     yield
     stop_scheduler()
@@ -371,6 +373,7 @@ def create_announcement(req: AnnouncementIn) -> dict[str, object]:
         busy_give_up_seconds=req.busy_give_up_seconds,
     )
     stored = get_store().save_announcement(item)
+    warm_announcement(stored)
     return stored.model_dump(mode="json")
 
 
@@ -392,6 +395,7 @@ def update_announcement(announcement_id: str, req: AnnouncementIn) -> dict[str, 
         }
     )
     stored = store.save_announcement(updated)
+    warm_announcement(stored)
     sync_jobs()
     return stored.model_dump(mode="json")
 
@@ -403,6 +407,7 @@ def delete_announcement(announcement_id: str) -> dict[str, bool]:
             raise HTTPException(status_code=404, detail="Announcement not found")
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    get_pcm_cache().drop(announcement_id)
     sync_jobs()
     return {"ok": True}
 

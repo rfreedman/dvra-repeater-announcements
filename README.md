@@ -69,6 +69,7 @@ echo "From a pipe" | python -m app speak --stdin
 | `TTS_HOST` / `TTS_PORT` | `0.0.0.0` / `8000` | Bind address |
 | `TTS_TIMEZONE` | `America/New_York` | Clock for schedules |
 | `TTS_DATA_DIR` | `./data` | Saved announcements JSON |
+| `TTS_PCM_CACHE_DIR` | `./data/pcm` | Pre-rendered announcement PCM (written on save and at startup; scheduled fires play this) |
 | `TTS_LOG_DIR` | `./data/logs` | Daily `announcements.log` files (30 days; uvicorn access lines are not written here) |
 | `TTS_PTT_LEAD_SECONDS` | `0.4` | Delay after PTT before audio |
 | `TTS_BUSY_RETRY_SECONDS` | `5` | Default retry while the channel is busy |
