@@ -100,8 +100,8 @@
                 <button type="button" class="primary" id="new-schedule">New schedule</button>
                 <div id="template-menu" class="menu hidden">
                   <button type="button" data-template="baseline">Baseline</button>
-                  <button type="button" data-template="weekly">Weekly Net</button>
-                  <button type="button" data-template="monthly">Monthly Net</button>
+                  <button type="button" data-template="weekly">Weekly</button>
+                  <button type="button" data-template="monthly">Monthly</button>
                   <button type="button" data-template="range">Event countdown</button>
                   <button type="button" data-template="monthly_range">Monthly countdown</button>
                   <button type="button" data-template="once">Once</button>
@@ -187,11 +187,11 @@
           <p>The shift must stay inside the slot window (default ±10 minutes around the slot time).</p>
           <ul>
             <li>
-              <strong>Weekly Net</strong> — a weekday and a slot, often a few minutes early. Example:
+              <strong>Weekly</strong> — a weekday and a slot, often a few minutes early. Example:
               Sundays, 21:00 slot, −5 minutes → 20:55, every Sunday.
             </li>
             <li>
-              <strong>Monthly Net</strong> — the 1st, 2nd, 3rd, or 4th weekday of the month, plus
+              <strong>Monthly</strong> — the 1st, 2nd, 3rd, or 4th weekday of the month, plus
               months to skip (August off).
             </li>
             <li>
@@ -216,7 +216,7 @@
             </li>
           </ul>
           <p>
-            Template names such as “Weekly Net” are only starting points. Rename the schedule to
+            Template names such as “Weekly” are only starting points. Rename the schedule to
             whatever the operators will recognize.
           </p>
 
@@ -230,8 +230,8 @@
           <h3>Suggested first setup</h3>
           <ol>
             <li>Create a station-ID announcement and a baseline schedule that uses it.</li>
-            <li>Add a Weekly Net overlay for Sunday 21:00, −5 minutes.</li>
-            <li>Add a Monthly Net overlay for the first Wednesday 19:00, −5 minutes, skip August if needed.</li>
+            <li>Add a Weekly overlay for Sunday 21:00, −5 minutes.</li>
+            <li>Add a Monthly overlay for the first Wednesday 19:00, −5 minutes, skip August if needed.</li>
             <li>For an upcoming in-person meeting, add an Event countdown from today until the meeting slot.</li>
           </ol>
         </article>
@@ -314,7 +314,7 @@
 
         <section class="voice-row">
           <label class="label" for="sched-name">Name</label>
-          <input id="sched-name" type="text" maxlength="120" placeholder="Weekly Net" />
+          <input id="sched-name" type="text" maxlength="120" placeholder="Weekly" />
         </section>
 
         <section class="voice-row">

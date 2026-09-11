@@ -229,7 +229,7 @@ def test_overlay_transmit_does_not_consume_baseline():
     schedule = Schedule.model_validate(
         {
             "id": "net",
-            "name": "Weekly Net",
+            "name": "Weekly",
             "kind": "weekly",
             "days": ["thu"],
             "slots": ["12:00"],

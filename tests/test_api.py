@@ -66,7 +66,7 @@ def test_same_text_can_be_baseline_and_overlay(store):
         overlay = client.post(
             "/api/schedules",
             json={
-                "name": "Weekly Net",
+                "name": "Weekly",
                 "kind": "weekly",
                 "announcement_id": announcement.id,
                 "days": ["sun"],

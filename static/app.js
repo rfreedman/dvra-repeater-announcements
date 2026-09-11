@@ -32,7 +32,7 @@ const MONTHS = [
 const TEMPLATES = {
   baseline: { name: "Baseline", kind: "baseline", offset_minutes: 0 },
   weekly: {
-    name: "Weekly Net",
+    name: "Weekly",
     kind: "weekly",
     days: ["sun"],
     slots: ["21:00"],
@@ -40,7 +40,7 @@ const TEMPLATES = {
     priority: 50,
   },
   monthly: {
-    name: "Monthly Net",
+    name: "Monthly",
     kind: "monthly",
     days: ["wed"],
     occurrence: 1,

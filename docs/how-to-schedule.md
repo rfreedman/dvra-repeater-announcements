@@ -29,9 +29,9 @@ plays at 15:30. The 15:00 slot is unchanged.
 The shift must stay inside the slot window (default ±10 minutes around the slot
 time).
 
-- **Weekly Net** — a weekday and a slot, often a few minutes early. Example:
+- **Weekly** — a weekday and a slot, often a few minutes early. Example:
   Sundays, 21:00 slot, −5 minutes → 20:55, every Sunday.
-- **Monthly Net** — the 1st, 2nd, 3rd, or 4th weekday of the month, plus months
+- **Monthly** — the 1st, 2nd, 3rd, or 4th weekday of the month, plus months
   to skip (August off).
 - **Event countdown** — every slot from a start date up to an event slot, but
   not the event slot itself and not later slots that same day. After that day it
@@ -46,7 +46,7 @@ time).
 - **Emergency** — wins every slot until you turn it off. It does not interrupt a
   transmission that has already started.
 
-Template names such as “Weekly Net” are only starting points. Rename the
+Template names such as “Weekly” are only starting points. Rename the
 schedule to whatever the operators will recognize.
 
 ## 4. When two overlays want the same slot
@@ -59,8 +59,8 @@ saved.
 ## Suggested first setup
 
 1. Create a station-ID announcement and a baseline schedule that uses it.
-2. Add a Weekly Net overlay for Sunday 21:00, −5 minutes.
-3. Add a Monthly Net overlay for the first Wednesday 19:00, −5 minutes, skip
+2. Add a Weekly overlay for Sunday 21:00, −5 minutes.
+3. Add a Monthly overlay for the first Wednesday 19:00, −5 minutes, skip
    August if needed.
 4. For an upcoming in-person meeting, add an Event countdown from today until
    the meeting slot.

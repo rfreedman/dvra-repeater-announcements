@@ -28,7 +28,7 @@ def _baseline(announcement_id: str, name: str = "Baseline ID", **kwargs) -> Sche
 
 def _weekly(**kwargs) -> Schedule:
     data = {
-        "name": "Weekly Net",
+        "name": "Weekly",
         "kind": "weekly",
         "days": ["sun"],
         "slots": ["21:00"],
@@ -124,7 +124,7 @@ def test_monthly_first_wednesday_skips_august():
             Schedule.model_validate(
                 {
                     "id": "s2",
-                    "name": "Monthly Net",
+                    "name": "Monthly",
                     "kind": "monthly",
                     "announcement_id": "a2",
                     "days": ["wed"],
