@@ -8,6 +8,11 @@ from app.radio import StubRadio, set_radio
 from app.store import AnnouncementStore, set_store
 
 
+@pytest.fixture(autouse=True)
+def no_voice_preload(monkeypatch):
+    monkeypatch.setattr("app.registry.EngineRegistry.preload", lambda self: [])
+
+
 @pytest.fixture
 def store(tmp_path: Path):
     path = tmp_path / "announcements.json"

@@ -50,6 +50,7 @@ async def lifespan(_app: FastAPI):
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
+    await asyncio.to_thread(get_registry().preload)
     start_scheduler()
     yield
     stop_scheduler()

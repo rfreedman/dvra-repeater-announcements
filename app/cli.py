@@ -45,7 +45,7 @@ def main(argv: list[str] | None = None) -> int:
     serve.add_argument(
         "--preload",
         action="store_true",
-        help="Download and load the default Piper voice before serving",
+        help="Deprecated: serve always preloads all Piper voices at startup",
     )
 
     sub.add_parser("voices", help="List Piper voices")
@@ -94,10 +94,6 @@ def _cmd_speak(args: argparse.Namespace) -> int:
 
 
 def _cmd_serve(args: argparse.Namespace) -> int:
-    if args.preload:
-        registry = get_registry()
-        voice_id = registry.prepare()
-        print(f"Preloaded {voice_id}", file=sys.stderr)
     import uvicorn
 
     from app.logging_setup import serve_log_config

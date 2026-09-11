@@ -15,6 +15,9 @@ class EngineRegistry:
     def prepare(self, voice: str | None = None) -> str:
         return self.engine.prepare(voice)
 
+    def preload(self) -> list[str]:
+        return self.engine.preload()
+
     def synthesize(
         self,
         text: str,
