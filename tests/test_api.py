@@ -221,3 +221,38 @@ def test_clock_date_query(store):
         assert payload["clock_date"] == "2026-09-06"
         assert payload["clock"][0]["slot"] == "00:00"
         assert datetime.fromisoformat(payload["clock"][0]["slot_at"]).date() == date(2026, 9, 6)
+
+
+def test_trigger_now_disabled_hides_endpoint(store, monkeypatch):
+    monkeypatch.setattr("app.config.TRIGGER_NOW", False)
+    _announcement, schedule = _seed_baseline(store)
+    with TestClient(app) as client:
+        payload = client.get("/api/schedules").json()
+        assert payload["trigger_now_enabled"] is False
+        res = client.post(f"/api/schedules/{schedule.id}/trigger")
+        assert res.status_code == 404
+
+
+def test_trigger_now_plays_without_changing_last_or_next(store, radio, monkeypatch):
+    monkeypatch.setattr("app.config.TRIGGER_NOW", True)
+    monkeypatch.setattr("app.scheduler.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        "app.scheduler.chunks_for_announcement",
+        lambda _item: [PcmChunk(pcm_int16=b"\x00\x00", sample_rate=22050)],
+    )
+    monkeypatch.setattr("app.scheduler.play_chunks", lambda _chunks: None)
+    _announcement, schedule = _seed_baseline(store)
+    with TestClient(app) as client:
+        before = client.get("/api/schedules").json()
+        assert before["trigger_now_enabled"] is True
+        row = before["schedules"][0]
+        assert row["last_run_at"] is None
+        next_at = row["next_run_at"]
+        res = client.post(f"/api/schedules/{schedule.id}/trigger")
+        assert res.status_code == 200
+        assert res.json()["result"] == "transmitted"
+        after = client.get("/api/schedules").json()["schedules"][0]
+        assert after["last_run_at"] is None
+        assert after["next_run_at"] == next_at
+    assert ("ptt", True) in radio.events
+    assert radio.events[-1] == ("ptt", False)

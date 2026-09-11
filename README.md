@@ -62,7 +62,7 @@ echo "From a pipe" | python -m app speak --stdin
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `TTS_DEFAULT_VOICE` | `en_US-lessac-medium` | Default Piper voice |
+| `TTS_DEFAULT_VOICE` | `en_US-ryan-medium` | Default Piper voice |
 | `TTS_VOICES_DIR` | `./voices` | Model cache |
 | `TTS_SPEED` | `1.0` | Speaking rate (`< 1` is slower) |
 | `TTS_SENTENCE_PAUSE` | `0.25` | Silence between sentences, in seconds |
@@ -76,8 +76,11 @@ echo "From a pipe" | python -m app speak --stdin
 | `TTS_BUSY_GIVE_UP_SECONDS` | `45` | Default drop this fire if still busy |
 | `TTS_SCHEDULER_MAX_WAIT_SECONDS` | `5` | How long the scheduler may sleep before checking the clock again |
 | `TTS_SLOT_HALF_WINDOW_MINUTES` | `10` | How far an overlay may shift from its slot center |
+| `TTS_TRIGGER_NOW` | `false` | Dev only: show **Trigger now** on schedule rows (does not change Last or the next slot) |
 
 On a Raspberry Pi, keep a **medium** quality voice.
+
+Optional `.env` in the project root (see [`.env.example`](.env.example)). Variables already set in the shell override that file.
 
 ## API
 

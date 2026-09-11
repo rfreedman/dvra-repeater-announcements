@@ -94,6 +94,8 @@ let ledBlinkUntil = 0;
 let defaultScript = "";
 let announcements = [];
 let settings = { slot_half_window_minutes: 10, baseline_randomize: false };
+let triggerNowEnabled = false;
+let triggerNowBusy = false;
 let editingAnnouncementId = null;
 let editingScheduleId = null;
 let editorBaseline = null;
@@ -229,6 +231,7 @@ function renderUpcoming() {
   if (!box) return;
   if (!upcoming) {
     box.classList.add("hidden");
+    syncTriggerNowButtons();
     return;
   }
   box.classList.remove("hidden");
@@ -238,6 +241,7 @@ function renderUpcoming() {
   const running = upcoming.status === "running";
   statusEl.textContent = running ? "Running" : "Waiting";
   statusEl.classList.toggle("is-running", running);
+  syncTriggerNowButtons();
   const countEl = document.getElementById("next-run-countdown");
   if (running) {
     countEl.textContent = "Now";
@@ -249,6 +253,17 @@ function renderUpcoming() {
     return;
   }
   countEl.textContent = `in ${formatCountdown(at - (Date.now() + clockSkewMs))}`;
+}
+
+function announcementIsPlaying() {
+  return triggerNowBusy || upcoming?.status === "running";
+}
+
+function syncTriggerNowButtons() {
+  const playing = announcementIsPlaying();
+  for (const button of document.querySelectorAll("[data-trigger-now]")) {
+    button.disabled = playing;
+  }
 }
 
 function tickUpcoming() {
@@ -503,6 +518,38 @@ function renderSchedules(rows) {
       if (res.ok) refreshHome();
     });
     tr.querySelector(".row-actions").append(del);
+    if (triggerNowEnabled) {
+      const trigger = document.createElement("button");
+      trigger.type = "button";
+      trigger.className = "ghost";
+      trigger.dataset.triggerNow = "1";
+      trigger.textContent = "Trigger now";
+      trigger.disabled = announcementIsPlaying();
+      trigger.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        if (announcementIsPlaying()) return;
+        triggerNowBusy = true;
+        syncTriggerNowButtons();
+        try {
+          const res = await fetch(`/api/schedules/${row.schedule_id}/trigger`, { method: "POST" });
+          let payload = {};
+          try {
+            payload = await res.json();
+          } catch {
+            /* ignore */
+          }
+          if (!res.ok) {
+            const detail = payload.detail || res.statusText;
+            window.alert(typeof detail === "string" ? detail : "Could not trigger");
+          }
+        } finally {
+          triggerNowBusy = false;
+          await refreshHome().catch(() => {});
+          syncTriggerNowButtons();
+        }
+      });
+      tr.querySelector(".row-actions").prepend(trigger);
+    }
     tr.addEventListener("click", () => goToHash(`#/schedules/${row.schedule_id}`));
     body.append(tr);
   }
@@ -573,6 +620,7 @@ async function refreshHome() {
     const library = libRes.ok ? await libRes.json() : { announcements: [] };
     announcements = library.announcements || [];
     settings = payload.settings || settings;
+    triggerNowEnabled = Boolean(payload.trigger_now_enabled);
     if (payload.now) {
       const serverNow = Date.parse(payload.now);
       if (!Number.isNaN(serverNow)) clockSkewMs = serverNow - Date.now();
@@ -589,6 +637,7 @@ async function refreshHome() {
     renderSchedules(payload.schedules || []);
     renderLibrary(announcements);
     document.getElementById("baseline-randomize").checked = Boolean(settings.baseline_randomize);
+    syncTriggerNowButtons();
   } finally {
     homeBusy = false;
   }

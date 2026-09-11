@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 
 from app.audio import PcmChunk
+from app import config
 from app.config import (
     DEFAULT_BUSY_GIVE_UP_SECONDS,
     DEFAULT_BUSY_RETRY_SECONDS,
@@ -37,7 +38,7 @@ from app.schedule_logic import (
     offset_allowed,
 )
 from app.pcm_cache import get_pcm_cache, warm_all, warm_announcement
-from app.scheduler import get_running, start_scheduler, stop_scheduler, sync_jobs
+from app.scheduler import get_running, run_manual_trigger, start_scheduler, stop_scheduler, sync_jobs
 from app.store import get_store
 
 log = logging.getLogger("app.server")
@@ -345,6 +346,7 @@ def list_schedules(clock_date: date | None = None) -> dict[str, object]:
         "clock_date": day.isoformat(),
         "clock": _clock_payload(document, day),
         "schedules": rows,
+        "trigger_now_enabled": config.TRIGGER_NOW,
     }
 
 
@@ -456,6 +458,26 @@ def patch_schedule(schedule_id: str, req: SchedulePatch) -> dict[str, object]:
         raise HTTPException(status_code=404, detail="Schedule not found")
     sync_jobs()
     return stored.model_dump(mode="json")
+
+
+@app.post("/api/schedules/{schedule_id}/trigger")
+def trigger_schedule_now(schedule_id: str) -> dict[str, str]:
+    if not config.TRIGGER_NOW:
+        raise HTTPException(status_code=404, detail="Not found")
+    if get_store().get_schedule(schedule_id) is None:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    result = run_manual_trigger(schedule_id)
+    if result == "missing":
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    if result == "disabled":
+        raise HTTPException(status_code=400, detail="Schedule is disabled")
+    if result == "busy":
+        raise HTTPException(status_code=409, detail="Channel is busy")
+    if result == "skipped_lock":
+        raise HTTPException(status_code=409, detail="Another announcement is playing")
+    if result == "dropped":
+        raise HTTPException(status_code=409, detail="Channel still busy")
+    return {"result": result}
 
 
 @app.delete("/api/schedules/{schedule_id}")

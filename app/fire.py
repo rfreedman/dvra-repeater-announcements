@@ -45,6 +45,7 @@ class FireDeps:
     ptt_lead_seconds: float = PTT_LEAD_SECONDS
     set_running: Callable[[Announcement, str], None] | None = None
     clear_running: Callable[[], None] | None = None
+    update_schedule: bool = True
 
 
 def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
@@ -58,7 +59,8 @@ def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
         log.info("Fire skipped; %s; schedule %s disabled", label, schedule.id)
         return "disabled"
     if loaded.silence:
-        deps.mark_last_run(None, schedule.id, deps.now)
+        if deps.update_schedule:
+            deps.mark_last_run(None, schedule.id, deps.now)
         log.info("Fire skipped; %s; silence occupies slot %s", label, ctx.slot_key)
         return "silence"
     if announcement is None:
@@ -68,10 +70,13 @@ def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
         if deps.now >= ctx.deadline:
             log.info("Fire dropped; %s; channel still busy after %s", label, ctx.deadline.isoformat())
             return "dropped"
-        retry_at = deps.now + timedelta(seconds=announcement.busy_retry_seconds)
-        deps.schedule_defer(retry_at, ctx)
-        log.info("Fire deferred; %s; retry at %s; channel busy", label, retry_at.isoformat())
-        return "deferred"
+        if deps.update_schedule:
+            retry_at = deps.now + timedelta(seconds=announcement.busy_retry_seconds)
+            deps.schedule_defer(retry_at, ctx)
+            log.info("Fire deferred; %s; retry at %s; channel busy", label, retry_at.isoformat())
+            return "deferred"
+        log.info("Fire skipped; %s; channel busy", label)
+        return "busy"
     if not deps.playback_lock.acquire(blocking=False):
         log.info("Fire skipped; %s; another announcement is playing", label)
         return "skipped_lock"
@@ -86,9 +91,10 @@ def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
             sleep_fn=deps.sleep_fn,
             lead_seconds=deps.ptt_lead_seconds,
         )
-        deps.mark_last_run(announcement.id, schedule.id, deps.now)
-        if schedule.kind == "baseline":
-            deps.consume_baseline(schedule.id, ctx.slot_key)
+        if deps.update_schedule:
+            deps.mark_last_run(announcement.id, schedule.id, deps.now)
+            if schedule.kind == "baseline":
+                deps.consume_baseline(schedule.id, ctx.slot_key)
         log.info("Fire transmitted; %s", label)
         return "transmitted"
     finally:

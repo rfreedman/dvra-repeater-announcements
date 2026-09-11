@@ -5,6 +5,34 @@ from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = ROOT_DIR / "static"
+
+
+def _load_dotenv(path: Path) -> None:
+    if not path.is_file():
+        return
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if not key or key in os.environ:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        os.environ[key] = value
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+_load_dotenv(ROOT_DIR / ".env")
+
 VOICES_DIR = Path(os.environ.get("TTS_VOICES_DIR", ROOT_DIR / "voices")).expanduser()
 PIPER_VOICES_DIR = VOICES_DIR / "piper"
 
@@ -28,3 +56,4 @@ DEFAULT_BUSY_GIVE_UP_SECONDS = float(os.environ.get("TTS_BUSY_GIVE_UP_SECONDS", 
 SCHEDULER_MAX_WAIT_SECONDS = float(os.environ.get("TTS_SCHEDULER_MAX_WAIT_SECONDS", "5"))
 DEFAULT_SLOT_HALF_WINDOW_MINUTES = int(os.environ.get("TTS_SLOT_HALF_WINDOW_MINUTES", "10"))
 LOOKAHEAD_HOURS = int(os.environ.get("TTS_SLOT_LOOKAHEAD_HOURS", "72"))
+TRIGGER_NOW = _env_flag("TTS_TRIGGER_NOW", False)

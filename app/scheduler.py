@@ -211,6 +211,54 @@ def run_scheduled_fire(
     return result
 
 
+def run_manual_trigger(schedule_id: str) -> str:
+    store = get_store()
+    document = store.document()
+    zone = zone_for(document.settings.timezone)
+    now = datetime.now(zone)
+    schedule = store.get_schedule(schedule_id)
+    if schedule is None:
+        return "missing"
+    announcement = store.get(schedule.announcement_id) if schedule.announcement_id else None
+    give_up = announcement.busy_give_up_seconds if announcement else 45
+    ctx = FireContext(
+        announcement_id=announcement.id if announcement else None,
+        schedule_id=schedule.id,
+        slot_key=f"manual:{schedule.id}",
+        fired_at=now,
+        deadline=now + timedelta(seconds=give_up),
+    )
+
+    def load() -> LoadedFire | None:
+        current = store.get_schedule(schedule_id)
+        if current is None:
+            return None
+        item = store.get(current.announcement_id) if current.announcement_id else None
+        return LoadedFire(
+            announcement=item,
+            schedule=current,
+            silence=current.is_silence,
+        )
+
+    deps = FireDeps(
+        now=now,
+        radio=get_radio(),
+        play_fn=play_chunks,
+        sleep_fn=time.sleep,
+        schedule_defer=lambda _when, _ctx: None,
+        playback_lock=_playback_lock,
+        synthesize=chunks_for_announcement,
+        mark_last_run=lambda *_args: None,
+        consume_baseline=lambda *_args: None,
+        load=load,
+        ptt_lead_seconds=PTT_LEAD_SECONDS,
+        set_running=_set_running,
+        clear_running=_clear_running,
+        update_schedule=False,
+    )
+    return handle_fire(ctx, deps)
+
+
 def sync_jobs() -> None:
     scheduler = get_scheduler()
     if scheduler is None:

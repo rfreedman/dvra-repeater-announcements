@@ -155,6 +155,18 @@ def test_fire_renders_pcm_before_keying_ptt():
     assert radio.events[ptt_on:][0] == ("ptt", True)
 
 
+def test_manual_fire_does_not_update_last_run_or_rotation():
+    radio = StubRadio()
+    announcement = _announcement()
+    deps, extras = _deps(announcement, radio)
+    deps.update_schedule = False
+    assert handle_fire(_ctx(), deps) == "transmitted"
+    assert extras["played"] == ["play"]
+    assert extras["last_runs"] == []
+    assert extras["consumed"] == []
+    assert ("ptt", True) in radio.events
+
+
 def test_set_running_not_called_when_busy():
     radio = StubRadio()
     radio.busy = True
