@@ -324,3 +324,38 @@ def test_weekly_summary_mentions_early():
     assert "21:00" in text
     assert "Sundays" in text
     assert "5 minutes early" in text
+
+
+def test_weekly_summary_collapses_contiguous_slots_and_days():
+    overlay = _weekly(
+        announcement_id="a2",
+        days=["mon", "tue", "wed"],
+        slots=["20:00", "20:30", "21:00"],
+        offset_minutes=0,
+    )
+    assert summarize(overlay) == "the 20:00–21:00 slots on Monday–Wednesday"
+
+
+def test_weekly_summary_every_day_and_split_slot_ranges():
+    overlay = _weekly(
+        announcement_id="a2",
+        days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+        slots=["08:00", "08:30", "21:00"],
+        offset_minutes=0,
+    )
+    assert summarize(overlay) == "the 08:00–08:30 slots and the 21:00 slot every day"
+
+
+def test_weekly_summary_wraps_weekend_into_a_day_range():
+    overlay = _weekly(announcement_id="a2", days=["sat", "sun", "mon"], slots=["09:00"], offset_minutes=0)
+    assert summarize(overlay) == "the 09:00 slot on Saturday–Monday"
+
+
+def test_slot_phrase_wraps_midnight():
+    overlay = _weekly(
+        announcement_id="a2",
+        days=["fri"],
+        slots=["23:00", "23:30", "00:00", "00:30"],
+        offset_minutes=0,
+    )
+    assert summarize(overlay) == "the 23:00–00:30 slots on Fridays"

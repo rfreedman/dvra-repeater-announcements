@@ -20,6 +20,8 @@ from app.models import (
     Announcement,
     Schedule,
     StoreDocument,
+    format_hhmm,
+    parse_hhmm,
 )
 from app.slots import Slot, as_local, iter_day_slots, iter_slots, slot_from_parts, zone_for
 
@@ -370,16 +372,78 @@ def _ordinal(n: int) -> str:
     return f"{n}{suffix}"
 
 
+def _group_circular(indices: list[int], modulus: int) -> list[tuple[int, int]]:
+    """Inclusive (start, end) runs. A wrap-around run has start > end."""
+    if not indices:
+        return []
+    ordered = sorted(set(indices))
+    if len(ordered) == modulus:
+        return [(0, modulus - 1)]
+    runs: list[tuple[int, int]] = []
+    start = prev = ordered[0]
+    for value in ordered[1:]:
+        if value == prev + 1:
+            prev = value
+            continue
+        runs.append((start, prev))
+        start = prev = value
+    runs.append((start, prev))
+    if len(runs) >= 2 and runs[0][0] == 0 and runs[-1][1] == modulus - 1:
+        wrapped = (runs[-1][0], runs[0][1])
+        runs = runs[1:-1] + [wrapped]
+    return runs
+
+
+def _slot_index(stamp: str) -> int:
+    hour, minute = parse_hhmm(stamp)
+    return hour * 2 + (1 if minute == 30 else 0)
+
+
+def _stamp_from_index(index: int) -> str:
+    return format_hhmm(index // 2, 0 if index % 2 == 0 else 30)
+
+
 def _day_phrase(days: list[str], plural: bool) -> str:
-    names = [DAY_LABELS[day] + ("s" if plural else "") for day in days]
-    return _join_en(names)
+    if not days:
+        return ""
+    if set(days) >= set(DAY_NAMES):
+        return "every day"
+    runs = _group_circular([DAY_NAMES.index(day) for day in days], len(DAY_NAMES))
+    parts: list[str] = []
+    for start, end in runs:
+        if start == end:
+            label = DAY_LABELS[DAY_NAMES[start]]
+            parts.append(label + ("s" if plural else ""))
+        else:
+            parts.append(f"{DAY_LABELS[DAY_NAMES[start]]}–{DAY_LABELS[DAY_NAMES[end]]}")
+    return _join_en(parts)
+
+
+def _on_days(days: list[str], *, plural: bool) -> str:
+    phrase = _day_phrase(days, plural)
+    if not phrase:
+        return ""
+    if phrase == "every day":
+        return " every day"
+    return f" on {phrase}"
 
 
 def _slot_phrase(slots: list[str]) -> str:
     if not slots:
         return "every slot"
-    labels = [f"the {stamp} slot" for stamp in slots]
-    return _join_en(labels)
+    indices = [_slot_index(stamp) for stamp in slots]
+    modulus = 48
+    if len(set(indices)) == modulus:
+        return "every slot"
+    parts: list[str] = []
+    for start, end in _group_circular(indices, modulus):
+        start_stamp = _stamp_from_index(start)
+        end_stamp = _stamp_from_index(end)
+        if start == end:
+            parts.append(f"the {start_stamp} slot")
+        else:
+            parts.append(f"the {start_stamp}–{end_stamp} slots")
+    return _join_en(parts)
 
 
 def _offset_phrase(offset_minutes: int) -> str:
@@ -400,7 +464,7 @@ def summarize(schedule: Schedule) -> str:
     if schedule.kind == "emergency":
         return f"Emergency — every slot until cleared{offset}{silence}"
     if schedule.kind == "weekly":
-        return f"{_slot_phrase(schedule.slots)} on {_day_phrase(schedule.days, plural=True)}{offset}{silence}"
+        return f"{_slot_phrase(schedule.slots)}{_on_days(schedule.days, plural=True)}{offset}{silence}"
     if schedule.kind == "monthly":
         occ = _ordinal(schedule.occurrence or 1)
         weekday = DAY_LABELS[schedule.days[0]] if schedule.days else "day"

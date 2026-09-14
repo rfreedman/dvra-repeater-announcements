@@ -118,7 +118,6 @@ log = logging.getLogger("app.engines.piper")
 class PiperEngine(Engine):
     id = "piper"
     name = "Piper"
-    blurb = "Faster neural TTS with sentence streaming. Best choice for Raspberry Pi."
 
     def __init__(self, voices_dir: Path | None = None, default_voice: str | None = None) -> None:
         self.voices_dir = Path(voices_dir or PIPER_VOICES_DIR)

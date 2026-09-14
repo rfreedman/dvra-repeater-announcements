@@ -80,6 +80,45 @@ def test_same_text_can_be_baseline_and_overlay(store):
         assert {row["kind"] for row in listed} == {"baseline", "weekly"}
 
 
+def test_home_when_column_collapses_contiguous_slots_and_days(store):
+    announcement, _baseline = _seed_baseline(store)
+    with TestClient(app) as client:
+        created = client.post(
+            "/api/schedules",
+            json={
+                "name": "Drive time",
+                "kind": "weekly",
+                "announcement_id": announcement.id,
+                "days": ["mon", "tue", "wed", "thu", "fri"],
+                "slots": ["07:00", "07:30", "08:00", "17:00"],
+            },
+        )
+        assert created.status_code == 200
+        rows = client.get("/api/schedules").json()["schedules"]
+        drive = next(row for row in rows if row["name"] == "Drive time")
+        assert drive["summary"] == "the 07:00–08:00 slots and the 17:00 slot on Monday–Friday"
+
+
+def test_home_when_column_says_every_day(store):
+    announcement, _baseline = _seed_baseline(store)
+    with TestClient(app) as client:
+        created = client.post(
+            "/api/schedules",
+            json={
+                "name": "Daily ID extra",
+                "kind": "weekly",
+                "announcement_id": announcement.id,
+                "days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+                "slots": ["12:00"],
+                "priority": 40,
+            },
+        )
+        assert created.status_code == 200
+        rows = client.get("/api/schedules").json()["schedules"]
+        daily = next(row for row in rows if row["name"] == "Daily ID extra")
+        assert daily["summary"] == "the 12:00 slot every day"
+
+
 def test_duplicate_baseline_announcement_is_conflict(store):
     announcement, _baseline = _seed_baseline(store)
     with TestClient(app) as client:
