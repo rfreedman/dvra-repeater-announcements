@@ -1,6 +1,6 @@
 ---
 name: Hardware recommendation
-overview: Run the app on the Raspberry Pi 4. Use one Masters DRA-45M as the only USB radio interface for two IC-207Hs — stereo TX (same audio on L and R), one shared PTT, independent busy on each COS/CTCSS line — plus a custom dual Mini-DIN-6 cable. Two DRA-36Ms are the plug-and-play fallback.
+overview: Run the app on the Raspberry Pi 4. Use one Masters DRA-45M as the only USB radio interface for two radios (IC-207H production, or IC-2720 for initial development and testing) — stereo TX (same audio on L and R), one shared PTT, independent busy on each COS/CTCSS line — plus a custom dual Mini-DIN-6 cable. Two DRA-36Ms are the plug-and-play fallback.
 todos:
   - id: confirm-pi4
     content: Use existing Raspberry Pi 4 as the always-on host (64-bit Pi OS)
@@ -12,7 +12,7 @@ todos:
     content: Custom DB9-to-two-Mini-DIN-6 cable (URI/Plun-N-Play or homemade) for L/R audio, shared PTT, independent SQL
     status: pending
   - id: dra-jumpers
-    content: Install JU3 (COS), JU4 (CTCSS), JU5 (left TX); radio data speed 1200 on both IC-207Hs; confirm SQL polarity per radio
+    content: Install JU3 (COS), JU4 (CTCSS), JU5 (left TX); radio data speed 1200 on both radios (IC-207H or IC-2720); confirm SQL polarity per radio
     status: pending
   - id: hid-radio
     content: Later replace StubRadio with CM119A HID (GPIO3 PTT both radios; busy if either COS or CTCSS is active); PortAudio stereo upmix of mono Piper
@@ -23,13 +23,17 @@ todos:
 isProject: false
 ---
 
-# Hardware: Pi 4 + one DRA-45M for two IC-207Hs
+# Hardware: Pi 4 + one DRA-45M for two radios (IC-207H or IC-2720)
+
+**Superseded for the build.** Production interface is two DRA-36M units: [`docs/final-hardware/README.md`](../final-hardware/README.md). This page is kept as background on the DRA-45M Y-cable alternative.
 
 The app is a long-running **FastAPI + Piper + PortAudio** service. GPIO is still [`StubRadio`](../app/radio.py).
 
 **Host: Raspberry Pi 4** (64-bit Raspberry Pi OS).
 
-**Radio interface: one Masters [DRA-45M](https://www.masterscommunications.com/products/radio-adapter/dra/dra-index.html)** (assembled, metal case) plus a **custom DB9 → two Mini-DIN-6** cable. One USB plug to the Pi. Both repeaters hear the same announcement, key together, and report busy independently.
+**Radios: IC-207H or IC-2720.** The production machines are **IC-207H**. An **IC-2720** is interchangeable on this interface for initial development and testing — same 6-pin Mini-DIN DATA jack, same PTT (ground to key), same pin 6 SQL (high when squelch is open). See [connectors.md](connectors.md).
+
+**Radio interface: one Masters [DRA-45M](https://www.masterscommunications.com/products/radio-adapter/dra/dra45m.html)** (assembled, metal case) plus a **custom DB9 → two Mini-DIN-6** cable. One USB plug to the Pi. Both repeaters hear the same announcement, key together, and report busy independently.
 
 A **single DRA-36M cannot do this.** Its Mini-DIN-6 has only one TX pin and one COS pin. Masters’ **DRA-Switch** is A/B (one radio at a time), not simultaneous. Mixers (DRA-3M) go the other way (several sound cards into one radio).
 
@@ -39,8 +43,8 @@ flowchart LR
     App[FastAPI plus Piper]
   end
   DRA[DRA-45M USB]
-  R1[IC-207H A]
-  R2[IC-207H B]
+  R1[Radio A]
+  R2[Radio B]
   App -->|"stereo PCM plus HID GPIO"| DRA
   DRA -->|"Right TX plus PTT"| R1
   DRA -->|"Left TX plus PTT"| R2
@@ -63,11 +67,11 @@ The CM119A is a **stereo** USB codec with **two logic inputs** (AllStar COS and 
 
 JU5 is documented as **left-channel TX to pin 8**. Install JU3, JU4, and JU5 (digital-mode docs say to *remove* them; this app needs them **on**).
 
-45M vs 45: metal case, same signals; 45M is the easier assembled unit. Icom packet PTT is ground-to-key; one transistor or relay can key **both** 207Hs in parallel. Prefer the M-series if it offers the relay jumper (same idea as the 36M) so odd Icom PTT loads are covered.
+45M vs 45: metal case, same signals; 45M is the easier assembled unit. Icom packet PTT is ground-to-key; one transistor or relay can key **both** radios in parallel. Prefer the M-series if it offers the relay jumper (same idea as the 36M) so odd Icom PTT loads are covered.
 
 ## Custom cable (required)
 
-No stock Masters DIN6 cable fans a DB9 out to two 207Hs. Have **URI Cables / Plun-N-Play** (Masters points people there) build a DB9 male to **two Mini-DIN-6 males**, or solder it:
+No stock Masters DIN6 cable fans a DB9 out to two radios. Have **URI Cables / Plun-N-Play** (Masters points people there) build a DB9 male to **two Mini-DIN-6 males**, or solder it:
 
 - Shared: ground, PTT (DRA pin 3 → both radios pin 3)
 - Radio A: Data In ← DRA pin 1 (right), SQL → DRA pin 2 (COS)
@@ -95,7 +99,7 @@ The 45M path is cheaper even with a ~$70 custom cable. Two 36Ms buy stock cables
 
 - **`channel_busy()` is true if either repeater is busy.** Defer (existing retry / give-up timers) until **both** are clear, then key **both** and play. Never announce into a QSO on one machine while the other is idle.
 - **`set_ptt(True)`** asserts CM119 GPIO3 once; both radios key. Existing `TTS_PTT_LEAD_SECONDS` still applies before audio.
-- SQL polarity: COS/CTCSS hardware is **active-low**. Each 207H SQL **goes high when squelch is open**. Invert per radio in software if the pin also sinks when squelched; otherwise use Masters’ NPN inverter on that radio. Confirm with a DMM.
+- SQL polarity: COS/CTCSS hardware is **active-low**. Each radio’s SQL (pin 6) **goes high when squelch is open**. Invert per radio in software if the pin also sinks when squelched; otherwise use Masters’ NPN inverter on that radio. Confirm with a DMM.
 
 ## Software later
 

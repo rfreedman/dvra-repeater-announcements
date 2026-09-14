@@ -38,7 +38,7 @@ Write the spoken text under **New announcement**. Timing lives on **schedules**,
 - A **baseline** fills every hour and half-hour unless something else claims the slot. Several baselines take turns.
 - An **overlay** (weekly net, monthly net, event countdown, once, silence, or emergency) replaces the baseline for the slots it matches. You can slide an overlay a few minutes early or late inside the slot window; it still occupies that slot. Example: the 15:30 slot at −5 minutes fires at 15:25, and 15:30 stays silent.
 
-Scheduled playback happens on the **server speakers** (with stub PTT key-up and a lead-in delay), even if the browser is closed. The Speak button is preview only and does not key the radio.
+Scheduled playback happens on the **server's audio device** (with stub PTT key-up and a lead-in delay), even if the browser is closed. The Speak button is preview only and does not key the radio.
 
 Insert a timed silence in the script with `[pause:SECONDS]` (optional trailing `s`). The tag is not spoken. Duration is capped at 10 seconds; invalid tags such as `[pause]` are left as ordinary text.
 
