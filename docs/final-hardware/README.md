@@ -6,23 +6,17 @@ This is the production radio interface for the announcements app.
 
 ## Parts List / Cost
 
-| Item | <div style="white-space: nowrap;">Cost Ea</div> | <div style="white-space: nowrap;">Qty</dvi>  | <div style="white-space: nowrap;">Total</div> | Source |
+| Item | <div style="white-space: nowrap;">Cost Ea</div> | <div style="white-space: nowrap;">Qty</dvi>  | <div style="white-space: nowrap;">Total &nbsp; &nbps;</div> | Source |
 | ---- | ------- | ---- | ---- | ---- |
 |DRA-36M + cable & shipping|$129|2|$258|masterscommunications.com|
 ||
-|Pi4 4Gb| $120| 1| $120 | amazon.com/Raspberry-Pi-RPI4-MODBP-4GB-Model-4GB/dp/B09TTNF8BT|
-|Passive Aluminum Case|$10|1|$10|amazon.com/Geekworm-Raspberry-Compatible-Aluminum-Only-Black/dp/B07ZVJDRF3|
-|Power Supply w/switch|$10|1|$10|amazon.com/GeeekPi-Supply-Raspberry-Orange-Adapter/dp/B0BMGJNSVS|
-|Tax @ Amazon| $10 | 1 | $10||
+|Pi4 4Gb + tax| $128| 1| $128 | amazon.com/Raspberry-Pi-RPI4-MODBP-4GB-Model-4GB/dp/B09TTNF8BT |
+|Passive Aluminum Pi Case + tax |$11|1|$11 |amazon.com/Geekworm-Raspberry-Compatible-Aluminum-Only-Black/dp/B07ZVJDRF3|
+|Power Supply w/switch + tax |$11|1|$11|amazon.com/GeeekPi-Supply-Raspberry-Orange-Adapter/dp/B0BMGJNSVS |
 ||
-| SD Card | $0 | 2 | $0 | have leftover from hamclock project |
+| SD Card | $37 | 1 | $37 | https://www.amazon.com/SanDisk-Endurance-MicroSD-Outdoor-Cameras/dp/B0BMW1XFY2 |
 ||
-|**TOTAL**|||**$408**|
-
-**Cost w/ 1 DRA-45 is ~ $270**
-
-**Cost w/ no DRA is ~ $150**
-
+|**TOTAL**|||**$443**|
 
 
 ## Station
