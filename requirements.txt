@@ -4,4 +4,6 @@ piper-tts>=1.7.0
 sounddevice>=0.5.1
 numpy>=1.26.0,<3
 apscheduler>=3.10.4,<4
+bcrypt>=4.0.0
+itsdangerous>=2.0.0
 pytest>=8.0.0

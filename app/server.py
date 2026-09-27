@@ -7,16 +7,27 @@ import time
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from datetime import date, datetime
-from typing import Literal
+from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
+from starlette.middleware.sessions import SessionMiddleware
 
 from app.audio import PcmChunk
 from app import config
+from app.auth import (
+    authenticate,
+    clear_session,
+    current_user_optional,
+    hash_password,
+    require_admin,
+    require_user,
+    set_session_user,
+    validate_password,
+)
 from app.config import (
     DEFAULT_BUSY_GIVE_UP_SECONDS,
     DEFAULT_BUSY_RETRY_SECONDS,
@@ -25,6 +36,7 @@ from app.config import (
     MAX_TEXT_CHARS,
     STATIC_DIR,
     TIMEZONE,
+    session_secret,
 )
 from app.engines.base import VoiceError
 from app.models import Announcement, Schedule, ScheduleKind, Settings, StoreDocument
@@ -41,9 +53,13 @@ from app.schedule_logic import (
 from app.pcm_cache import get_pcm_cache, warm_all, warm_announcement
 from app.scheduler import get_running, run_manual_trigger, start_scheduler, stop_scheduler, sync_jobs
 from app.store import get_store
+from app.users import Role, User, get_user_store
 
 log = logging.getLogger("app.server")
 _END = object()
+
+AdminUser = Annotated[User, Depends(require_admin)]
+AuthUser = Annotated[User, Depends(require_user)]
 
 
 @asynccontextmanager
@@ -64,6 +80,14 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="TTS Stream", version="1.0.0", lifespan=lifespan)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=session_secret(),
+    session_cookie="announcements_session",
+    max_age=None,
+    same_site="lax",
+    https_only=False,
+)
 registry = get_registry()
 
 
@@ -115,6 +139,28 @@ class AnnouncementIn(BaseModel):
 class SettingsIn(BaseModel):
     slot_half_window_minutes: int | None = None
     baseline_randomize: bool | None = None
+
+
+class LoginIn(BaseModel):
+    username: str = Field(..., min_length=1, max_length=64)
+    password: str = Field(..., min_length=1, max_length=256)
+
+
+class SetupIn(BaseModel):
+    username: str = Field(..., min_length=1, max_length=64)
+    password: str = Field(..., min_length=1, max_length=256)
+
+
+class UserCreateIn(BaseModel):
+    username: str = Field(..., min_length=1, max_length=64)
+    password: str = Field(..., min_length=1, max_length=256)
+    role: Role = "readonly"
+
+
+class UserUpdateIn(BaseModel):
+    username: str | None = Field(default=None, min_length=1, max_length=64)
+    password: str | None = Field(default=None, min_length=1, max_length=256)
+    role: Role | None = None
 
 
 def _build_schedule(payload: ScheduleIn) -> Schedule:
@@ -217,13 +263,116 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/api/auth/status")
+def auth_status(request: Request) -> dict[str, object]:
+    store = get_user_store()
+    if store.count() == 0:
+        return {"authenticated": False, "needs_setup": True, "user": None}
+    user = current_user_optional(request)
+    if user is None:
+        return {"authenticated": False, "needs_setup": False, "user": None}
+    return {"authenticated": True, "needs_setup": False, "user": user.public()}
+
+
+@app.post("/api/auth/setup")
+def auth_setup(req: SetupIn, request: Request) -> dict[str, object]:
+    store = get_user_store()
+    if store.count() != 0:
+        raise HTTPException(status_code=409, detail="Setup already completed")
+    try:
+        password = validate_password(req.password)
+        user = store.create(
+            username=req.username,
+            password_hash=hash_password(password),
+            role="admin",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    set_session_user(request, user)
+    return {"user": user.public()}
+
+
+@app.post("/api/auth/login")
+def auth_login(req: LoginIn, request: Request) -> dict[str, object]:
+    if get_user_store().count() == 0:
+        raise HTTPException(status_code=409, detail="Setup required")
+    user = authenticate(req.username, req.password)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    set_session_user(request, user)
+    return {"user": user.public()}
+
+
+@app.post("/api/auth/logout")
+def auth_logout(request: Request) -> dict[str, bool]:
+    clear_session(request)
+    return {"ok": True}
+
+
+@app.get("/api/auth/me")
+def auth_me(user: AuthUser) -> dict[str, object]:
+    return {"user": user.public()}
+
+
+@app.get("/api/users")
+def list_users(_admin: AdminUser) -> dict[str, object]:
+    users = sorted(get_user_store().list_users(), key=lambda item: item.username.lower())
+    return {"users": [item.public() for item in users]}
+
+
+@app.post("/api/users")
+def create_user(req: UserCreateIn, _admin: AdminUser) -> dict[str, object]:
+    try:
+        password = validate_password(req.password)
+        user = get_user_store().create(
+            username=req.username,
+            password_hash=hash_password(password),
+            role=req.role,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return user.public()
+
+
+@app.put("/api/users/{user_id}")
+def update_user(user_id: str, req: UserUpdateIn, _admin: AdminUser) -> dict[str, object]:
+    store = get_user_store()
+    if store.get(user_id) is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    try:
+        password_hash = None
+        if req.password is not None:
+            password_hash = hash_password(validate_password(req.password))
+        user = store.update(
+            user_id,
+            username=req.username,
+            password_hash=password_hash,
+            role=req.role,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="User not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return user.public()
+
+
+@app.delete("/api/users/{user_id}")
+def delete_user(user_id: str, _admin: AdminUser) -> dict[str, bool]:
+    try:
+        if not get_user_store().delete(user_id):
+            raise HTTPException(status_code=404, detail="User not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True}
+
+
 @app.get("/api/voices")
-def voices() -> dict[str, object]:
+def voices(_user: AuthUser) -> dict[str, object]:
     return registry.voices_payload()
 
 
 @app.post("/api/prepare")
-def prepare(req: PrepareRequest) -> dict[str, str]:
+def prepare(req: PrepareRequest, _user: AuthUser) -> dict[str, str]:
     try:
         voice_id = registry.prepare(req.voice)
     except VoiceError as exc:
@@ -234,7 +383,7 @@ def prepare(req: PrepareRequest) -> dict[str, str]:
 
 
 @app.post("/api/speak")
-async def speak(req: SpeakRequest, request: Request) -> StreamingResponse:
+async def speak(req: SpeakRequest, request: Request, _user: AuthUser) -> StreamingResponse:
     text = req.text.strip()
     if not text:
         raise HTTPException(status_code=400, detail="Text is required")
@@ -299,12 +448,12 @@ async def _pcm_stream(request: Request, chunks: Iterator[PcmChunk]) -> AsyncIter
 
 
 @app.get("/api/settings")
-def get_settings() -> dict[str, object]:
+def get_settings(_user: AuthUser) -> dict[str, object]:
     return get_store().document().settings.model_dump(mode="json")
 
 
 @app.put("/api/settings")
-def put_settings(req: SettingsIn) -> dict[str, object]:
+def put_settings(req: SettingsIn, _admin: AdminUser) -> dict[str, object]:
     store = get_store()
     current = store.document().settings
     data = current.model_dump()
@@ -329,7 +478,7 @@ def put_settings(req: SettingsIn) -> dict[str, object]:
 
 
 @app.get("/api/schedules")
-def list_schedules(clock_date: date | None = None) -> dict[str, object]:
+def list_schedules(_user: AuthUser, clock_date: date | None = None) -> dict[str, object]:
     document = get_store().document()
     now = datetime.now(ZoneInfo(document.settings.timezone))
     day = clock_date or now.date()
@@ -355,12 +504,12 @@ def list_schedules(clock_date: date | None = None) -> dict[str, object]:
 
 
 @app.get("/api/announcements")
-def list_announcements() -> dict[str, object]:
+def list_announcements(_user: AuthUser) -> dict[str, object]:
     return {"announcements": [item.model_dump(mode="json") for item in get_store().list_announcements()]}
 
 
 @app.get("/api/announcements/{announcement_id}")
-def get_announcement(announcement_id: str) -> dict[str, object]:
+def get_announcement(announcement_id: str, _user: AuthUser) -> dict[str, object]:
     item = get_store().get(announcement_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Announcement not found")
@@ -368,7 +517,7 @@ def get_announcement(announcement_id: str) -> dict[str, object]:
 
 
 @app.post("/api/announcements")
-def create_announcement(req: AnnouncementIn) -> dict[str, object]:
+def create_announcement(req: AnnouncementIn, _admin: AdminUser) -> dict[str, object]:
     item = Announcement(
         name=req.name,
         text=req.text.strip(),
@@ -384,7 +533,9 @@ def create_announcement(req: AnnouncementIn) -> dict[str, object]:
 
 
 @app.put("/api/announcements/{announcement_id}")
-def update_announcement(announcement_id: str, req: AnnouncementIn) -> dict[str, object]:
+def update_announcement(
+    announcement_id: str, req: AnnouncementIn, _admin: AdminUser
+) -> dict[str, object]:
     store = get_store()
     existing = store.get(announcement_id)
     if existing is None:
@@ -407,7 +558,7 @@ def update_announcement(announcement_id: str, req: AnnouncementIn) -> dict[str, 
 
 
 @app.delete("/api/announcements/{announcement_id}")
-def delete_announcement(announcement_id: str) -> dict[str, bool]:
+def delete_announcement(announcement_id: str, _admin: AdminUser) -> dict[str, bool]:
     try:
         if not get_store().delete_announcement(announcement_id):
             raise HTTPException(status_code=404, detail="Announcement not found")
@@ -419,7 +570,7 @@ def delete_announcement(announcement_id: str) -> dict[str, bool]:
 
 
 @app.post("/api/schedules")
-def create_schedule(req: ScheduleIn) -> dict[str, object]:
+def create_schedule(req: ScheduleIn, _admin: AdminUser) -> dict[str, object]:
     incoming = _build_schedule(req)
     _reject_schedule(incoming)
     stored = get_store().save_schedule(incoming)
@@ -428,7 +579,7 @@ def create_schedule(req: ScheduleIn) -> dict[str, object]:
 
 
 @app.get("/api/schedules/{schedule_id}")
-def get_schedule(schedule_id: str) -> dict[str, object]:
+def get_schedule(schedule_id: str, _user: AuthUser) -> dict[str, object]:
     item = get_store().get_schedule(schedule_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Schedule not found")
@@ -436,7 +587,7 @@ def get_schedule(schedule_id: str) -> dict[str, object]:
 
 
 @app.put("/api/schedules/{schedule_id}")
-def replace_schedule(schedule_id: str, req: ScheduleIn) -> dict[str, object]:
+def replace_schedule(schedule_id: str, req: ScheduleIn, _admin: AdminUser) -> dict[str, object]:
     payload = req.model_copy(update={"id": schedule_id})
     incoming = _build_schedule(payload)
     if get_store().get_schedule(schedule_id) is None:
@@ -448,7 +599,7 @@ def replace_schedule(schedule_id: str, req: ScheduleIn) -> dict[str, object]:
 
 
 @app.patch("/api/schedules/{schedule_id}")
-def patch_schedule(schedule_id: str, req: SchedulePatch) -> dict[str, object]:
+def patch_schedule(schedule_id: str, req: SchedulePatch, _admin: AdminUser) -> dict[str, object]:
     store = get_store()
     schedule = store.get_schedule(schedule_id)
     if schedule is None:
@@ -465,7 +616,7 @@ def patch_schedule(schedule_id: str, req: SchedulePatch) -> dict[str, object]:
 
 
 @app.post("/api/schedules/{schedule_id}/trigger")
-def trigger_schedule_now(schedule_id: str) -> dict[str, str]:
+def trigger_schedule_now(schedule_id: str, _admin: AdminUser) -> dict[str, str]:
     if not config.TRIGGER_NOW:
         raise HTTPException(status_code=404, detail="Not found")
     if get_store().get_schedule(schedule_id) is None:
@@ -485,7 +636,7 @@ def trigger_schedule_now(schedule_id: str) -> dict[str, str]:
 
 
 @app.delete("/api/schedules/{schedule_id}")
-def delete_schedule(schedule_id: str) -> dict[str, bool]:
+def delete_schedule(schedule_id: str, _admin: AdminUser) -> dict[str, bool]:
     if not get_store().delete_schedule(schedule_id):
         raise HTTPException(status_code=404, detail="Schedule not found")
     sync_jobs()

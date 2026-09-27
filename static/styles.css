@@ -50,7 +50,21 @@ body {
 .mast-nav {
   margin-left: auto;
   display: flex;
+  align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.nav-user {
+  font-size: 0.85rem;
+  color: var(--muted, #6b6560);
+  padding: 0 4px;
+}
+
+.auth-panel {
+  max-width: 420px;
+  margin: 40px auto 0;
 }
 
 .mast h1 {

@@ -46,6 +46,8 @@ DEFAULT_SENTENCE_PAUSE = float(os.environ.get("TTS_SENTENCE_PAUSE", "0.25"))
 
 DATA_DIR = Path(os.environ.get("TTS_DATA_DIR", ROOT_DIR / "data")).expanduser()
 ANNOUNCEMENTS_PATH = DATA_DIR / "announcements.json"
+USERS_PATH = Path(os.environ.get("TTS_USERS_PATH", DATA_DIR / "users.json")).expanduser()
+SESSION_SECRET_PATH = DATA_DIR / ".session_secret"
 PCM_CACHE_DIR = Path(os.environ.get("TTS_PCM_CACHE_DIR", DATA_DIR / "pcm")).expanduser()
 LOG_DIR = Path(os.environ.get("TTS_LOG_DIR", DATA_DIR / "logs")).expanduser()
 LOG_KEEP_DAYS = int(os.environ.get("TTS_LOG_KEEP_DAYS", "30"))
@@ -57,3 +59,25 @@ SCHEDULER_MAX_WAIT_SECONDS = float(os.environ.get("TTS_SCHEDULER_MAX_WAIT_SECOND
 DEFAULT_SLOT_HALF_WINDOW_MINUTES = int(os.environ.get("TTS_SLOT_HALF_WINDOW_MINUTES", "10"))
 LOOKAHEAD_HOURS = int(os.environ.get("TTS_SLOT_LOOKAHEAD_HOURS", "72"))
 TRIGGER_NOW = _env_flag("TTS_TRIGGER_NOW", False)
+SESSION_IDLE_SECONDS = int(os.environ.get("TTS_SESSION_IDLE_SECONDS", str(30 * 60)))
+
+
+def session_secret() -> str:
+    """Return the session signing secret, creating a persisted one if needed."""
+    configured = os.environ.get("TTS_SESSION_SECRET", "").strip()
+    if configured:
+        return configured
+    if SESSION_SECRET_PATH.is_file():
+        value = SESSION_SECRET_PATH.read_text(encoding="utf-8").strip()
+        if value:
+            return value
+    import secrets
+
+    value = secrets.token_urlsafe(48)
+    SESSION_SECRET_PATH.parent.mkdir(parents=True, exist_ok=True)
+    SESSION_SECRET_PATH.write_text(value + "\n", encoding="utf-8")
+    try:
+        SESSION_SECRET_PATH.chmod(0o600)
+    except OSError:
+        pass
+    return value

@@ -22,8 +22,98 @@
         <nav class="mast-nav">
           <button type="button" class="ghost small" id="nav-home">Home</button>
           <button type="button" class="ghost small" id="nav-help">How to schedule</button>
+          <button type="button" class="ghost small hidden" id="nav-users">Users</button>
+          <span id="nav-user" class="nav-user hidden"></span>
+          <button type="button" class="ghost small hidden" id="nav-logout">Log out</button>
         </nav>
       </header>
+
+      <section id="view-setup" class="screen">
+        <section class="panel auth-panel">
+          <h2 class="subhead">Create the first admin</h2>
+          <p class="lede tight">No users exist yet. Create an admin account to lock down the announcements UI.</p>
+          <section class="voice-row">
+            <label class="label" for="setup-username">Username</label>
+            <input id="setup-username" type="text" maxlength="64" autocomplete="username" />
+          </section>
+          <section class="voice-row">
+            <label class="label" for="setup-password">Password</label>
+            <input id="setup-password" type="password" maxlength="256" autocomplete="new-password" />
+          </section>
+          <section class="voice-row">
+            <label class="label" for="setup-password2">Confirm password</label>
+            <input id="setup-password2" type="password" maxlength="256" autocomplete="new-password" />
+          </section>
+          <div class="actions">
+            <button type="button" class="primary" id="setup-submit">Create admin</button>
+          </div>
+          <p id="setup-error" class="status-error" hidden></p>
+        </section>
+      </section>
+
+      <section id="view-login" class="screen">
+        <section class="panel auth-panel">
+          <h2 class="subhead">Log in</h2>
+          <p class="lede tight">Sign in to view and manage repeater announcements.</p>
+          <section class="voice-row">
+            <label class="label" for="login-username">Username</label>
+            <input id="login-username" type="text" maxlength="64" autocomplete="username" />
+          </section>
+          <section class="voice-row">
+            <label class="label" for="login-password">Password</label>
+            <input id="login-password" type="password" maxlength="256" autocomplete="current-password" />
+          </section>
+          <div class="actions">
+            <button type="button" class="primary" id="login-submit">Log in</button>
+          </div>
+          <p id="login-error" class="status-error" hidden></p>
+        </section>
+      </section>
+
+      <section id="view-users" class="screen">
+        <section class="panel">
+          <div class="toolbar">
+            <h2 class="subhead">Users</h2>
+          </div>
+          <div class="table-wrap">
+            <table class="schedules" id="users-table">
+              <thead>
+                <tr>
+                  <th>Username</th>
+                  <th>Role</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="users-rows"></tbody>
+            </table>
+          </div>
+        </section>
+        <section class="panel">
+          <h2 class="subhead" id="user-form-title">Add user</h2>
+          <input type="hidden" id="user-edit-id" value="" />
+          <section class="voice-row">
+            <label class="label" for="user-username">Username</label>
+            <input id="user-username" type="text" maxlength="64" autocomplete="off" />
+          </section>
+          <section class="voice-row">
+            <label class="label" for="user-password">Password</label>
+            <input id="user-password" type="password" maxlength="256" autocomplete="new-password" />
+            <p class="lede tight" id="user-password-hint">At least 8 characters. Leave blank when editing to keep the current password.</p>
+          </section>
+          <section class="voice-row">
+            <label class="label" for="user-role">Role</label>
+            <select id="user-role">
+              <option value="readonly">Read-Only</option>
+              <option value="admin">Admin</option>
+            </select>
+          </section>
+          <div class="actions">
+            <button type="button" class="primary" id="user-save">Save user</button>
+            <button type="button" class="ghost hidden" id="user-cancel">Cancel</button>
+          </div>
+          <p id="user-error" class="status-error" hidden></p>
+        </section>
+      </section>
 
       <section id="view-home" class="screen active">
         <p class="lede tight">

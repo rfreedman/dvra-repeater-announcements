@@ -98,6 +98,9 @@ let triggerNowEnabled = false;
 let triggerNowBusy = false;
 let editingAnnouncementId = null;
 let editingScheduleId = null;
+let currentUser = null;
+let authReady = false;
+let readOnly = false;
 let editorBaseline = null;
 let editorKey = "";
 let ignoreHashChange = false;
@@ -124,12 +127,30 @@ function blinkLed() {
   ledBlinkTimer = setTimeout(paintLed, 90);
 }
 
-window.fetch = async function trackedFetch(...args) {
+window.fetch = async function trackedFetch(input, init) {
   blinkLed();
+  const url = typeof input === "string" ? input : input?.url || "";
+  const opts = { ...(init || {}) };
+  if (url.startsWith("/api/") || url.startsWith("/")) {
+    opts.credentials = opts.credentials || "same-origin";
+  }
   try {
-    const res = await nativeFetch(...args);
-    ledFailed = !res.ok;
+    const res = await nativeFetch(input, opts);
+    ledFailed = !res.ok && res.status !== 401;
     paintLed();
+    if (
+      res.status === 401 &&
+      url.startsWith("/api/") &&
+      !url.startsWith("/api/auth/") &&
+      authReady
+    ) {
+      currentUser = null;
+      readOnly = false;
+      updateAuthChrome();
+      if (location.hash !== "#/login" && location.hash !== "#/setup") {
+        goToHash("#/login");
+      }
+    }
     return res;
   } catch (err) {
     ledFailed = true;
@@ -137,6 +158,289 @@ window.fetch = async function trackedFetch(...args) {
     throw err;
   }
 };
+
+function isAdmin() {
+  return currentUser?.role === "admin";
+}
+
+function setError(id, message) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (message) {
+    el.hidden = false;
+    el.textContent = message;
+  } else {
+    el.hidden = true;
+    el.textContent = "";
+  }
+}
+
+function updateAuthChrome() {
+  const loggedIn = Boolean(currentUser);
+  readOnly = loggedIn && currentUser.role === "readonly";
+  document.getElementById("nav-home").classList.toggle("hidden", !loggedIn);
+  document.getElementById("nav-help").classList.toggle("hidden", !loggedIn);
+  document.getElementById("nav-users").classList.toggle("hidden", !isAdmin());
+  document.getElementById("nav-logout").classList.toggle("hidden", !loggedIn);
+  const userLabel = document.getElementById("nav-user");
+  userLabel.classList.toggle("hidden", !loggedIn);
+  userLabel.textContent = loggedIn ? currentUser.username : "";
+  document.getElementById("new-announcement").classList.toggle("hidden", readOnly);
+  document.getElementById("new-schedule").classList.toggle("hidden", readOnly);
+  document.getElementById("save-announcement").classList.toggle("hidden", readOnly);
+  document.getElementById("save-schedule").classList.toggle("hidden", readOnly);
+  const shuffle = document.getElementById("baseline-randomize");
+  shuffle.disabled = readOnly;
+  shuffle.closest("label")?.classList.toggle("hidden", readOnly);
+  applyEditorReadOnly();
+}
+
+function announcementEditorControls() {
+  return [
+    nameEl,
+    voiceEl,
+    speedEl,
+    pauseEl,
+    textEl,
+    document.getElementById("busy-retry"),
+    document.getElementById("busy-giveup"),
+    document.getElementById("reset"),
+  ];
+}
+
+function scheduleEditorControls() {
+  return [
+    document.getElementById("sched-name"),
+    document.getElementById("sched-kind"),
+    document.getElementById("sched-announcement"),
+    document.getElementById("sched-offset"),
+    document.getElementById("monthly-occurrence"),
+    document.getElementById("once-date"),
+    document.getElementById("range-start"),
+    document.getElementById("range-event-date"),
+    document.getElementById("days-before"),
+    document.getElementById("range-event-slot"),
+    document.getElementById("range-all-slots"),
+    document.getElementById("sched-priority"),
+    document.getElementById("sched-enabled"),
+  ];
+}
+
+function applyEditorReadOnly() {
+  const lockAnnouncement = readOnly;
+  for (const el of announcementEditorControls()) {
+    if (!el) continue;
+    el.disabled = lockAnnouncement;
+  }
+  document.getElementById("speak").disabled = false;
+  document.getElementById("stop").disabled = !abort;
+  for (const el of scheduleEditorControls()) {
+    if (!el) continue;
+    el.disabled = readOnly;
+  }
+  for (const input of document.querySelectorAll(
+    "#weekly-days input, #monthly-weekday input, #monthly-skip input, #slot-chips input"
+  )) {
+    input.disabled = readOnly;
+  }
+}
+
+async function refreshAuth() {
+  const res = await fetch("/api/auth/status");
+  const payload = await res.json();
+  if (payload.needs_setup) {
+    currentUser = null;
+    updateAuthChrome();
+    return { needsSetup: true, authenticated: false };
+  }
+  if (payload.authenticated && payload.user) {
+    currentUser = payload.user;
+    updateAuthChrome();
+    return { needsSetup: false, authenticated: true };
+  }
+  currentUser = null;
+  updateAuthChrome();
+  return { needsSetup: false, authenticated: false };
+}
+
+async function submitSetup() {
+  setError("setup-error", "");
+  const username = document.getElementById("setup-username").value.trim();
+  const password = document.getElementById("setup-password").value;
+  const password2 = document.getElementById("setup-password2").value;
+  if (!username) {
+    setError("setup-error", "Username is required");
+    return;
+  }
+  if (password !== password2) {
+    setError("setup-error", "Passwords do not match");
+    return;
+  }
+  const res = await fetch("/api/auth/setup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+  let payload = {};
+  try {
+    payload = await res.json();
+  } catch {
+    /* ignore */
+  }
+  if (!res.ok) {
+    setError("setup-error", typeof payload.detail === "string" ? payload.detail : "Could not create admin");
+    return;
+  }
+  currentUser = payload.user;
+  updateAuthChrome();
+  goToHash("#/");
+}
+
+async function submitLogin() {
+  setError("login-error", "");
+  const username = document.getElementById("login-username").value.trim();
+  const password = document.getElementById("login-password").value;
+  const res = await fetch("/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+  let payload = {};
+  try {
+    payload = await res.json();
+  } catch {
+    /* ignore */
+  }
+  if (!res.ok) {
+    setError("login-error", typeof payload.detail === "string" ? payload.detail : "Could not log in");
+    return;
+  }
+  currentUser = payload.user;
+  document.getElementById("login-password").value = "";
+  updateAuthChrome();
+  goToHash("#/");
+}
+
+async function logout() {
+  await fetch("/api/auth/logout", { method: "POST" });
+  currentUser = null;
+  updateAuthChrome();
+  goToHash("#/login");
+}
+
+function resetUserForm() {
+  document.getElementById("user-edit-id").value = "";
+  document.getElementById("user-form-title").textContent = "Add user";
+  document.getElementById("user-username").value = "";
+  document.getElementById("user-password").value = "";
+  document.getElementById("user-role").value = "readonly";
+  document.getElementById("user-cancel").classList.add("hidden");
+  document.getElementById("user-password-hint").textContent =
+    "At least 8 characters.";
+  setError("user-error", "");
+}
+
+function editUserRow(user) {
+  document.getElementById("user-edit-id").value = user.id;
+  document.getElementById("user-form-title").textContent = `Edit ${user.username}`;
+  document.getElementById("user-username").value = user.username;
+  document.getElementById("user-password").value = "";
+  document.getElementById("user-role").value = user.role;
+  document.getElementById("user-cancel").classList.remove("hidden");
+  document.getElementById("user-password-hint").textContent =
+    "At least 8 characters. Leave blank to keep the current password.";
+  setError("user-error", "");
+}
+
+async function refreshUsers() {
+  const res = await fetch("/api/users");
+  if (!res.ok) throw new Error("Could not load users");
+  const payload = await res.json();
+  const body = document.getElementById("users-rows");
+  body.replaceChildren();
+  for (const user of payload.users || []) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${escapeHtml(user.username)}</td>
+      <td>${escapeHtml(user.role === "admin" ? "Admin" : "Read-Only")}</td>
+      <td class="row-actions"></td>
+    `;
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "ghost";
+    edit.textContent = "Edit";
+    edit.addEventListener("click", (event) => {
+      event.stopPropagation();
+      editUserRow(user);
+    });
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "danger";
+    del.textContent = "Delete";
+    del.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      if (!window.confirm(`Delete user “${user.username}”?`)) return;
+      const delRes = await fetch(`/api/users/${user.id}`, { method: "DELETE" });
+      if (!delRes.ok) {
+        let detail = delRes.statusText;
+        try {
+          detail = (await delRes.json()).detail || detail;
+        } catch {
+          /* ignore */
+        }
+        window.alert(typeof detail === "string" ? detail : "Could not delete");
+        return;
+      }
+      if (currentUser && currentUser.id === user.id) {
+        await logout();
+        return;
+      }
+      resetUserForm();
+      await refreshUsers();
+    });
+    tr.querySelector(".row-actions").append(edit, del);
+    body.append(tr);
+  }
+}
+
+async function saveUser() {
+  setError("user-error", "");
+  const id = document.getElementById("user-edit-id").value;
+  const username = document.getElementById("user-username").value.trim();
+  const password = document.getElementById("user-password").value;
+  const role = document.getElementById("user-role").value;
+  if (!username) {
+    setError("user-error", "Username is required");
+    return;
+  }
+  if (!id && !password) {
+    setError("user-error", "Password is required");
+    return;
+  }
+  const body = { username, role };
+  if (!id || password) body.password = password;
+  const res = await fetch(id ? `/api/users/${id}` : "/api/users", {
+    method: id ? "PUT" : "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  let payload = {};
+  try {
+    payload = await res.json();
+  } catch {
+    /* ignore */
+  }
+  if (!res.ok) {
+    setError("user-error", typeof payload.detail === "string" ? payload.detail : "Could not save user");
+    return;
+  }
+  if (currentUser && payload.id === currentUser.id) {
+    currentUser = { ...currentUser, username: payload.username, role: payload.role };
+    updateAuthChrome();
+  }
+  resetUserForm();
+  await refreshUsers();
+}
 
 function showScreen(id) {
   for (const el of document.querySelectorAll(".screen")) {
@@ -389,6 +693,7 @@ function syncKindFields() {
   const offset = document.getElementById("sched-offset");
   offset.min = String(-windowMin);
   offset.max = String(windowMin);
+  applyEditorReadOnly();
 }
 
 function readSchedulePayload() {
@@ -507,48 +812,51 @@ function renderSchedules(rows) {
       <td>${escapeHtml(row.next_run_at ? formatWhen(row.next_run_at) : "—")}</td>
       <td class="row-actions"></td>
     `;
-    const del = document.createElement("button");
-    del.type = "button";
-    del.className = "danger";
-    del.textContent = "Delete";
-    del.addEventListener("click", async (event) => {
-      event.stopPropagation();
-      if (!window.confirm(`Delete schedule “${row.name}”?`)) return;
-      const res = await fetch(`/api/schedules/${row.schedule_id}`, { method: "DELETE" });
-      if (res.ok) refreshHome();
-    });
-    tr.querySelector(".row-actions").append(del);
-    if (triggerNowEnabled) {
-      const trigger = document.createElement("button");
-      trigger.type = "button";
-      trigger.className = "ghost";
-      trigger.dataset.triggerNow = "1";
-      trigger.textContent = "Trigger now";
-      trigger.disabled = announcementIsPlaying();
-      trigger.addEventListener("click", async (event) => {
+    const actions = tr.querySelector(".row-actions");
+    if (!readOnly) {
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "danger";
+      del.textContent = "Delete";
+      del.addEventListener("click", async (event) => {
         event.stopPropagation();
-        if (announcementIsPlaying()) return;
-        triggerNowBusy = true;
-        syncTriggerNowButtons();
-        try {
-          const res = await fetch(`/api/schedules/${row.schedule_id}/trigger`, { method: "POST" });
-          let payload = {};
-          try {
-            payload = await res.json();
-          } catch {
-            /* ignore */
-          }
-          if (!res.ok) {
-            const detail = payload.detail || res.statusText;
-            window.alert(typeof detail === "string" ? detail : "Could not trigger");
-          }
-        } finally {
-          triggerNowBusy = false;
-          await refreshHome().catch(() => {});
-          syncTriggerNowButtons();
-        }
+        if (!window.confirm(`Delete schedule “${row.name}”?`)) return;
+        const res = await fetch(`/api/schedules/${row.schedule_id}`, { method: "DELETE" });
+        if (res.ok) refreshHome();
       });
-      tr.querySelector(".row-actions").prepend(trigger);
+      actions.append(del);
+      if (triggerNowEnabled) {
+        const trigger = document.createElement("button");
+        trigger.type = "button";
+        trigger.className = "ghost";
+        trigger.dataset.triggerNow = "1";
+        trigger.textContent = "Trigger now";
+        trigger.disabled = announcementIsPlaying();
+        trigger.addEventListener("click", async (event) => {
+          event.stopPropagation();
+          if (announcementIsPlaying()) return;
+          triggerNowBusy = true;
+          syncTriggerNowButtons();
+          try {
+            const res = await fetch(`/api/schedules/${row.schedule_id}/trigger`, { method: "POST" });
+            let payload = {};
+            try {
+              payload = await res.json();
+            } catch {
+              /* ignore */
+            }
+            if (!res.ok) {
+              const detail = payload.detail || res.statusText;
+              window.alert(typeof detail === "string" ? detail : "Could not trigger");
+            }
+          } finally {
+            triggerNowBusy = false;
+            await refreshHome().catch(() => {});
+            syncTriggerNowButtons();
+          }
+        });
+        actions.prepend(trigger);
+      }
     }
     tr.addEventListener("click", () => goToHash(`#/schedules/${row.schedule_id}`));
     body.append(tr);
@@ -588,7 +896,7 @@ function renderLibrary(items) {
       }
       refreshHome();
     });
-    tr.querySelector(".row-actions").append(del);
+    if (!readOnly) tr.querySelector(".row-actions").append(del);
     tr.addEventListener("click", () => goToHash(`#/announcements/${item.id}`));
     body.append(tr);
   }
@@ -723,6 +1031,11 @@ async function loadVoices() {
   renderVoices(saved.voice);
 }
 
+async function ensureVoices() {
+  if (catalog) return;
+  await loadVoices();
+}
+
 async function loadDefaultScript() {
   const res = await fetch("/static/default-announcement.txt");
   if (!res.ok) return;
@@ -748,7 +1061,9 @@ async function loadAnnouncement(id) {
   if (!res.ok) throw new Error("Announcement not found");
   const item = await res.json();
   editingAnnouncementId = item.id;
-  document.getElementById("announcement-title").textContent = "Edit announcement";
+  document.getElementById("announcement-title").textContent = readOnly
+    ? "View announcement"
+    : "Edit announcement";
   nameEl.value = item.name || "";
   textEl.value = item.text || "";
   document.getElementById("busy-retry").value = String(item.busy_retry_seconds ?? 5);
@@ -993,6 +1308,9 @@ function routeKey(hash = location.hash) {
   const [path] = raw.split("?");
   const parts = path.split("/").filter(Boolean);
   if (!parts.length) return "home";
+  if (parts[0] === "login") return "login";
+  if (parts[0] === "setup") return "setup";
+  if (parts[0] === "users") return "users";
   if (parts[0] === "help") return "help";
   if (parts[0] === "announcements") return parts[1] === "new" ? "ann-new" : `ann/${parts[1]}`;
   if (parts[0] === "schedules") {
@@ -1004,6 +1322,32 @@ function routeKey(hash = location.hash) {
 
 async function route() {
   await boot;
+  const auth = await refreshAuth();
+  authReady = true;
+  if (auth.needsSetup) {
+    stopHomePolling();
+    showScreen("view-setup");
+    editorKey = "setup";
+    clearEditorGuard();
+    if (location.hash !== "#/setup") {
+      ignoreHashChange = true;
+      history.replaceState(null, "", "#/setup");
+      ignoreHashChange = false;
+    }
+    return;
+  }
+  if (!auth.authenticated) {
+    stopHomePolling();
+    showScreen("view-login");
+    editorKey = "login";
+    clearEditorGuard();
+    if (location.hash !== "#/login") {
+      ignoreHashChange = true;
+      history.replaceState(null, "", "#/login");
+      ignoreHashChange = false;
+    }
+    return;
+  }
   const nextKey = routeKey();
   if (nextKey !== editorKey && isEditorDirty() && !confirmDiscardEdits()) {
     ignoreHashChange = true;
@@ -1016,6 +1360,23 @@ async function route() {
   const params = new URLSearchParams((location.hash.split("?")[1] || "").replace(/#/g, ""));
   showError("announcement-error", "");
   showError("schedule-error", "");
+  if (parts[0] === "login" || parts[0] === "setup") {
+    goToHash("#/");
+    return;
+  }
+  if (parts[0] === "users") {
+    if (!isAdmin()) {
+      goToHash("#/");
+      return;
+    }
+    stopHomePolling();
+    showScreen("view-users");
+    editorKey = "users";
+    clearEditorGuard();
+    resetUserForm();
+    await refreshUsers();
+    return;
+  }
   if (parts[0] === "help") {
     stopHomePolling();
     showScreen("view-help");
@@ -1024,15 +1385,25 @@ async function route() {
     return;
   }
   if (parts[0] === "announcements") {
+    if (parts[1] === "new" && readOnly) {
+      goToHash("#/");
+      return;
+    }
     stopHomePolling();
     showScreen("view-announcement");
+    await ensureVoices().catch(() => {});
     if (parts[1] === "new") blankAnnouncement();
     else await loadAnnouncement(parts[1]);
+    applyEditorReadOnly();
     editorKey = nextKey;
     markEditorClean();
     return;
   }
   if (parts[0] === "schedules") {
+    if (parts[1] === "new" && readOnly) {
+      goToHash("#/");
+      return;
+    }
     stopHomePolling();
     showScreen("view-schedule");
     if (!announcements.length) {
@@ -1046,11 +1417,12 @@ async function route() {
       fillScheduleForm(template);
     } else {
       editingScheduleId = parts[1];
-      document.getElementById("schedule-title").textContent = "Edit schedule";
+      document.getElementById("schedule-title").textContent = readOnly ? "View schedule" : "Edit schedule";
       const res = await fetch(`/api/schedules/${parts[1]}`);
       if (!res.ok) throw new Error("Schedule not found");
       fillScheduleForm(await res.json());
     }
+    applyEditorReadOnly();
     editorKey = nextKey;
     markEditorClean();
     return;
@@ -1062,9 +1434,32 @@ async function route() {
   await refreshHome();
 }
 
-document.getElementById("new-announcement").addEventListener("click", () => goToHash("#/announcements/new"));
+document.getElementById("new-announcement").addEventListener("click", () => {
+  if (readOnly) return;
+  goToHash("#/announcements/new");
+});
 document.getElementById("nav-home").addEventListener("click", () => goToHash("#/"));
 document.getElementById("nav-help").addEventListener("click", () => goToHash("#/help"));
+document.getElementById("nav-users").addEventListener("click", () => goToHash("#/users"));
+document.getElementById("nav-logout").addEventListener("click", () => {
+  logout().catch((err) => window.alert(err.message));
+});
+document.getElementById("setup-submit").addEventListener("click", () => {
+  submitSetup().catch((err) => window.alert(err.message));
+});
+document.getElementById("login-submit").addEventListener("click", () => {
+  submitLogin().catch((err) => window.alert(err.message));
+});
+document.getElementById("login-password").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") submitLogin().catch((err) => window.alert(err.message));
+});
+document.getElementById("setup-password2").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") submitSetup().catch((err) => window.alert(err.message));
+});
+document.getElementById("user-save").addEventListener("click", () => {
+  saveUser().catch((err) => window.alert(err.message));
+});
+document.getElementById("user-cancel").addEventListener("click", resetUserForm);
 document.getElementById("clock-date").addEventListener("change", () => {
   refreshHome().catch(() => {});
 });
@@ -1074,11 +1469,18 @@ document.getElementById("clock-today").addEventListener("click", () => {
 });
 document.getElementById("back-announcement").addEventListener("click", () => goToHash("#/"));
 document.getElementById("back-schedule").addEventListener("click", () => goToHash("#/"));
-document.getElementById("save-announcement").addEventListener("click", saveAnnouncement);
-document.getElementById("save-schedule").addEventListener("click", saveSchedule);
+document.getElementById("save-announcement").addEventListener("click", () => {
+  if (readOnly) return;
+  saveAnnouncement();
+});
+document.getElementById("save-schedule").addEventListener("click", () => {
+  if (readOnly) return;
+  saveSchedule();
+});
 document.getElementById("speak").addEventListener("click", speak);
 document.getElementById("stop").addEventListener("click", stop);
 document.getElementById("reset").addEventListener("click", () => {
+  if (readOnly) return;
   localStorage.removeItem(PREFS_KEY);
   if (catalog) {
     speedEl.value = String(catalog.speed ?? 1);
@@ -1102,6 +1504,7 @@ document.getElementById("range-all-slots").addEventListener("change", syncKindFi
 
 const menu = document.getElementById("template-menu");
 document.getElementById("new-schedule").addEventListener("click", (event) => {
+  if (readOnly) return;
   event.stopPropagation();
   menu.classList.toggle("hidden");
 });
@@ -1114,6 +1517,7 @@ menu.addEventListener("click", (event) => {
 document.addEventListener("click", () => menu.classList.add("hidden"));
 
 document.getElementById("baseline-randomize").addEventListener("change", async (event) => {
+  if (readOnly) return;
   await fetch("/api/settings", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -1132,7 +1536,8 @@ window.addEventListener("beforeunload", (event) => {
   event.returnValue = "";
 });
 
-boot = Promise.all([loadVoices().catch(() => {}), loadDefaultScript()]);
+boot = loadDefaultScript();
 updateCount();
 updateDeliveryLabels();
+updateAuthChrome();
 route().catch((err) => window.alert(err.message));

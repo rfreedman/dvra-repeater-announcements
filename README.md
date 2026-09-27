@@ -31,7 +31,12 @@ python -m app download amy ryan
 python -m app serve
 ```
 
-Open [http://127.0.0.1:8000](http://127.0.0.1:8000). The home screen shows the next run, today’s half-hour slots, schedules, and the announcement library. **How to schedule** (in the header, and in [docs/how-to-schedule.md](docs/how-to-schedule.md)) is the operator guide.
+Open [http://127.0.0.1:8000](http://127.0.0.1:8000). On first visit, create the initial **Admin** account. After that, sign in with:
+
+- **Admin** — full access, including user management
+- **Read-Only** — view schedules and announcements, Speak preview only (no edits, no Users page)
+
+The home screen shows the next run, today’s half-hour slots, schedules, and the announcement library. **How to schedule** (in the header, and in [docs/how-to-schedule.md](docs/how-to-schedule.md)) is the operator guide.
 
 Write the spoken text under **New announcement**. Timing lives on **schedules**, which point at that text:
 
@@ -56,6 +61,11 @@ python -m app speak "Hello from the announcements."
 python -m app speak --voice amy "Piper voice aliases work too."
 python -m app speak --speed 0.75 --pause 0.6 "Hello. Take your time with this."
 echo "From a pipe" | python -m app speak --stdin
+python -m app users list
+python -m app users create --admin alice
+python -m app users create bob --role readonly
+python -m app users passwd alice
+python -m app users delete bob
 ```
 
 ## Configuration
@@ -69,6 +79,9 @@ echo "From a pipe" | python -m app speak --stdin
 | `TTS_HOST` / `TTS_PORT` | `0.0.0.0` / `8000` | Bind address |
 | `TTS_TIMEZONE` | `America/New_York` | Clock for schedules |
 | `TTS_DATA_DIR` | `./data` | Saved announcements JSON |
+| `TTS_USERS_PATH` | `$TTS_DATA_DIR/users.json` | Web UI users |
+| `TTS_SESSION_SECRET` | auto (`data/.session_secret`) | Signs login session cookies |
+| `TTS_SESSION_IDLE_SECONDS` | `1800` (30 min) | Log out after this much idle time |
 | `TTS_PCM_CACHE_DIR` | `./data/pcm` | Pre-rendered announcement PCM (written on save and at startup; scheduled fires play this) |
 | `TTS_LOG_DIR` | `./data/logs` | Daily `announcements.log` files (30 days; uvicorn access lines are not written here) |
 | `TTS_PTT_LEAD_SECONDS` | `0.4` | Delay after PTT before audio |
@@ -96,7 +109,7 @@ Streams 16-bit little-endian mono PCM. Format headers:
 - `X-Sample-Rate` (usually 22050)
 - `X-Sample-Width` (`2`), `X-Channels` (`1`)
 
-`GET /api/voices` lists voices. `POST /api/prepare` downloads/loads a model without speaking.
+`GET /api/voices` lists voices. `POST /api/prepare` downloads/loads a model without speaking. Most `/api/*` routes require a login session cookie. User management is under `/api/users` (Admin only). Auth helpers: `/api/auth/status`, `/api/auth/setup`, `/api/auth/login`, `/api/auth/logout`, `/api/auth/me`.
 
 `GET /api/schedules` returns upcoming fire, today’s slot clock, warnings, settings, and schedule rows. Announcements are `GET/POST /api/announcements` and `PUT/DELETE /api/announcements/{id}`. Schedules are `GET/POST /api/schedules` and `PUT/PATCH/DELETE /api/schedules/{id}`. `PUT /api/settings` updates baseline shuffle and the slot window.
 
