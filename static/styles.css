@@ -76,10 +76,11 @@ body {
 }
 
 .logo {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
+  width: 48px;
+  height: 48px;
+  border-radius: 0;
   flex: none;
+  object-fit: contain;
 }
 
 .kicker {
