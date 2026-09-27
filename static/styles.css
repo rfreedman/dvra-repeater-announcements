@@ -6,6 +6,7 @@
   --line: rgba(243, 236, 226, 0.12);
   --copper: #e09b6d;
   --copper-2: #c47a4a;
+  --gold: #d4af37;
   --moss: #8faf86;
   --danger: #d97a6a;
   --warn: #e0c16d;
@@ -50,6 +51,13 @@ body {
 .mast-nav {
   margin-left: auto;
   display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.mast-nav-row {
+  display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
@@ -57,9 +65,17 @@ body {
 }
 
 .nav-user {
-  font-size: 0.85rem;
-  color: var(--muted, #6b6560);
-  padding: 0 4px;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--gold);
+  line-height: 1.2;
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  margin-right: 1rem;
+  margin-bottom: 1rem;
 }
 
 .auth-panel {
