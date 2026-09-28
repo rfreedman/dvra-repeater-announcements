@@ -1,0 +1,60 @@
+{
+  "voices": [
+    {
+      "id": "en_US-lessac-medium",
+      "alias": "lessac",
+      "name": "Lessac",
+      "gender": "female",
+      "locale": "en_US",
+      "quality": "medium",
+      "description": "Clear American English. Default — fast and natural enough for most use."
+    },
+    {
+      "id": "en_US-hfc_female-medium",
+      "alias": "hfc-female",
+      "name": "HFC Female",
+      "gender": "female",
+      "locale": "en_US",
+      "quality": "medium",
+      "description": "Bright American English female voice."
+    },
+    {
+      "id": "en_US-joe-medium",
+      "alias": "joe",
+      "name": "Joe",
+      "gender": "male",
+      "locale": "en_US",
+      "quality": "medium",
+      "description": "Straightforward American English male voice."
+    },
+    {
+      "id": "en_US-ryan-medium",
+      "alias": "ryan",
+      "name": "Ryan",
+      "gender": "male",
+      "locale": "en_US",
+      "quality": "medium",
+      "description": "American English male voice, good speed/quality balance."
+    },
+    {
+      "id": "en_US-hfc_male-medium",
+      "alias": "hfc-male",
+      "name": "HFC Male",
+      "gender": "male",
+      "locale": "en_US",
+      "quality": "medium",
+      "description": "American English male voice with a bit more character."
+    },
+    {
+      "id": "norman",
+      "alias": "norman",
+      "name": "Norman",
+      "gender": "male",
+      "locale": "en_US",
+      "quality": "medium",
+      "description": "Norm!",
+      "onnx_url": "https://sfo3.digitaloceanspaces.com/bkmdls/norman.onnx",
+      "config_url": "https://sfo3.digitaloceanspaces.com/bkmdls/norman.onnx.json"
+    }
+  ]
+}

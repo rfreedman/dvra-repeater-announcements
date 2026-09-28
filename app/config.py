@@ -35,8 +35,27 @@ _load_dotenv(ROOT_DIR / ".env")
 
 VOICES_DIR = Path(os.environ.get("TTS_VOICES_DIR", ROOT_DIR / "voices")).expanduser()
 PIPER_VOICES_DIR = VOICES_DIR / "piper"
+PIPER_VOICES_FILE = Path(
+    os.environ.get("TTS_PIPER_VOICES_FILE", ROOT_DIR / "config" / "piper-voices.json")
+).expanduser()
 
 DEFAULT_PIPER_VOICE = os.environ.get("TTS_DEFAULT_VOICE", "en_US-ryan-medium")
+
+
+def _piper_qualities() -> str:
+    raw = os.environ.get("TTS_PIPER_QUALITIES", "all").strip().lower()
+    if raw in {"all", "medium"}:
+        return raw
+    import logging
+
+    logging.getLogger("app.config").warning(
+        "Invalid TTS_PIPER_QUALITIES=%r; using 'all'",
+        os.environ.get("TTS_PIPER_QUALITIES"),
+    )
+    return "all"
+
+
+PIPER_QUALITIES = _piper_qualities()
 
 HOST = os.environ.get("TTS_HOST", "0.0.0.0")
 PORT = int(os.environ.get("TTS_PORT", "8000"))
@@ -60,6 +79,13 @@ DEFAULT_SLOT_HALF_WINDOW_MINUTES = int(os.environ.get("TTS_SLOT_HALF_WINDOW_MINU
 LOOKAHEAD_HOURS = int(os.environ.get("TTS_SLOT_LOOKAHEAD_HOURS", "72"))
 TRIGGER_NOW = _env_flag("TTS_TRIGGER_NOW", False)
 SESSION_IDLE_SECONDS = int(os.environ.get("TTS_SESSION_IDLE_SECONDS", str(30 * 60)))
+
+
+def piper_quality_allowed(voice_id: str) -> bool:
+    """Return True if this voice id is allowed by TTS_PIPER_QUALITIES."""
+    if PIPER_QUALITIES == "medium":
+        return voice_id.endswith("-medium")
+    return True
 
 
 def session_secret() -> str:
