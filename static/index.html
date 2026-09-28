@@ -66,7 +66,37 @@
           </section>
           <section class="voice-row">
             <label class="label" for="login-password">Password</label>
-            <input id="login-password" type="password" maxlength="256" autocomplete="current-password" />
+            <div class="password-field">
+              <input id="login-password" type="password" maxlength="256" autocomplete="current-password" />
+              <button
+                type="button"
+                class="password-toggle"
+                id="login-password-toggle"
+                aria-label="Show password"
+                aria-pressed="false"
+                aria-controls="login-password"
+              >
+                <svg class="password-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.75"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"
+                  />
+                  <circle cx="12" cy="12" r="2.75" fill="none" stroke="currentColor" stroke-width="1.75" />
+                  <path
+                    class="password-icon-slash"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.75"
+                    stroke-linecap="round"
+                    d="M4 20L20 4"
+                  />
+                </svg>
+              </button>
+            </div>
           </section>
           <div class="actions">
             <button type="button" class="primary" id="login-submit">Log in</button>

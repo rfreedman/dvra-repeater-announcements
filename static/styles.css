@@ -83,6 +83,10 @@ body {
   margin: 40px auto 0;
 }
 
+#view-login .voice-row:first-of-type {
+  margin-top: 1rem;
+}
+
 .mast h1 {
   font-family: "IBM Plex Sans", sans-serif;
   font-size: 1.7rem;
@@ -341,6 +345,7 @@ body {
 }
 
 input[type="text"],
+input[type="password"],
 input[type="number"],
 input[type="date"],
 input[type="time"] {
@@ -351,6 +356,55 @@ input[type="time"] {
   border-radius: 14px;
   padding: 12px 14px;
   width: 100%;
+}
+
+.password-field {
+  position: relative;
+}
+
+.password-field input {
+  padding-right: 46px;
+}
+
+.password-field input::-ms-reveal,
+.password-field input::-ms-clear {
+  display: none;
+}
+
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.password-toggle:hover {
+  color: var(--ink);
+  background: rgba(243, 236, 226, 0.06);
+}
+
+.password-icon {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+
+.password-icon-slash {
+  opacity: 0;
+}
+
+.password-toggle[aria-pressed="true"] .password-icon-slash {
+  opacity: 1;
 }
 
 .time-row input[type="time"],
@@ -600,6 +654,7 @@ table.schedules tbody tr.has-warning td:first-child {
 }
 
 input[type="text"],
+input[type="password"],
 input[type="number"],
 input[type="date"],
 input[type="time"] {

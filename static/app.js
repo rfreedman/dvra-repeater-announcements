@@ -1450,6 +1450,14 @@ document.getElementById("setup-submit").addEventListener("click", () => {
 document.getElementById("login-submit").addEventListener("click", () => {
   submitLogin().catch((err) => window.alert(err.message));
 });
+document.getElementById("login-password-toggle").addEventListener("click", () => {
+  const input = document.getElementById("login-password");
+  const toggle = document.getElementById("login-password-toggle");
+  const showing = input.type === "text";
+  input.type = showing ? "password" : "text";
+  toggle.setAttribute("aria-pressed", showing ? "false" : "true");
+  toggle.setAttribute("aria-label", showing ? "Show password" : "Hide password");
+});
 document.getElementById("login-password").addEventListener("keydown", (event) => {
   if (event.key === "Enter") submitLogin().catch((err) => window.alert(err.message));
 });
