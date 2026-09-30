@@ -56,6 +56,22 @@ body {
   gap: 2px;
 }
 
+.system-stats {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 8px;
+  padding: 8px 14px 8px 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  border-left: 3px solid var(--muted);
+}
+
+.system-stats.hidden {
+  display: none;
+}
+
 .mast-nav-row {
   display: flex;
   align-items: center;
@@ -118,23 +134,6 @@ body {
   max-width: 42rem;
 }
 
-.home-top {
-  display: flex;
-  justify-content: flex-end;
-  margin: 0 0 12px;
-}
-
-.system-stats {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 8px 14px 8px 12px;
-  background: var(--bg-2);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  border-left: 3px solid var(--muted);
-}
-
 .system-stats-label {
   font-size: 0.72rem;
   letter-spacing: 0.12em;
@@ -170,6 +169,14 @@ body {
 
 .system-stats.temp-warm .system-stats-temp {
   color: var(--warn);
+}
+
+.system-stats.temp-serious {
+  border-left-color: var(--copper);
+}
+
+.system-stats.temp-serious .system-stats-temp {
+  color: var(--copper);
 }
 
 .system-stats.temp-hot {

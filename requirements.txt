@@ -7,3 +7,5 @@ apscheduler>=3.10.4,<4
 bcrypt>=4.0.0
 itsdangerous>=2.0.0
 pytest>=8.0.0
+psutil>=5.9
+pyobjc-framework-Cocoa>=10.0

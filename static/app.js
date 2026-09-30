@@ -84,10 +84,12 @@ let player = null;
 let abort = null;
 let session = 0;
 let pollTimer = null;
+let statsTimer = null;
 let countdownTimer = null;
 let upcoming = null;
 let clockSkewMs = 0;
 let homeBusy = false;
+let statsBusy = false;
 let ledFailed = false;
 let ledBlinkTimer = null;
 let ledBlinkUntil = 0;
@@ -182,6 +184,7 @@ function updateAuthChrome() {
   document.getElementById("nav-help").classList.toggle("hidden", !loggedIn);
   document.getElementById("nav-users").classList.toggle("hidden", !isAdmin());
   document.getElementById("nav-logout").classList.toggle("hidden", !loggedIn);
+  document.getElementById("system-stats").classList.toggle("hidden", !loggedIn);
   const userLabel = document.getElementById("nav-user");
   userLabel.classList.toggle("hidden", !loggedIn);
   userLabel.textContent = loggedIn ? currentUser.username : "";
@@ -919,10 +922,9 @@ async function refreshHome() {
   try {
     const dateField = document.getElementById("clock-date");
     const dateQuery = dateField.value ? `?clock_date=${dateField.value}` : "";
-    const [schedRes, libRes, statsRes] = await Promise.all([
+    const [schedRes, libRes] = await Promise.all([
       fetch(`/api/schedules${dateQuery}`),
       fetch("/api/announcements"),
-      fetch("/api/system/stats"),
     ]);
     if (!schedRes.ok) throw new Error("Could not load schedules");
     const payload = await schedRes.json();
@@ -947,13 +949,23 @@ async function refreshHome() {
     renderLibrary(announcements);
     document.getElementById("baseline-randomize").checked = Boolean(settings.baseline_randomize);
     syncTriggerNowButtons();
-    if (statsRes.ok) {
-      renderSystemStats(await statsRes.json());
-    } else {
-      renderSystemStats({ celsius: null, cpu_percent: null, memory_percent: null });
-    }
   } finally {
     homeBusy = false;
+  }
+}
+
+async function refreshSystemStats() {
+  if (statsBusy || !currentUser) return;
+  statsBusy = true;
+  try {
+    const res = await fetch("/api/system/stats");
+    if (res.ok) {
+      renderSystemStats(await res.json());
+    } else {
+      renderSystemStats({ celsius: null, thermal_state: null, cpu_percent: null, memory_percent: null });
+    }
+  } finally {
+    statsBusy = false;
   }
 }
 
@@ -964,28 +976,44 @@ function renderSystemStats(payload) {
   const memEl = document.getElementById("system-stats-mem");
   if (!chip || !tempEl || !cpuEl || !memEl) return;
 
+  const thermalState =
+    payload && typeof payload.thermal_state === "string" ? payload.thermal_state : null;
   const celsius = payload && payload.celsius != null ? Number(payload.celsius) : null;
   const cpuPercent = payload && payload.cpu_percent != null ? Number(payload.cpu_percent) : null;
   const memoryPercent =
     payload && payload.memory_percent != null ? Number(payload.memory_percent) : null;
 
+  const thermalLabels = {
+    nominal: "Nominal",
+    fair: "Fair",
+    serious: "Serious",
+    critical: "Critical",
+  };
   let band = "na";
-  if (celsius != null && !Number.isNaN(celsius)) {
+  let tempText = "—";
+  if (thermalState && thermalLabels[thermalState]) {
+    tempText = thermalLabels[thermalState];
+    if (thermalState === "nominal") band = "cool";
+    else if (thermalState === "fair") band = "warm";
+    else if (thermalState === "serious") band = "serious";
+    else if (thermalState === "critical") band = "hot";
+  } else if (celsius != null && !Number.isNaN(celsius)) {
+    tempText = `${Math.round(celsius)}°C`;
     if (celsius < 55) band = "cool";
     else if (celsius < 70) band = "warm";
     else band = "hot";
   }
-  chip.classList.remove("temp-cool", "temp-warm", "temp-hot", "temp-na");
-  chip.classList.add(`temp-${band}`);
 
-  tempEl.textContent = band === "na" ? "—" : `${Math.round(celsius)}°C`;
+  chip.classList.remove("temp-cool", "temp-warm", "temp-serious", "temp-hot", "temp-na");
+  chip.classList.add(`temp-${band}`);
+  tempEl.textContent = tempText;
   cpuEl.textContent =
     cpuPercent != null && !Number.isNaN(cpuPercent) ? `${Math.round(cpuPercent)}%` : "—";
   memEl.textContent =
     memoryPercent != null && !Number.isNaN(memoryPercent) ? `${Math.round(memoryPercent)}%` : "—";
 
   const parts = [
-    `CPU temp ${tempEl.textContent}`,
+    thermalState ? `Thermal ${tempEl.textContent}` : `CPU temp ${tempEl.textContent}`,
     `CPU ${cpuEl.textContent}`,
     `MEM ${memEl.textContent}`,
   ];
@@ -1005,6 +1033,18 @@ function stopHomePolling() {
   if (countdownTimer) {
     clearInterval(countdownTimer);
     countdownTimer = null;
+  }
+}
+
+function startStatsPolling() {
+  if (!statsTimer) statsTimer = setInterval(() => refreshSystemStats().catch(() => {}), 15000);
+  refreshSystemStats().catch(() => {});
+}
+
+function stopStatsPolling() {
+  if (statsTimer) {
+    clearInterval(statsTimer);
+    statsTimer = null;
   }
 }
 
@@ -1367,6 +1407,7 @@ async function route() {
   authReady = true;
   if (auth.needsSetup) {
     stopHomePolling();
+    stopStatsPolling();
     showScreen("view-setup");
     editorKey = "setup";
     clearEditorGuard();
@@ -1379,6 +1420,7 @@ async function route() {
   }
   if (!auth.authenticated) {
     stopHomePolling();
+    stopStatsPolling();
     showScreen("view-login");
     editorKey = "login";
     clearEditorGuard();
@@ -1389,6 +1431,7 @@ async function route() {
     }
     return;
   }
+  startStatsPolling();
   const nextKey = routeKey();
   if (nextKey !== editorKey && isEditorDirty() && !confirmDiscardEdits()) {
     ignoreHashChange = true;
