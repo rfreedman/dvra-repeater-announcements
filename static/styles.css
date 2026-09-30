@@ -118,6 +118,71 @@ body {
   max-width: 42rem;
 }
 
+.home-top {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0 0 12px;
+}
+
+.cpu-temp {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 14px 8px 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  border-left: 3px solid var(--muted);
+}
+
+.cpu-temp-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.cpu-temp-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--muted);
+  min-width: 3.5ch;
+}
+
+.cpu-temp.temp-cool {
+  border-left-color: var(--moss);
+}
+
+.cpu-temp.temp-cool .cpu-temp-value {
+  color: var(--moss);
+}
+
+.cpu-temp.temp-warm {
+  border-left-color: var(--warn);
+}
+
+.cpu-temp.temp-warm .cpu-temp-value {
+  color: var(--warn);
+}
+
+.cpu-temp.temp-hot {
+  border-left-color: var(--danger);
+}
+
+.cpu-temp.temp-hot .cpu-temp-value {
+  color: var(--danger);
+}
+
+.cpu-temp.temp-na {
+  border-left-color: var(--muted);
+}
+
+.cpu-temp.temp-na .cpu-temp-value {
+  color: var(--muted);
+}
+
+
 .toolbar {
   display: flex;
   align-items: center;

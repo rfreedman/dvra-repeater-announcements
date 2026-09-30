@@ -919,9 +919,10 @@ async function refreshHome() {
   try {
     const dateField = document.getElementById("clock-date");
     const dateQuery = dateField.value ? `?clock_date=${dateField.value}` : "";
-    const [schedRes, libRes] = await Promise.all([
+    const [schedRes, libRes, tempRes] = await Promise.all([
       fetch(`/api/schedules${dateQuery}`),
       fetch("/api/announcements"),
+      fetch("/api/system/cpu-temp"),
     ]);
     if (!schedRes.ok) throw new Error("Could not load schedules");
     const payload = await schedRes.json();
@@ -946,9 +947,32 @@ async function refreshHome() {
     renderLibrary(announcements);
     document.getElementById("baseline-randomize").checked = Boolean(settings.baseline_randomize);
     syncTriggerNowButtons();
+    if (tempRes.ok) {
+      renderCpuTemp(await tempRes.json());
+    } else {
+      renderCpuTemp({ available: false, celsius: null });
+    }
   } finally {
     homeBusy = false;
   }
+}
+
+function renderCpuTemp(payload) {
+  const chip = document.getElementById("cpu-temp");
+  const value = document.getElementById("cpu-temp-value");
+  if (!chip || !value) return;
+  const available = Boolean(payload && payload.available && payload.celsius != null);
+  const celsius = available ? Number(payload.celsius) : null;
+  let band = "na";
+  if (celsius != null && !Number.isNaN(celsius)) {
+    if (celsius < 55) band = "cool";
+    else if (celsius < 70) band = "warm";
+    else band = "hot";
+  }
+  chip.classList.remove("temp-cool", "temp-warm", "temp-hot", "temp-na");
+  chip.classList.add(`temp-${band}`);
+  value.textContent = band === "na" ? "—" : `${Math.round(celsius)}°C`;
+  chip.title = band === "na" ? "CPU temperature unavailable" : `CPU temperature ${value.textContent}`;
 }
 
 function startHomePolling() {
