@@ -53,7 +53,7 @@ from app.schedule_logic import (
 from app.pcm_cache import get_pcm_cache, warm_all, warm_announcement
 from app.scheduler import get_running, run_manual_trigger, start_scheduler, stop_scheduler, sync_jobs
 from app.store import get_store
-from app.system_status import read_cpu_temp_celsius
+from app.system_status import read_system_stats
 from app.users import Role, User, get_user_store
 
 log = logging.getLogger("app.server")
@@ -264,12 +264,9 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/api/system/cpu-temp")
-def cpu_temp(_user: AuthUser) -> dict[str, object]:
-    celsius = read_cpu_temp_celsius()
-    if celsius is None:
-        return {"celsius": None, "available": False}
-    return {"celsius": round(celsius, 1), "available": True}
+@app.get("/api/system/stats")
+def system_stats(_user: AuthUser) -> dict[str, object]:
+    return read_system_stats()
 
 
 @app.get("/api/auth/status")

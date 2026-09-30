@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 _THERMAL_ROOT = Path("/sys/class/thermal")
+_PROC_STAT = Path("/proc/stat")
+_PROC_MEMINFO = Path("/proc/meminfo")
 
 # Zone type substrings that indicate a CPU / package / SoC sensor (lowercase).
 _CPU_TYPE_HINTS = (
@@ -13,6 +16,9 @@ _CPU_TYPE_HINTS = (
     "soc",
     "pkg",
 )
+
+# Previous (idle, total) jiffies from /proc/stat for delta CPU %.
+_prev_cpu_times: tuple[int, int] | None = None
 
 
 def _read_millidegrees(temp_path: Path) -> float | None:
@@ -59,6 +65,102 @@ def read_cpu_temp_celsius(*, thermal_root: Path | None = None) -> float | None:
     return _read_millidegrees(target)
 
 
+def _read_cpu_times(proc_stat: Path) -> tuple[int, int] | None:
+    """Return (idle_jiffies, total_jiffies) from the aggregate cpu line."""
+    try:
+        first = proc_stat.read_text(encoding="utf-8").splitlines()[0]
+    except (OSError, IndexError):
+        return None
+    parts = first.split()
+    if not parts or parts[0] != "cpu":
+        return None
+    try:
+        values = [int(x) for x in parts[1:]]
+    except ValueError:
+        return None
+    if len(values) < 4:
+        return None
+    idle = values[3] + (values[4] if len(values) > 4 else 0)  # idle + iowait
+    total = sum(values)
+    return idle, total
+
+
+def read_cpu_percent(
+    *,
+    proc_stat: Path | None = None,
+    sample_seconds: float = 0.1,
+    reset_state: bool = False,
+) -> float | None:
+    """Return aggregate CPU usage percent from /proc/stat, or None."""
+    global _prev_cpu_times
+    path = proc_stat if proc_stat is not None else _PROC_STAT
+    if reset_state:
+        _prev_cpu_times = None
+    if not path.is_file():
+        return None
+
+    first = _read_cpu_times(path)
+    if first is None:
+        return None
+
+    previous = _prev_cpu_times
+    if previous is None:
+        time.sleep(max(sample_seconds, 0.0))
+        second = _read_cpu_times(path)
+        if second is None:
+            return None
+        _prev_cpu_times = second
+        idle_d = second[0] - first[0]
+        total_d = second[1] - first[1]
+    else:
+        _prev_cpu_times = first
+        idle_d = first[0] - previous[0]
+        total_d = first[1] - previous[1]
+
+    if total_d <= 0:
+        return None
+    busy = 1.0 - (idle_d / total_d)
+    return max(0.0, min(100.0, busy * 100.0))
+
+
+def _parse_meminfo(text: str) -> dict[str, int]:
+    values: dict[str, int] = {}
+    for line in text.splitlines():
+        if ":" not in line:
+            continue
+        key, rest = line.split(":", 1)
+        parts = rest.split()
+        if not parts:
+            continue
+        try:
+            values[key] = int(parts[0])
+        except ValueError:
+            continue
+    return values
+
+
+def read_memory_percent(*, proc_meminfo: Path | None = None) -> float | None:
+    """Return used memory percent from /proc/meminfo (via MemAvailable), or None."""
+    path = proc_meminfo if proc_meminfo is not None else _PROC_MEMINFO
+    if not path.is_file():
+        return None
+    try:
+        values = _parse_meminfo(path.read_text(encoding="utf-8"))
+    except OSError:
+        return None
+    total = values.get("MemTotal")
+    if not total or total <= 0:
+        return None
+    available = values.get("MemAvailable")
+    if available is None:
+        free = values.get("MemFree", 0)
+        buffers = values.get("Buffers", 0)
+        cached = values.get("Cached", 0)
+        available = free + buffers + cached
+    used = total - available
+    return max(0.0, min(100.0, (used / total) * 100.0))
+
+
 def temp_band(celsius: float | None) -> str:
     """Return cool | warm | hot | na for UI color coding."""
     if celsius is None:
@@ -68,3 +170,26 @@ def temp_band(celsius: float | None) -> str:
     if celsius < 70:
         return "warm"
     return "hot"
+
+
+def read_system_stats(
+    *,
+    thermal_root: Path | None = None,
+    proc_stat: Path | None = None,
+    proc_meminfo: Path | None = None,
+    cpu_sample_seconds: float = 0.1,
+    reset_cpu_state: bool = False,
+) -> dict[str, float | None]:
+    """Collect CPU temp, CPU %, and memory % (null when unavailable)."""
+    celsius = read_cpu_temp_celsius(thermal_root=thermal_root)
+    cpu_percent = read_cpu_percent(
+        proc_stat=proc_stat,
+        sample_seconds=cpu_sample_seconds,
+        reset_state=reset_cpu_state,
+    )
+    memory_percent = read_memory_percent(proc_meminfo=proc_meminfo)
+    return {
+        "celsius": round(celsius, 1) if celsius is not None else None,
+        "cpu_percent": round(cpu_percent, 1) if cpu_percent is not None else None,
+        "memory_percent": round(memory_percent, 1) if memory_percent is not None else None,
+    }

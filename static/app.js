@@ -919,10 +919,10 @@ async function refreshHome() {
   try {
     const dateField = document.getElementById("clock-date");
     const dateQuery = dateField.value ? `?clock_date=${dateField.value}` : "";
-    const [schedRes, libRes, tempRes] = await Promise.all([
+    const [schedRes, libRes, statsRes] = await Promise.all([
       fetch(`/api/schedules${dateQuery}`),
       fetch("/api/announcements"),
-      fetch("/api/system/cpu-temp"),
+      fetch("/api/system/stats"),
     ]);
     if (!schedRes.ok) throw new Error("Could not load schedules");
     const payload = await schedRes.json();
@@ -947,22 +947,28 @@ async function refreshHome() {
     renderLibrary(announcements);
     document.getElementById("baseline-randomize").checked = Boolean(settings.baseline_randomize);
     syncTriggerNowButtons();
-    if (tempRes.ok) {
-      renderCpuTemp(await tempRes.json());
+    if (statsRes.ok) {
+      renderSystemStats(await statsRes.json());
     } else {
-      renderCpuTemp({ available: false, celsius: null });
+      renderSystemStats({ celsius: null, cpu_percent: null, memory_percent: null });
     }
   } finally {
     homeBusy = false;
   }
 }
 
-function renderCpuTemp(payload) {
-  const chip = document.getElementById("cpu-temp");
-  const value = document.getElementById("cpu-temp-value");
-  if (!chip || !value) return;
-  const available = Boolean(payload && payload.available && payload.celsius != null);
-  const celsius = available ? Number(payload.celsius) : null;
+function renderSystemStats(payload) {
+  const chip = document.getElementById("system-stats");
+  const tempEl = document.getElementById("system-stats-temp");
+  const cpuEl = document.getElementById("system-stats-cpu");
+  const memEl = document.getElementById("system-stats-mem");
+  if (!chip || !tempEl || !cpuEl || !memEl) return;
+
+  const celsius = payload && payload.celsius != null ? Number(payload.celsius) : null;
+  const cpuPercent = payload && payload.cpu_percent != null ? Number(payload.cpu_percent) : null;
+  const memoryPercent =
+    payload && payload.memory_percent != null ? Number(payload.memory_percent) : null;
+
   let band = "na";
   if (celsius != null && !Number.isNaN(celsius)) {
     if (celsius < 55) band = "cool";
@@ -971,8 +977,19 @@ function renderCpuTemp(payload) {
   }
   chip.classList.remove("temp-cool", "temp-warm", "temp-hot", "temp-na");
   chip.classList.add(`temp-${band}`);
-  value.textContent = band === "na" ? "—" : `${Math.round(celsius)}°C`;
-  chip.title = band === "na" ? "CPU temperature unavailable" : `CPU temperature ${value.textContent}`;
+
+  tempEl.textContent = band === "na" ? "—" : `${Math.round(celsius)}°C`;
+  cpuEl.textContent =
+    cpuPercent != null && !Number.isNaN(cpuPercent) ? `${Math.round(cpuPercent)}%` : "—";
+  memEl.textContent =
+    memoryPercent != null && !Number.isNaN(memoryPercent) ? `${Math.round(memoryPercent)}%` : "—";
+
+  const parts = [
+    `CPU temp ${tempEl.textContent}`,
+    `CPU ${cpuEl.textContent}`,
+    `MEM ${memEl.textContent}`,
+  ];
+  chip.title = parts.join(" · ");
 }
 
 function startHomePolling() {

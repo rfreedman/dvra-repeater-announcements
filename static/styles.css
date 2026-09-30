@@ -124,10 +124,10 @@ body {
   margin: 0 0 12px;
 }
 
-.cpu-temp {
+.system-stats {
   display: inline-flex;
   align-items: baseline;
-  gap: 10px;
+  gap: 8px;
   padding: 8px 14px 8px 12px;
   background: var(--bg-2);
   border: 1px solid var(--line);
@@ -135,50 +135,56 @@ body {
   border-left: 3px solid var(--muted);
 }
 
-.cpu-temp-label {
+.system-stats-label {
   font-size: 0.72rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--muted);
 }
 
-.cpu-temp-value {
+.system-stats-temp,
+.system-stats-usage {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   font-size: 0.95rem;
-  color: var(--muted);
+  color: var(--ink);
   min-width: 3.5ch;
 }
 
-.cpu-temp.temp-cool {
+.system-stats-sep {
+  color: var(--muted);
+  opacity: 0.7;
+}
+
+.system-stats.temp-cool {
   border-left-color: var(--moss);
 }
 
-.cpu-temp.temp-cool .cpu-temp-value {
+.system-stats.temp-cool .system-stats-temp {
   color: var(--moss);
 }
 
-.cpu-temp.temp-warm {
+.system-stats.temp-warm {
   border-left-color: var(--warn);
 }
 
-.cpu-temp.temp-warm .cpu-temp-value {
+.system-stats.temp-warm .system-stats-temp {
   color: var(--warn);
 }
 
-.cpu-temp.temp-hot {
+.system-stats.temp-hot {
   border-left-color: var(--danger);
 }
 
-.cpu-temp.temp-hot .cpu-temp-value {
+.system-stats.temp-hot .system-stats-temp {
   color: var(--danger);
 }
 
-.cpu-temp.temp-na {
+.system-stats.temp-na {
   border-left-color: var(--muted);
 }
 
-.cpu-temp.temp-na .cpu-temp-value {
+.system-stats.temp-na .system-stats-temp {
   color: var(--muted);
 }
 

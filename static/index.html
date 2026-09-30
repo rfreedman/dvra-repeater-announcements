@@ -153,14 +153,19 @@
       <section id="view-home" class="screen active">
         <div class="home-top">
           <div
-            id="cpu-temp"
-            class="cpu-temp temp-na"
+            id="system-stats"
+            class="system-stats temp-na"
             role="status"
             aria-live="polite"
-            title="CPU temperature"
+            title="System stats"
           >
-            <span class="cpu-temp-label">CPU</span>
-            <span class="cpu-temp-value" id="cpu-temp-value">—</span>
+            <span class="system-stats-label">CPU</span>
+            <span class="system-stats-temp" id="system-stats-temp">—</span>
+            <span class="system-stats-sep" aria-hidden="true">·</span>
+            <span class="system-stats-usage" id="system-stats-cpu">—</span>
+            <span class="system-stats-sep" aria-hidden="true">·</span>
+            <span class="system-stats-label">MEM</span>
+            <span class="system-stats-usage" id="system-stats-mem">—</span>
           </div>
         </div>
         <p class="lede tight">

@@ -148,7 +148,7 @@ Streams 16-bit little-endian mono PCM. Format headers:
 
 `GET /api/voices` lists voices. `POST /api/prepare` downloads/loads a model without speaking. Most `/api/*` routes require a login session cookie. User management is under `/api/users` (Admin only). Auth helpers: `/api/auth/status`, `/api/auth/setup`, `/api/auth/login`, `/api/auth/logout`, `/api/auth/me`.
 
-`GET /api/system/cpu-temp` returns `{"celsius": number|null, "available": bool}` from Linux thermal sysfs (authenticated).
+`GET /api/system/stats` returns `{"celsius", "cpu_percent", "memory_percent"}` (each number or null) from Linux thermal sysfs and `/proc` (authenticated).
 
 `GET /api/schedules` returns upcoming fire, today’s slot clock, warnings, settings, and schedule rows. Announcements are `GET/POST /api/announcements` and `PUT/DELETE /api/announcements/{id}`. Schedules are `GET/POST /api/schedules` and `PUT/PATCH/DELETE /api/schedules/{id}`. `PUT /api/settings` updates baseline shuffle and the slot window.
 
