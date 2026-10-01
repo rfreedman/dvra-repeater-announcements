@@ -65,9 +65,17 @@ def test_read_missing_sysfs(tmp_path: Path):
     assert read_cpu_temp_celsius(thermal_root=tmp_path / "missing") is None
 
 
-def test_read_cpu_percent_psutil(monkeypatch):
-    monkeypatch.setattr("app.system_status.psutil.cpu_percent", lambda interval=0.1: 17.6)
-    assert read_cpu_percent(sample_seconds=0.01) == pytest.approx(17.6)
+def test_read_cpu_percent_psutil_primes_then_returns(monkeypatch):
+    calls: list[object] = []
+
+    def fake_cpu_percent(interval=None):
+        calls.append(interval)
+        return 0.0 if len(calls) == 1 else 17.6
+
+    monkeypatch.setattr("app.system_status.psutil.cpu_percent", fake_cpu_percent)
+    assert read_cpu_percent(reset_state=True) is None
+    assert read_cpu_percent() == pytest.approx(17.6)
+    assert calls == [None, None]
 
 
 def test_read_memory_percent_psutil(monkeypatch):
@@ -90,7 +98,7 @@ def test_read_system_stats_combines(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("app.system_status.read_memory_percent", lambda: 50.0)
     monkeypatch.setattr("app.system_status.read_thermal_state", lambda: None)
 
-    stats = read_system_stats(thermal_root=thermal, cpu_sample_seconds=0.0)
+    stats = read_system_stats(thermal_root=thermal)
     assert stats == {
         "celsius": 56.0,
         "thermal_state": None,
@@ -105,7 +113,7 @@ def test_read_system_stats_macos_thermal(monkeypatch):
     monkeypatch.setattr("app.system_status.read_cpu_percent", lambda **_kwargs: 8.0)
     monkeypatch.setattr("app.system_status.read_memory_percent", lambda: 33.0)
 
-    stats = read_system_stats(cpu_sample_seconds=0.0)
+    stats = read_system_stats()
     assert stats == {
         "celsius": None,
         "thermal_state": "fair",

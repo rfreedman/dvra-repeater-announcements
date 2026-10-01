@@ -23,6 +23,9 @@ _NS_THERMAL_FAIR = 1
 _NS_THERMAL_SERIOUS = 2
 _NS_THERMAL_CRITICAL = 3
 
+# First psutil.cpu_percent(interval=None) is a meaningless baseline sample.
+_cpu_percent_primed = False
+
 
 def _read_millidegrees(temp_path: Path) -> float | None:
     try:
@@ -68,11 +71,22 @@ def read_cpu_temp_celsius(*, thermal_root: Path | None = None) -> float | None:
     return _read_millidegrees(target)
 
 
-def read_cpu_percent(*, sample_seconds: float = 0.1) -> float | None:
-    """Return aggregate CPU usage percent via psutil, or None."""
+def read_cpu_percent(*, reset_state: bool = False) -> float | None:
+    """Return aggregate CPU usage percent since the previous call (non-blocking).
+
+    Uses ``psutil.cpu_percent(interval=None)`` so a 15s stats poller reports
+    approximately a 15s average. The first call only primes the baseline and
+    returns ``None`` (psutil's first sample is meaningless).
+    """
+    global _cpu_percent_primed
+    if reset_state:
+        _cpu_percent_primed = False
     try:
-        value = float(psutil.cpu_percent(interval=max(sample_seconds, 0.0)))
+        value = float(psutil.cpu_percent(interval=None))
     except (OSError, ValueError, TypeError):
+        return None
+    if not _cpu_percent_primed:
+        _cpu_percent_primed = True
         return None
     return max(0.0, min(100.0, value))
 
@@ -138,12 +152,11 @@ def thermal_state_band(state: str | None) -> str:
 def read_system_stats(
     *,
     thermal_root: Path | None = None,
-    cpu_sample_seconds: float = 0.1,
 ) -> dict[str, float | str | None]:
     """Collect CPU temp or thermal state, CPU %, and memory %."""
     celsius = read_cpu_temp_celsius(thermal_root=thermal_root)
     thermal_state = read_thermal_state()
-    cpu_percent = read_cpu_percent(sample_seconds=cpu_sample_seconds)
+    cpu_percent = read_cpu_percent()
     memory_percent = read_memory_percent()
     return {
         "celsius": round(celsius, 1) if celsius is not None else None,
