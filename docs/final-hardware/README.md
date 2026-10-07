@@ -4,7 +4,7 @@ This is the production radio interface for the announcements app.
 
 **Decision:** two assembled Masters [DRA-36M](https://www.masterscommunications.com/products/radio-adapter/dra/dra36m.html) units, each with its own USB cable to the Raspberry Pi 4 and its own Mini-DIN-6 cable to one radio. Both radios hear the same announcement, key together, and report busy independently.
 
-## Parts List / Cost
+## Parts List / Cost w/ Pi (Defunct)
 
 | Item | <div style="white-space: nowrap;">Cost Ea</div> | <div style="white-space: nowrap;">Qty</dvi>  | <div style="white-space: nowrap;">Total &nbsp; &nbps;</div> | Source |
 | ---- | ------- | ---- | ---- | ---- |
@@ -18,18 +18,28 @@ This is the production radio interface for the announcements app.
 ||
 |**TOTAL**|||**$443**|
 
+## Parts List / Cost w/ Intel NUC
+| Item | <div style="white-space: nowrap;">Cost Ea</div> | <div style="white-space: nowrap;">Qty</dvi>  | <div style="white-space: nowrap;">Total &nbsp; &nbps;</div> | Source |
+| ---- | ------- | ---- | ---- | ---- |
+|DRA-36M + cable & shipping|$129|2|$258|masterscommunications.com|
+||
+|Intel NUC + tax & shipping| <= $150 | 1| <= $150 |  |
+||
+|**TOTAL**|||**$408**|
+
+
 
 ## Station
 
 | Role | Choice |
 |---|---|
-| Host | Raspberry Pi 4, 64-bit Raspberry Pi OS |
-| Production radios | **IC-207H** |
+| Host | Intel NUC, Xubuntu OS |
+| Production radios | **IC-208H** |
 | Test radio | **IC-2720** (same DATA jack; development only) |
 | Radio interface | 2 × DRA-36M, assembled, metal case |
-| Audio path | USB only. The Pi headphone jack is unused. |
+| Audio path | USB only. The NUC headphone jack is unused. |
 | PTT / busy | Each DRA’s CM119A HID (GPIO3 PTT, COS from SQL) |
-| Storage | Quality A2 microSD or USB SSD |
+| Storage | Internal SSD |
 | Power | Official-class 5 V / 3 A USB-C supply |
 
 The IC-207H and IC-2720 share the rear 6-pin Mini-DIN DATA jack, ground-to-key PTT, and pin 6 SQL (high when squelch is open). SQL is labeled **SQ** on the 207H and **P SQL** on the 2720.
