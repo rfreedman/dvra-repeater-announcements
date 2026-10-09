@@ -41,7 +41,7 @@ def clear_session(request: Request) -> None:
 
 
 def _idle_expired(request: Request) -> bool:
-    raw = request.session.get(SESSION_LAST_ACTIVE_KEY)
+    raw: str | None = request.session.get(SESSION_LAST_ACTIVE_KEY)
     if raw is None:
         return True
     try:

@@ -55,16 +55,133 @@ This is w2-zee-q. [pause:2] The Delaware Valley Radio Association...
 
 ## CLI
 
+Run commands from the project root with the virtualenv active:
+
 ```bash
-python -m app voices
+python -m app <command> ...
+```
+
+If the first argument is not a known command (`speak`, `serve`, `voices`, `download`, `users`), it is treated as **speak** text. These are equivalent:
+
+```bash
+python -m app speak "Hello"
+python -m app "Hello"
+```
+
+CLI behavior respects the same [configuration](#configuration) and optional `.env` as the web app (voices directory, default voice, speed, host/port, `TTS_USERS_PATH`, and so on). User accounts are stored in `data/users.json` by default.
+
+| Exit code | Meaning |
+| --- | --- |
+| `0` | Success |
+| `1` | Usage error or unexpected failure |
+| `2` | User input error (missing text, unknown user, validation error, voice error) |
+
+### `speak`
+
+Synthesize text with Piper and play it on the local audio device (in memory; no WAV file).
+
+```bash
+python -m app speak [options] [text ...]
+```
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `-v`, `--voice` | default voice | Piper voice id or alias from `config/piper-voices.json` |
+| `--speed` | `TTS_SPEED` (`1.0`) | Speaking rate; lower is slower |
+| `--pause`, `--sentence-pause` | `TTS_SENTENCE_PAUSE` (`0.25`) | Silence between sentences (seconds) |
+| `--stdin` | off | Read all text from standard input instead of arguments |
+
+The resolved voice id is printed on stderr. Script tags such as `[pause:2]` in the text are honored the same way as in the web UI.
+
+Examples:
+
+```bash
 python -m app speak "Hello from the announcements."
 python -m app speak --voice amy "Piper voice aliases work too."
 python -m app speak --speed 0.75 --pause 0.6 "Hello. Take your time with this."
 echo "From a pipe" | python -m app speak --stdin
+```
+
+### `serve`
+
+Start the FastAPI web UI and HTTP API (announcements, schedules, auth, scheduler).
+
+```bash
+python -m app serve [--host HOST] [--port PORT] [--preload]
+```
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--host` | `TTS_HOST` (`0.0.0.0`) | Bind address |
+| `--port` | `TTS_PORT` (`8000`) | Listen port |
+| `--preload` | — | Deprecated; voices are always preloaded at startup |
+
+```bash
+python -m app serve
+```
+
+Open [http://127.0.0.1:8000](http://127.0.0.1:8000) (or your host/port). Scheduled announcements play on the **server’s** audio output, not the browser.
+
+### `voices`
+
+List Piper voices known to the app (featured catalog plus models on disk), with id, alias, name, locale, quality, and whether the model is already downloaded.
+
+```bash
+python -m app voices
+```
+
+### `download`
+
+Download (if needed) and load voice models into `voices/piper/` without speaking. Useful before going on-air or on a slow link.
+
+```bash
+python -m app download [voice ...]
+```
+
+Each argument is a voice id or alias. With no arguments, prepares the **default** voice (`TTS_DEFAULT_VOICE`).
+
+```bash
+python -m app download
+python -m app download amy ryan
+```
+
+### `users`
+
+Manage web UI logins stored in `TTS_USERS_PATH` (default `data/users.json`). These commands work even when you cannot sign in to the UI—use them for recovery on the server console.
+
+```bash
 python -m app users list
+python -m app users create USERNAME [options]
+python -m app users passwd USERNAME [--password PASSWORD]
+python -m app users delete USERNAME
+```
+
+**`users list`** — Print `username`, `role`, and internal `id` (tab-separated). If no users exist, the CLI suggests creating the first admin or using the web setup screen.
+
+**`users create`** — Add a user.
+
+| Option | Description |
+| --- | --- |
+| `--password` | Password on the command line (avoid on shared hosts); otherwise prompted twice |
+| `--role` | `admin` or `readonly` (default: `readonly`) |
+| `--admin` | Same as `--role admin` |
+
+Passwords must be at least **8 characters**. Roles match the web UI: **admin** (full access, user management) and **readonly** (view and Speak preview only).
+
+```bash
 python -m app users create --admin alice
 python -m app users create bob --role readonly
+```
+
+**`users passwd`** — Set a new password for an existing user (forgotten password / lockout recovery). Prompts twice unless `--password` is given.
+
+```bash
 python -m app users passwd alice
+```
+
+**`users delete`** — Remove a user. The **last admin** cannot be deleted or demoted via the API; the CLI enforces the same rule when deleting would leave no admin.
+
+```bash
 python -m app users delete bob
 ```
 
