@@ -546,8 +546,7 @@ function triggerNowLabelForSchedule(scheduleId) {
   if (pending) {
     if (pending.phase === "clear_window") {
       const remain = interpolatedClearRemaining(pending);
-      const retryMs = (pending.retry_in_seconds ?? 0) * 1000;
-      if (remain != null && remain <= 0 && retryMs <= 800) {
+      if (remain != null && remain <= 0) {
         return "Starting…";
       }
     }
@@ -643,12 +642,11 @@ function renderUpcoming() {
       statusEl.classList.add("is-clear-hold");
       statusEl.classList.remove("is-deferred");
       whenEl.textContent = "Channel clear — hold timer";
+      // A queued retry's own run time is irrelevant here: the COS poll runs it as soon
+      // as the hold is met (nudge_manual_defer_jobs_if_clear_ready).
       const remain = interpolatedClearRemaining(pending);
-      const retryMs = (pending.retry_in_seconds ?? 0) * 1000;
       if (remain != null && pending.clear_seconds > 0 && remain > 0) {
         countEl.textContent = `${formatCountdown(remain * 1000)} remaining`;
-      } else if (retryMs > 500) {
-        countEl.textContent = `Starting in ${formatCountdown(retryMs)}`;
       } else {
         countEl.textContent = "Starting now…";
       }

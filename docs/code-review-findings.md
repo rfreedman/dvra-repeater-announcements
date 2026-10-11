@@ -89,6 +89,11 @@ APScheduler with a shifted/frozen clock before fixing; the new tests in
 - **Fix:** `app/fire.py` `_confirm_clear_before_ptt` reads COS directly, never trusting idle credit. With a clear hold it keeps reading for `TTS_DRA_FINAL_CHECK_SECONDS` (default 1.0 s, one read per poll interval) before PTT. Any busy read defers or drops the fire as a busy defer. Effect: the real hold is the clear hold plus up to 1 s; the UI shows "Starting…" during that last part.
 - **Tests:** `tests/test_clear_hold_transmit.py` (fresh busy read defers despite idle credit; key-up mid-window defers; the window reads for its full length).
 
+### 13. "Starting in mm:ss" flashed when a busy-deferred trigger reached the end of its hold
+- **Symptom:** a trigger that had waited out a busy channel briefly showed "Starting in xx:xx" at the end of the countdown; an immediate trigger showed "Starting now…".
+- **Cause:** the UI showed the queued retry job's own run time (up to `busy_retry_seconds` away). That time never applies once the hold is met, because the COS poll thread pulls the job forward right away (`nudge_manual_defer_jobs_if_clear_ready`). Display only; the trigger always ran right away.
+- **Fix:** `static/app.js`: in the clear-hold phase, a finished countdown always shows "Starting now…" / "Starting…", whatever the retry time says.
+
 ---
 
 ## Tech debt addressed
