@@ -24,6 +24,8 @@ and add a one-line lesson here if it is a pattern worth avoiding.
 - `app/config.py` reads env at import; tests set `TTS_SKIP_DOTENV=1`. Never let a developer `.env` affect tests.
 - Never treat an unrecognized data file as empty — raise `DataFileError`; a later save would erase data.
 - Timer-driven UI requests send `X-Background-Poll: 1` so they don't defeat the idle logout.
+- UI status that can change during a long request (e.g. Trigger now transmitting inside its POST) needs fast polling while that request is in flight — don't rely on the 15 s timer.
+- Stub mode never goes busy and transmits instantly; verify trigger/queue/playing UI on the NUC with `TTS_RADIO_BACKEND=dra`.
 - One source of defaults: env/config → `/api/voices` → UI. Don't hard-code defaults in `static/app.js`.
 - Slot math uses `Settings.timezone` only; `Schedule.timezone` is legacy.
 

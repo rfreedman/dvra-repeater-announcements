@@ -721,11 +721,18 @@ function syncDeleteButtons() {
 
 function tickUpcoming() {
   renderUpcoming();
-  if (!upcoming && pendingManualTriggers.length === 0) return;
+  // A Trigger now POST can transmit inside the request (clear hold already met),
+  // so poll while it is in flight or the UI only learns "Playing" on the 15 s timer.
+  if (!upcoming && pendingManualTriggers.length === 0 && !triggerNowBusy) return;
   const soon =
     upcoming?.at &&
     new Date(upcoming.at).getTime() - (Date.now() + clockSkewMs) <= 15000;
-  if (upcoming?.status === "running" || pendingManualTriggers.length > 0 || soon) {
+  if (
+    triggerNowBusy ||
+    upcoming?.status === "running" ||
+    pendingManualTriggers.length > 0 ||
+    soon
+  ) {
     refreshHome({ background: true }).catch(() => {});
   }
 }

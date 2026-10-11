@@ -62,6 +62,12 @@ APScheduler with a shifted/frozen clock before fixing; the new tests in
 - **Fix:** timer-driven requests in `static/app.js` send `X-Background-Poll: 1`; `app/auth.py` authenticates them without refreshing `last_active`.
 - **Test:** `test_background_poll_does_not_extend_idle_session`.
 
+### 9. "Trigger now" button showed "Playing" late or not at all (found on the NUC after deploy)
+- **Symptom:** after a manual trigger the button changed to "Playing" late, sometimes never. Scheduled fires were fine.
+- **Cause:** when the clear hold is already met, the trigger transmits *inside* the POST request. The UI's fast (1 s) refresh only ran when something was already queued/running or a scheduled run was within 15 s, so during that POST it waited for the 15 s timer — longer than a short announcement. Scheduled fires hit the "within 15 s" case, which is why they worked. Not seen in Mac stub mode because stub transmits finish almost instantly. Likely predates this review.
+- **Fix:** `static/app.js` `tickUpcoming()` also polls while `triggerNowBusy` (a trigger request is in flight).
+- **Test:** `tests/test_manual_trigger_status.py` checks the server reports `upcoming.status == "running"` while a manual transmit is in progress. The frontend polling itself has no automated test.
+
 ---
 
 ## Tech debt addressed
