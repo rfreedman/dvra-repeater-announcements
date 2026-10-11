@@ -311,6 +311,14 @@ body {
   color: var(--moss);
 }
 
+.next-run-status.is-deferred {
+  color: var(--amber, #c47a2c);
+}
+
+.next-run-status.is-clear-hold {
+  color: var(--moss);
+}
+
 .next-run-countdown {
   color: var(--ink);
   font-size: 1.05rem;
@@ -893,6 +901,19 @@ button.small {
   border: 1px solid rgba(224, 193, 109, 0.4);
   color: var(--warn);
   background: rgba(224, 193, 109, 0.08);
+}
+
+.banner-drop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.banner-drop .banner-dismiss {
+  flex: none;
+  margin: -4px 0;
+  font-size: 0.85rem;
 }
 
 .dropdown {

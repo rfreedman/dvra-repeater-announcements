@@ -108,7 +108,9 @@ def test_clear_channel_keys_ptt_waits_lead_plays_and_unkeys(caplog):
     assert extras["played"] == ["play"]
     assert extras["last_runs"]
     assert extras["consumed"] == [("sched1", "2026-08-27T12:00")]
-    assert radio.events == [("busy_check", False), ("ptt", True), ("ptt", False)]
+    assert ("ptt", True) in radio.events
+    assert radio.events[-1] == ("ptt", False)
+    assert all(e == ("busy_check", False) for e in radio.events if e[0] == "busy_check")
     assert radio.ptt is False
     assert "Fire transmitted; ID" in caplog.text
 
@@ -273,11 +275,12 @@ def test_busy_past_deadline_drops_without_ptt(caplog):
     assert extras["deferred"] == []
     assert extras["played"] == []
     assert not any(event[0] == "ptt" for event in radio.events)
-    assert "Fire dropped; ID; channel still busy after" in caplog.text
+    assert "Fire dropped; ID; channel still busy" in caplog.text
 
 
 def test_transmit_uses_injected_lead_not_announcement():
     radio = StubRadio()
+    radio.busy = False
     slept: list[float] = []
     transmit(
         [PcmChunk(pcm_int16=b"\x00\x00", sample_rate=22050)],
@@ -287,4 +290,5 @@ def test_transmit_uses_injected_lead_not_announcement():
         lead_seconds=0.4,
     )
     assert slept == [0.4]
-    assert radio.events == [("ptt", True), ("ptt", False)]
+    assert ("ptt", True) in radio.events
+    assert radio.events[-1] == ("ptt", False)

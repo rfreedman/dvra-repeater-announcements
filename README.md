@@ -2,13 +2,13 @@
 
 Local Piper text-to-speech with a FastAPI UI and a CLI. Audio is generated and played **entirely in memory** — nothing is written to disk as a WAV/MP3.
 
-Piper is fast enough for Raspberry Pi, streams one sentence at a time, and has many English voices (plus any [Piper voice](https://rhasspy.github.io/piper-samples/)).
+Piper streams one sentence at a time and has many English voices (plus any [Piper voice](https://rhasspy.github.io/piper-samples/)).
 
 ## Requirements
 
-- macOS or Linux (64-bit). Raspberry Pi OS 64-bit works; 32-bit does not.
+- macOS or **64-bit Linux** (production station hardware: [docs/final-hardware/README.md](docs/final-hardware/README.md); DRA bench tests: [dra36m-check-tests.md](docs/final-hardware/dra36m-check-tests.md), [scripts/README.md](scripts/README.md)).
 - Python 3.10+
-- For CLI playback: PortAudio (`brew install portaudio` on macOS, `sudo apt install libportaudio2` on Debian/Raspberry Pi)
+- For CLI playback: PortAudio (`brew install portaudio` on macOS, `sudo apt install libportaudio2` on Debian/Ubuntu)
 
 ## Setup
 
@@ -43,7 +43,7 @@ Write the spoken text under **New announcement**. Timing lives on **schedules**,
 - A **baseline** fills every hour and half-hour unless something else claims the slot. Several baselines take turns.
 - An **overlay** (weekly net, monthly net, event countdown, once, silence, or emergency) replaces the baseline for the slots it matches. You can slide an overlay a few minutes early or late inside the slot window; it still occupies that slot. Example: the 15:30 slot at −5 minutes fires at 15:25, and 15:30 stays silent.
 
-Scheduled playback happens on the **server's audio device** (with stub PTT key-up and a lead-in delay), even if the browser is closed. The Speak button is preview only and does not key the radio.
+Scheduled playback uses the configured **radio backend** (`TTS_RADIO_BACKEND`: **stub** by default, or **dra** for DRA-36M PTT/COS/USB audio on the NUC). The Speak button is preview only (default output, no PTT). See [final hardware](docs/final-hardware/README.md) and configuration below.
 
 Insert a timed silence in the script with `[pause:SECONDS]` (optional trailing `s`). The tag is not spoken. Duration is capped at 10 seconds; invalid tags such as `[pause]` are left as ordinary text.
 
@@ -203,14 +203,23 @@ python -m app users delete bob
 | `TTS_SESSION_IDLE_SECONDS` | `1800` (30 min) | Log out after this much idle time |
 | `TTS_PCM_CACHE_DIR` | `./data/pcm` | Pre-rendered announcement PCM (written on save and at startup; scheduled fires play this) |
 | `TTS_LOG_DIR` | `./data/logs` | Daily `announcements.log` files (30 days; uvicorn access lines are not written here) |
-| `TTS_PTT_LEAD_SECONDS` | `0.4` | Delay after PTT before audio |
+| `TTS_PTT_LEAD_SECONDS` | `0.4` | Delay after PTT before audio (on **dra**, silence is streamed on USB; on **stub**, host sleep) |
+| `TTS_RADIO_BACKEND` | `stub` | `stub` = in-memory PTT/COS; `dra` = CM119A HID + DRA USB audio (requires `hidapi`) |
+| `TTS_DRA_USB_CHANNEL` | `left` | USB channel for DATA IN (**JU3=L** → `left`) |
+| `TTS_DRA_COS_LINE` | `vol_dn` | HID COS decode (`vol_dn` or `allstar3`) |
+| `TTS_DRA_COS_ACTIVE_HIGH` | `false` | Set `true` if idle/busy labels swap on `monitor` |
+| `TTS_DRA_AUDIO_DEVICES` | *(auto)* | Optional comma list of PortAudio substrings or indices (one per DRA) |
+| `TTS_DRA_CLEAR_SECONDS` | `0` | Continuous COS idle required after synthesize, before PTT (`10` matches bench voice-gate) |
+| `TTS_DRA_CLEAR_POLL_SECONDS` | `0.25` | COS poll interval during clear wait and background idle tracking |
+| `TTS_DRA_COS_TRACK` | `true` | Background COS polls while the scheduler runs (idle before Trigger now counts toward clear) |
+| `TTS_DRA_HID_PATH` | *(auto)* | Hex HID path to pin one DRA (Mac dev when several CM119 interfaces exist) |
 | `TTS_BUSY_RETRY_SECONDS` | `5` | Default retry while the channel is busy |
 | `TTS_BUSY_GIVE_UP_SECONDS` | `45` | Default drop this fire if still busy |
 | `TTS_SCHEDULER_MAX_WAIT_SECONDS` | `5` | How long the scheduler may sleep before checking the clock again |
 | `TTS_SLOT_HALF_WINDOW_MINUTES` | `10` | How far an overlay may shift from its slot center |
 | `TTS_TRIGGER_NOW` | `false` | Dev only: show **Trigger now** on schedule rows (does not change Last or the next slot) |
 
-On a Raspberry Pi or other low-RAM host, set `TTS_PIPER_QUALITIES=medium` so only medium models are listed and preloaded. High-quality voices use more CPU and RAM.
+On a low-RAM host, set `TTS_PIPER_QUALITIES=medium` so only medium models are listed and preloaded. High-quality voices use more CPU and RAM.
 
 ### Piper voices
 

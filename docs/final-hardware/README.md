@@ -1,46 +1,34 @@
-# Final hardware: Pi 4B (2Mb) + two DRA-36M Digital Radio Adapters
+# Final hardware: Intel NUC + two DRA-36M Digital Radio Adapters
 
 This is the production radio interface for the announcements app.
 
-**Decision:** two assembled Masters [DRA-36M](https://www.masterscommunications.com/products/radio-adapter/dra/dra36m.html) units, each with its own USB cable to the Raspberry Pi 4 and its own Mini-DIN-6 cable to one radio. Both radios hear the same announcement, key together, and report busy independently.
+**Decision:** two assembled Masters [DRA-36M](https://www.masterscommunications.com/products/radio-adapter/dra/dra36m.html) units, each with its own USB cable to the host and its own Mini-DIN-6 cable to one radio. Both radios hear the same announcement, key together, and report busy independently.
 
-## Parts List / Cost w/ Pi (Defunct)
+**Host:** a used **Intel NUC** running **64-bit Xubuntu**, with an **internal SSD**. A Raspberry Pi 4 was considered as the host, but the NUC was chosen instead: faster CPU, internal SSD, and approximately the same cost in 2026.
 
-| Item | <div style="white-space: nowrap;">Cost Ea</div> | <div style="white-space: nowrap;">Qty</dvi>  | <div style="white-space: nowrap;">Total &nbsp; &nbps;</div> | Source |
-| ---- | ------- | ---- | ---- | ---- |
-|DRA-36M + cable & shipping|$129|2|$258|masterscommunications.com|
-||
-|Pi4 4Gb + tax| $128| 1| $128 | amazon.com/Raspberry-Pi-RPI4-MODBP-4GB-Model-4GB/dp/B09TTNF8BT |
-|Passive Aluminum Pi Case + tax |$11|1|$11 |amazon.com/Geekworm-Raspberry-Compatible-Aluminum-Only-Black/dp/B07ZVJDRF3|
-|Power Supply w/switch + tax |$11|1|$11|amazon.com/GeeekPi-Supply-Raspberry-Orange-Adapter/dp/B0BMGJNSVS |
-||
-| SD Card | $37 | 1 | $37 | https://www.amazon.com/SanDisk-Endurance-MicroSD-Outdoor-Cameras/dp/B0BMW1XFY2 |
-||
-|**TOTAL**|||**$443**|
+## Parts list / cost
 
-## Parts List / Cost w/ Intel NUC
-| Item | <div style="white-space: nowrap;">Cost Ea</div> | <div style="white-space: nowrap;">Qty</dvi>  | <div style="white-space: nowrap;">Total &nbsp; &nbps;</div> | Source |
-| ---- | ------- | ---- | ---- | ---- |
-|DRA-36M + cable & shipping|$129|2|$258|masterscommunications.com|
-||
-|Intel NUC + tax & shipping| <= $150 | 1| <= $150 |  |
-||
-|**TOTAL**|||**$408**|
+| Item | Cost ea | Qty | Total | Source |
+| ---- | ------- | --- | ----- | ------ |
+| DRA-36M + cable & shipping | $129 | 2 | $258 | masterscommunications.com |
+| Intel NUC + tax & shipping | ≤ $150 | 1 | ≤ $150 | (used market) |
+| **TOTAL** | | | **≤ $408** | |
 
-
+DRA list prices and cables are detailed under [Buy list](#buy-list) below.
 
 ## Station
 
 | Role | Choice |
 |---|---|
-| Host | Intel NUC, Xubuntu OS |
-| Production radios | **IC-208H** |
+| Host | Intel NUC, Xubuntu (64-bit) |
+| Production radios | **IC-207H** |
 | Test radio | **IC-2720** (same DATA jack; development only) |
 | Radio interface | 2 × DRA-36M, assembled, metal case |
-| Audio path | USB only. The NUC headphone jack is unused. |
+| Audio path | USB only. The NUC analog headphone jack is unused. |
 | PTT / busy | Each DRA’s CM119A HID (GPIO3 PTT, COS from SQL) |
 | Storage | Internal SSD |
-| Power | Official-class 5 V / 3 A USB-C supply |
+| Host power | NUC AC adapter (as supplied with the unit) |
+| DRA power | USB from the NUC; use **direct** motherboard ports, not an unpowered hub |
 
 The IC-207H and IC-2720 share the rear 6-pin Mini-DIN DATA jack, ground-to-key PTT, and pin 6 SQL (high when squelch is open). SQL is labeled **SQ** on the 207H and **P SQL** on the 2720.
 
@@ -58,11 +46,11 @@ From [Masters Communications](https://www.masterscommunications.com/products/rad
 
 Typical total with two Shorties: about **$222** plus USB cables and shipping.
 
-Plug both DRA USB cables **directly into the Pi 4**. Do not put them on an unpowered hub.
+Plug both DRA USB cables **directly into the NUC**. Do not put them on an unpowered hub.
 
 Label the cases **Radio 1** and **Radio 2** and keep each DRA on a dedicated USB port so udev can bind by path.
 
-**Not required:** custom GPIO board, Y-cable, DRA-Switch, DRA-3M mixer, extra PTT transistor, analog audio cable from the Pi.
+**Not required:** custom interface board, Y-cable, DRA-Switch, DRA-3M mixer, extra PTT transistor, or analog audio from the NUC headphone jack.
 
 ---
 
@@ -71,15 +59,15 @@ Label the cases **Radio 1** and **Radio 2** and keep each DRA on a dedicated USB
 The DRA-36M **is** the sound card. Piper / PortAudio play into that USB device. The CM119A DAC creates analog TX audio. The DRA sends it out Mini-DIN **pin 1**, which is the radio’s **DATA IN**.
 
 ```
-Pi app  --USB-->  DRA-36M  --Mini-DIN pin 1-->  radio DATA IN
-                   CM119A  --Mini-DIN pin 3-->  radio PTT (ground to key)
-                           --Mini-DIN pin 6-->  radio SQL (COS)
-                           --Mini-DIN pin 2-->  ground
+Announcements app  --USB-->  DRA-36M  --Mini-DIN pin 1-->  radio DATA IN
+                              CM119A  --Mini-DIN pin 3-->  radio PTT (ground to key)
+                                      --Mini-DIN pin 6-->  radio SQL (COS)
+                                      --Mini-DIN pin 2-->  ground
 ```
 
-There is no analog lead from the Pi into a “DRA DATA IN.” DATA IN is on the radio. The stock Mini-DIN cable already makes that connection.
+There is no analog lead from the NUC into a “DRA DATA IN.” DATA IN is on the radio. The stock Mini-DIN cable already makes that connection.
 
-On each DRA, **JU3** chooses whether pin 1 is fed from the USB **left** or **right** channel. Play (or upmix) onto that same channel. TX level is the DRA’s transmit pot for that channel (R14 = right, R16 = left), not the Pi headphone volume.
+On each DRA, **JU3** chooses whether pin 1 is fed from the USB **left** or **right** channel. Play (or upmix) onto that same channel. TX level is the DRA’s transmit pot for that channel (R14 = right, R16 = left), not the NUC’s system volume alone.
 
 This app does not use receive audio from the radio (pins 4 / 5). Busy is taken from SQL on pin 6.
 
@@ -104,7 +92,17 @@ Leave pins 4 and 5 unwired in software. Do not use the radio’s 9600 bps DATA s
 
 ## Jumper settings (same on both DRA-36M)
 
-Masters default is digital-mode (VARA / Direwolf): **JU1 off**, JU3 = R, JU5 = B. **This app is not that.** COS must be enabled so the Pi can see SQL.
+Masters ships the DRA-36M for digital-mode (VARA / Direwolf): **JU1 off**, JU3 = R, **JU5 = B (9600)**. **This app is not that.**
+
+**New unit — change three jumpers from factory default:**
+
+| Jumper | What it controls | Factory | For this app |
+|---|---|---|---|
+| **JU1** | **COS (channel busy):** when installed, connects the radio’s **Mini-DIN pin 6** (SQL — high when squelch is open) to the CM119A logic input that the host reads as COS over USB HID. With JU1 off, pin 6 is ignored and **`channel_busy()` / `monitor --cos vol_dn` cannot work.** | **Off** (open) | **Install** the shunt (closed) |
+| **JU3** | **TX audio path:** **L** = Mini-DIN pin 1 fed from USB **left** channel; **R** = pin 1 from USB **right** channel. Software must play program audio on the same channel (see below). | **R** (right) | **L** (left) on **both** DRA |
+| **JU5** | **Receive audio source** on the DATA jack: **A** = pin **5** (1200 baud AF out), **B** = pin **4** (9600 baud data out). The DRA routes the selected pin into the CM119 receive path (unused for playback in this app, but must match how the radio is configured). Wrong JU5 has caused missing or inverted COS on the bench. | **B** (9600) | **A** (1200) |
+
+Set the radio to **1200 bps DATA**, same as **JU5 = A**. **JU4** and the **PTT** pair can stay as shipped unless checkout says otherwise.
 
 The 36M has **no JU2** (CTCSS input was omitted). All other jumper numbers match the DRA-36.
 
@@ -112,12 +110,14 @@ The 36M has **no JU2** (CTCSS input was omitted). All other jumper numbers match
 |---|---|---|
 | **JU1** | **Installed** | Enables COS from Mini-DIN pin 6 (radio SQL) as the CM119A HID bit |
 | JU2 | Not present on 36M | — |
-| **JU3** | **R** on both units (Masters default) | Pin 1 = USB right channel. Keep both DRA identical so software can play the same stream |
+| **JU3** | **L** on both units | Pin 1 = USB **left** channel. Keep both DRA identical so software can play the same stream on **left** |
 | JU4 | Leave off unless the PTT LED glows with the radio off | Anti-false PTT LED; Icom base radios usually leave this off |
-| JU5 | Don’t care | Selects RX audio pin 4 vs 5; this app does not record from the radio |
+| **JU5** | **A (1200)** | Masters factory default is **B (9600)**. Match the radio’s **1200 bps DATA** setting even though this app does not record RX audio—wrong JU5 has caused bogus or inverted COS on the bench |
 | **PTT pair** | Start on **T** (transistor). Both shunts required, parallel to the silkscreen arrows | Icom packet PTT is ground-to-key. If a radio will not key, rotate both shunts 90° to **R** (reed relay). The 36M relay option exists for Icom radios that dislike open-collector keying |
 
-After JU3 = R, set TX deviation with **R14** (right-channel pot) on each DRA. If you ever move JU3 to L, use **R16** instead.
+**TX level:** With **JU3 = L**, adjust **R16** (left-channel pot) on each DRA until DATA-IN deviation is clean for Piper speech. **R14** is for the right channel only (unused with this jumper choice).
+
+**Software:** Bench TX commands use **`-c left`** (or omit `-c` — [`dra36m_check.py`](../../scripts/dra36m_check.py) defaults to left). Future dual-DRA playback must upmix or route mono Piper onto the **left** channel of **both** USB devices.
 
 R12 is receive level and is irrelevant until something reads RX audio.
 
@@ -145,11 +145,13 @@ Announcements go out on **both** radios at once. Never talk on one machine while
 |---|---|---|
 | Busy | Each DRA COS (HID), from that radio’s pin 6 SQL | `channel_busy()` is true if **either** COS is active. Defer with existing `TTS_BUSY_RETRY_SECONDS` / `TTS_BUSY_GIVE_UP_SECONDS` until **both** are clear |
 | PTT | Each DRA CM119A **GPIO3** | `set_ptt(True)` asserts **both** HID PTT bits. Keep `TTS_PTT_LEAD_SECONDS` (default 0.4 s) before audio. Release both in `finally` |
-| Audio | Two PortAudio (CM119A) devices | Play the **same** PCM on **both** devices, or a PulseAudio / PipeWire combine sink that feeds both. Piper is mono; upmix or duplicate as needed so the JU3 channel has signal |
+| Audio | Two PortAudio (CM119A) devices | Play the **same** PCM on **both** devices, or a PulseAudio / PipeWire combine sink that feeds both. Piper is mono; place it on the **left** channel (silence on right) on **each** DRA to match **JU3 = L** |
 
 SQL polarity: radio pin 6 is **high when the squelch is open**. CM119A COS for AllStar is normally **active-low**. Invert in software after measuring, or use any NPN inverter Masters documents for that COS input. Confirm with a DMM on pin 6 (squelched vs open) and on the HID bit before relying on busy detect.
 
-Current code: [`transmit()`](../../app/radio.py) already keys, waits the lead, plays, then unkeys. [`play_chunks`](../../app/playback.py) opens the **default** PortAudio device only. Replacing `StubRadio` and teaching playback about two devices is still future software work.
+**Application:** Set `TTS_RADIO_BACKEND=dra` on the NUC (keep `stub` on dev Macs without hardware). The app uses [`DraRadio`](../../app/dra_radio.py): defer/drop on busy, **re-check after synthesize**, optional **`TTS_DRA_CLEAR_SECONDS`** (continuous idle before PTT, same idea as `voice-gate`). While the scheduler runs, **background COS polling** (`TTS_DRA_COS_TRACK`, default on) accrues idle time so Trigger now or a slot fire can **key immediately** if the channel was already quiet long enough. Final busy check at keying; **both** PTT lines together; **left** USB channel; PTT lead as USB silence. Single-DRA Mac dev may set **`TTS_DRA_HID_PATH`** (hex from `probe`); dual-NUC pairing by USB path order is still operational—use **`TTS_DRA_AUDIO_DEVICES`** and fixed USB ports until per-radio HID mapping exists.
+
+Bench verification before enabling **dra**: [`dra36m-check-tests.md`](dra36m-check-tests.md) and [`scripts/dra36m_check.py`](../../scripts/dra36m_check.py).
 
 ---
 
@@ -157,7 +159,7 @@ Current code: [`transmit()`](../../app/radio.py) already keys, waits the lead, p
 
 Both DRA-36M units enumerate as the same C-Media CM119A (USB sound + HID). Enumeration order is not stable across reboots.
 
-1. Plug Radio 1’s DRA into a chosen Pi USB port and leave it there.
+1. Plug Radio 1’s DRA into a chosen NUC USB port and leave it there.
 2. Same for Radio 2 on a different port.
 3. udev rules keyed on **USB path** (`KERNELS=="1-1.x"`) or the device serial, not “first CM119A vs second.”
 4. Grant the service user access to both `hidraw` nodes and both ALSA / PortAudio devices.
@@ -166,36 +168,72 @@ Both DRA-36M units enumerate as the same C-Media CM119A (USB sound + HID). Enume
 
 ---
 
+## DRA-36M status LEDs (Masters)
+
+Three front-panel indicators ([DRA detailed description](https://www.masterscommunications.com/products/radio-adapter/dra/dra-description.html)). **Busy / COS does not drive the blue LED.**
+
+| LED | Color | Meaning |
+|---|---|---|
+| Heartbeat | Green | Solid = USB power. **Flashes** when a host app is **streaming USB audio** to the DRA. |
+| COMM OK | Blue | **Solid** only while heartbeat is healthy (green flashing). Host watchdog—not squelch. **Off** with USB plugged in but no audio stream (e.g. HID-only `monitor`) is normal. |
+| PTT | Red | On while GPIO3 keys the transmitter. |
+
+Blue COMM OK also gates PTT in hardware: if blue is out, the red PTT LED and radio keying from the DRA are disabled until audio streaming restores heartbeat. Validate busy with **HID COS** (`vol_dn`), pin 6, or Linux `monitor`—not by watching blue during RX.
+
+---
+
 ## Checkout (no app changes required)
 
 Work one radio at a time, low power, dummy load or known quiet simplex.
 
-1. Jumpers as in the table. JU1 on, JU3 = R, PTT = transistor to start.
-2. USB into the Pi. Blue COMM OK LED on. `aplay -l` lists the CM119A.
+1. Jumpers as in the table. JU1 on, **JU3 = L**, **JU5 = A (1200)**, PTT = transistor to start.
+2. USB into the NUC. `aplay -l` lists the CM119A. Green should be solid; blue stays off until step 5 streams audio.
 3. Mini-DIN cable to the radio DATA jack. Radio on 1200 bps DATA, mic unplugged, volume up.
 4. In `alsamixer` (that USB card), unmute the playback path and raise the PCM slider.
-5. Play a test tone or `speaker-test` **to that USB device** (not `hw:Headphones`). Adjust R14 until DATA-IN deviation is reasonable. Repeat for the second DRA.
-6. Key test: assert GPIO3 on that HID (or Masters’ documented PTT test). Radio should TX. If not, switch the PTT pair to relay.
-7. Busy test: squelch closed → pin 6 low (or whatever the radio actually does) and COS HID idle. Open squelch with a signal or by turning SQL down → pin 6 high and COS HID changes. Record the polarity for software.
+5. Play a test tone **to that USB device** on the **left** channel (not the motherboard analog output). Easiest: `python scripts/dra36m_check.py smoke -c left --seconds 2 --lead 0.6` from the repo venv. Green should flash and **blue COMM OK should be solid** during playback. Adjust **R16** until DATA-IN deviation is reasonable. Repeat for the second DRA.
+6. Key test: assert GPIO3 on that HID (or Masters’ documented PTT test). Radio should TX; red PTT LED on. If not, switch the PTT pair to relay. (Blue must be on from recent audio streaming, or watchdog may block PTT.)
+7. Busy test: squelch closed → pin 6 low and COS HID **idle**; open squelch → pin 6 high and COS HID **busy**. Record polarity for production (`channel_busy()`). **Authoritative: NUC (Linux)** — `python scripts/dra36m_check.py monitor --interval 1 --raw --cos vol_dn` (prefer `vol_dn`; `allstar3` is an equivalent cross-check). Use `--active-high` only if idle/busy labels swap. **macOS dev:** same `--cos vol_dn` when IR bytes update reliably; legacy `dra_mac` (HID stall) only if bytes never change. Do not use USB audio capture for squelch on the 36M.
 8. Repeat for the second DRA + second radio.
-9. Confirm the Pi 3.5 mm jack is silent during these tests — if you hear the announcement there, playback is aimed at the wrong device.
+9. Confirm the NUC’s analog headphone output is silent during these tests — if you hear the announcement there, playback is aimed at the wrong PortAudio device.
+
+### Dev checkout record (macOS)
+
+PTT and on-air **audio tone** were verified on a **development MacBook Pro** (USB CM119A audio + HID). For COS, use app jumpers (**JU1**, **JU5 = A**) and 1200 bps DATA—not factory digital defaults (JU1 off, JU5 = B). Direct Mac USB is fine when `probe` succeeds; blue COMM OK is unrelated to busy detect.
+
+Full step-by-step commands, flags (`--lead`, `--poll`, `--clear-seconds`, …), and pass criteria: **[`dra36m-check-tests.md`](dra36m-check-tests.md)**.
+
+Quick smoke list (macOS):
+
+```bash
+export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib   # if hidapi came from Homebrew
+
+python scripts/dra36m_check.py probe
+python scripts/dra36m_check.py monitor --interval 0.5 --changes-only --cos vol_dn
+python scripts/dra36m_check.py smoke -c left --seconds 2 --lead 0.6
+python scripts/dra36m_check.py voice -c left --lead 0.6 "This is a test."
+python scripts/dra36m_check.py voice-gate -c left --poll 0.25 --clear-seconds 10 --lead 0.6
+python scripts/dra36m_check.py retest -c left --with-voice --lead 0.6
+```
+
+On macOS, `system_profiler SPUSBDataType` often lists nothing on recent releases; use `probe` or `ioreg` for “USB PnP Sound Device” instead.
+
+Record jumper, level, COS polarity, and `--lead` in [`bench-record.md`](bench-record.md) for NUC day-one setup.
 
 ---
 
 ## Host notes
 
-- 64-bit Raspberry Pi OS (32-bit cannot run this Piper stack).
-- `libportaudio2` on the Pi for playback.
-- Boot from a quality A2 card or USB SSD so `announcements.json`, PCM cache, and logs are not on a cheap card.
-- Official-class 5 V / 3 A USB-C supply. Two DRA-36M units are USB-powered; keep them on the Pi’s own ports.
-- Pi GPIO header is unused. A NUC would work as the same USB host but is optional.
+- **64-bit Linux** (Xubuntu on the NUC). The Piper stack requires 64-bit; do not use 32-bit OS builds.
+- `sudo apt install libportaudio2` (or equivalent) for PortAudio playback.
+- Keep `data/` (announcements JSON, PCM cache, logs) on the **internal SSD**.
+- Two DRA-36M units are USB-powered; plug both into **direct** NUC USB ports with adequate current.
 
 ---
 
 ## Operator reminders
 
 - Unplug mics at 1200 bps whenever the scheduler might TX.
-- If pin 6 never shows busy, turn the radio volume up before chasing software.
+- If pin 6 never shows busy, check **JU5 = A (1200)** and turn the radio volume up before chasing software.
 - Same announcement on both machines; busy if either is busy; PTT both or neither.
 
 ---
@@ -207,6 +245,6 @@ Work one radio at a time, low power, dummy load or known quiet simplex.
 - Jumpers: https://masterscommunications.com/products/radio-adapter/dra/txt/dra36-jumpers.txt
 - Mini-DIN pinout: https://masterscommunications.com/products/radio-adapter/dra/txt/dra36-DIN-pinout.txt
 - 36 vs 36M: https://www.masterscommunications.com/products/radio-adapter/dra/dra36-vs-dra36m.html
-- Earlier (superseded) notes: [`docs/hardware-notes/`](../hardware-notes/) — GPIO PCB, breadboard, DRA-45M Y-cable
-- Radio DATA jack detail also in [`docs/hardware-notes/connectors.md`](../hardware-notes/connectors.md)
+- DRA bench tests: [`dra36m-check-tests.md`](dra36m-check-tests.md)
+- Radio DATA jack: [`docs/hardware-notes/connectors.md`](../hardware-notes/connectors.md)
 - Scheduling: [`docs/how-to-schedule.md`](../how-to-schedule.md)

@@ -2,6 +2,7 @@ fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 piper-tts>=1.7.0
 sounddevice>=0.5.1
+hidapi>=0.14.0
 numpy>=1.26.0,<3
 apscheduler>=3.10.4,<4
 bcrypt>=4.0.0

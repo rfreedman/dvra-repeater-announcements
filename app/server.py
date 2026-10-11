@@ -51,7 +51,16 @@ from app.schedule_logic import (
     offset_allowed,
 )
 from app.pcm_cache import get_pcm_cache, warm_all, warm_announcement
-from app.scheduler import get_running, run_manual_trigger, start_scheduler, stop_scheduler, sync_jobs
+from app.scheduler import (
+    get_running,
+    clear_manual_trigger_drop_notice,
+    peek_manual_trigger_drop_notice,
+    pending_manual_triggers,
+    run_manual_trigger,
+    start_scheduler,
+    stop_scheduler,
+    sync_jobs,
+)
 from app.store import get_store
 from app.system_status import read_system_stats
 from app.users import Role, User, get_user_store
@@ -506,7 +515,15 @@ def list_schedules(_user: AuthUser, clock_date: date | None = None) -> dict[str,
         "clock": _clock_payload(document, day),
         "schedules": rows,
         "trigger_now_enabled": config.TRIGGER_NOW,
+        "pending_manual_triggers": pending_manual_triggers(),
+        "manual_trigger_drop_notice": peek_manual_trigger_drop_notice(),
     }
+
+
+@app.post("/api/manual-trigger-drop/dismiss")
+def dismiss_manual_trigger_drop(_admin: AdminUser) -> dict[str, bool]:
+    clear_manual_trigger_drop_notice()
+    return {"ok": True}
 
 
 @app.get("/api/announcements")
@@ -632,12 +649,18 @@ def trigger_schedule_now(schedule_id: str, _admin: AdminUser) -> dict[str, str]:
         raise HTTPException(status_code=404, detail="Schedule not found")
     if result == "disabled":
         raise HTTPException(status_code=400, detail="Schedule is disabled")
-    if result == "busy":
-        raise HTTPException(status_code=409, detail="Channel is busy")
     if result == "skipped_lock":
         raise HTTPException(status_code=409, detail="Another announcement is playing")
     if result == "dropped":
-        raise HTTPException(status_code=409, detail="Channel still busy")
+        notice = peek_manual_trigger_drop_notice()
+        detail = (
+            str(notice.get("detail"))
+            if notice and notice.get("detail")
+            else "Channel still busy"
+        )
+        raise HTTPException(status_code=409, detail=detail)
+    if result == "deferred":
+        return {"result": "deferred"}
     return {"result": result}
 
 

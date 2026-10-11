@@ -21,6 +21,14 @@ ADMIN_PASSWORD = "test-password"
 
 
 @pytest.fixture(autouse=True)
+def fire_wall_clock_for_tests(monkeypatch):
+    """Keep give-up / defer logic aligned with frozen ``deps.now`` in unit tests."""
+    import app.fire as fire_mod
+
+    monkeypatch.setattr(fire_mod, "_wall_now", lambda deps: deps.now)
+
+
+@pytest.fixture(autouse=True)
 def no_voice_preload(monkeypatch):
     monkeypatch.setattr("app.registry.EngineRegistry.preload", lambda self: [])
 

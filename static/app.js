@@ -98,6 +98,7 @@ let announcements = [];
 let settings = { slot_half_window_minutes: 10, baseline_randomize: false };
 let triggerNowEnabled = false;
 let triggerNowBusy = false;
+let pendingManualTriggers = [];
 let editingAnnouncementId = null;
 let editingScheduleId = null;
 let currentUser = null;
@@ -533,27 +534,156 @@ function clearEditorGuard() {
   editorBaseline = null;
 }
 
+function primaryPendingManual() {
+  return pendingManualTriggers.length ? pendingManualTriggers[0] : null;
+}
+
+function pendingManualForSchedule(scheduleId) {
+  return pendingManualTriggers.find((item) => item.schedule_id === scheduleId) || null;
+}
+
+function triggerNowLabelForSchedule(scheduleId) {
+  const pending = pendingManualForSchedule(scheduleId);
+  if (upcoming?.status === "running" && upcoming?.schedule_id === scheduleId) {
+    return "Playing";
+  }
+  if (pending) {
+    if (pending.phase === "clear_window") {
+      const remain = interpolatedClearRemaining(pending);
+      const retryMs = (pending.retry_in_seconds ?? 0) * 1000;
+      if (remain != null && remain <= 0 && retryMs <= 800) {
+        return "Starting…";
+      }
+    }
+    return pending.in_progress ? "Waiting…" : "Queued…";
+  }
+  return "Trigger now";
+}
+
+function pendingElapsedSeconds(pending) {
+  return (Date.now() + clockSkewMs - (pending?.fetchedAt || 0)) / 1000;
+}
+
+function interpolatedClearRemaining(pending) {
+  if (pending?.phase !== "clear_window" || pending.clear_remaining_seconds == null) return null;
+  return Math.max(0, pending.clear_remaining_seconds - pendingElapsedSeconds(pending));
+}
+
+function interpolatedGiveUpRemaining(pending) {
+  if (pending?.give_up_remaining_seconds == null) return null;
+  return Math.max(0, pending.give_up_remaining_seconds - pendingElapsedSeconds(pending));
+}
+
+function renderManualTriggerDropNotice(notice) {
+  const box = document.getElementById("manual-trigger-drop");
+  const text = document.getElementById("manual-trigger-drop-text");
+  if (!box || !text) return;
+  if (!notice) {
+    box.classList.add("hidden");
+    text.textContent = "";
+    return;
+  }
+  const name = notice.announcement_name || "Announcement";
+  const detail =
+    notice.detail ||
+    "The channel did not stay clear long enough before the give-up timer expired.";
+  text.textContent = `Manual trigger cancelled: “${name}” was not played. ${detail}`;
+  box.classList.remove("hidden");
+}
+
+async function dismissManualTriggerDrop() {
+  try {
+    await fetch("/api/manual-trigger-drop/dismiss", { method: "POST" });
+  } catch {
+    /* ignore */
+  }
+  renderManualTriggerDropNotice(null);
+}
+
 function renderUpcoming() {
   const box = document.getElementById("next-run");
   if (!box) return;
-  if (!upcoming) {
+  const kicker = box.querySelector(".next-run-kicker");
+  const running = upcoming?.status === "running";
+  const pending = !running ? primaryPendingManual() : null;
+  if (!upcoming && !pending) {
     box.classList.add("hidden");
     syncTriggerNowButtons();
     return;
   }
   box.classList.remove("hidden");
-  document.getElementById("next-run-name").textContent = upcoming.announcement_name || "Untitled";
-  document.getElementById("next-run-when").textContent = upcoming.at ? formatWhen(upcoming.at) : "—";
   const statusEl = document.getElementById("next-run-status");
-  const running = upcoming.status === "running";
-  statusEl.textContent = running ? "Running" : "Waiting";
-  statusEl.classList.toggle("is-running", running);
-  syncTriggerNowButtons();
   const countEl = document.getElementById("next-run-countdown");
-  if (running) {
+  const whenEl = document.getElementById("next-run-when");
+  syncTriggerNowButtons();
+
+  if (running && upcoming) {
+    if (kicker) kicker.textContent = "Next run";
+    document.getElementById("next-run-name").textContent = upcoming.announcement_name || "Untitled";
+    whenEl.textContent = upcoming.at ? formatWhen(upcoming.at) : "—";
+    statusEl.textContent = "Running";
+    statusEl.classList.add("is-running");
+    statusEl.classList.remove("is-deferred", "is-clear-hold");
     countEl.textContent = "Now";
     return;
   }
+
+  if (pending) {
+    if (kicker) kicker.textContent = "Trigger now";
+    document.getElementById("next-run-name").textContent = pending.announcement_name || "Untitled";
+    statusEl.classList.remove("is-running");
+    if (pending.phase === "in_progress") {
+      statusEl.textContent = "Trigger in progress";
+      statusEl.classList.add("is-clear-hold");
+      statusEl.classList.remove("is-deferred");
+      whenEl.textContent = "Waiting for clear channel or transmitting";
+      const remain = interpolatedClearRemaining(pending);
+      countEl.textContent =
+        remain != null && pending.clear_seconds > 0 && remain > 0
+          ? `${formatCountdown(remain * 1000)} remaining`
+          : "Now";
+    } else if (pending.phase === "clear_window") {
+      statusEl.textContent = "Clear to transmit";
+      statusEl.classList.add("is-clear-hold");
+      statusEl.classList.remove("is-deferred");
+      whenEl.textContent = "Channel clear — hold timer";
+      const remain = interpolatedClearRemaining(pending);
+      const retryMs = (pending.retry_in_seconds ?? 0) * 1000;
+      if (remain != null && pending.clear_seconds > 0 && remain > 0) {
+        countEl.textContent = `${formatCountdown(remain * 1000)} remaining`;
+      } else if (retryMs > 500) {
+        countEl.textContent = `Starting in ${formatCountdown(retryMs)}`;
+      } else {
+        countEl.textContent = "Starting now…";
+      }
+    } else if (pending.phase === "channel_busy") {
+      statusEl.textContent = "Deferred · channel busy";
+      statusEl.classList.add("is-deferred");
+      statusEl.classList.remove("is-clear-hold");
+      const hold =
+        pending.clear_seconds > 0
+          ? `Then ${Math.ceil(pending.clear_seconds)}s clear hold before transmit`
+          : "Will play when the channel is clear";
+      whenEl.textContent = hold;
+      const giveUp = interpolatedGiveUpRemaining(pending);
+      countEl.textContent =
+        giveUp != null ? `Give up in ${formatCountdown(giveUp * 1000)}` : "Waiting for channel";
+    } else {
+      statusEl.textContent = "Deferred · queued";
+      statusEl.classList.add("is-deferred");
+      statusEl.classList.remove("is-clear-hold");
+      whenEl.textContent = "Waiting to retry";
+      const retryMs = (pending.retry_in_seconds ?? 0) * 1000;
+      countEl.textContent = retryMs > 0 ? `Retry in ${formatCountdown(retryMs)}` : "Retrying…";
+    }
+    return;
+  }
+
+  if (kicker) kicker.textContent = "Next run";
+  document.getElementById("next-run-name").textContent = upcoming.announcement_name || "Untitled";
+  whenEl.textContent = upcoming.at ? formatWhen(upcoming.at) : "—";
+  statusEl.textContent = "Waiting";
+  statusEl.classList.remove("is-running", "is-deferred", "is-clear-hold");
   const at = upcoming.at ? new Date(upcoming.at).getTime() : NaN;
   if (Number.isNaN(at)) {
     countEl.textContent = "—";
@@ -570,13 +700,20 @@ function syncTriggerNowButtons() {
   const playing = announcementIsPlaying();
   for (const button of document.querySelectorAll("[data-trigger-now]")) {
     button.disabled = playing;
+    const scheduleId = button.dataset.scheduleId;
+    if (scheduleId) {
+      button.textContent = triggerNowLabelForSchedule(scheduleId);
+    }
   }
 }
 
 function tickUpcoming() {
   renderUpcoming();
-  if (!upcoming) return;
-  if (upcoming.status === "running" || (upcoming.at && new Date(upcoming.at).getTime() - (Date.now() + clockSkewMs) <= 15000)) {
+  if (!upcoming && pendingManualTriggers.length === 0) return;
+  const soon =
+    upcoming?.at &&
+    new Date(upcoming.at).getTime() - (Date.now() + clockSkewMs) <= 15000;
+  if (upcoming?.status === "running" || pendingManualTriggers.length > 0 || soon) {
     refreshHome().catch(() => {});
   }
 }
@@ -833,15 +970,32 @@ function renderSchedules(rows) {
         trigger.type = "button";
         trigger.className = "ghost";
         trigger.dataset.triggerNow = "1";
-        trigger.textContent = "Trigger now";
+        const rowPending = pendingManualForSchedule(row.schedule_id);
+        const rowPlaying =
+          upcoming?.status === "running" && upcoming?.schedule_id === row.schedule_id;
+        trigger.textContent = triggerNowLabelForSchedule(row.schedule_id);
+        trigger.title = rowPlaying
+          ? "Announcement is on the air"
+          : rowPending
+            ? rowPending.phase === "clear_window"
+              ? "Waiting for clear-channel hold before transmit"
+              : "Deferred — waiting for channel to clear"
+            : "";
+        trigger.dataset.scheduleId = row.schedule_id;
         trigger.disabled = announcementIsPlaying();
         trigger.addEventListener("click", async (event) => {
           event.stopPropagation();
           if (announcementIsPlaying()) return;
           triggerNowBusy = true;
           syncTriggerNowButtons();
+          const controller = new AbortController();
+          const triggerTimeoutMs = 600_000;
+          const timeoutId = setTimeout(() => controller.abort(), triggerTimeoutMs);
           try {
-            const res = await fetch(`/api/schedules/${row.schedule_id}/trigger`, { method: "POST" });
+            const res = await fetch(`/api/schedules/${row.schedule_id}/trigger`, {
+              method: "POST",
+              signal: controller.signal,
+            });
             let payload = {};
             try {
               payload = await res.json();
@@ -851,8 +1005,18 @@ function renderSchedules(rows) {
             if (!res.ok) {
               const detail = payload.detail || res.statusText;
               window.alert(typeof detail === "string" ? detail : "Could not trigger");
+              if (res.status === 409) await refreshHome().catch(() => {});
+            } else if (payload.result === "deferred") {
+              await refreshHome().catch(() => {});
+            }
+          } catch (err) {
+            if (err?.name === "AbortError") {
+              window.alert("Trigger timed out. If buttons stay disabled, refresh the page.");
+            } else {
+              window.alert("Could not trigger");
             }
           } finally {
+            clearTimeout(timeoutId);
             triggerNowBusy = false;
             await refreshHome().catch(() => {});
             syncTriggerNowButtons();
@@ -937,11 +1101,17 @@ async function refreshHome() {
       if (!Number.isNaN(serverNow)) clockSkewMs = serverNow - Date.now();
     }
     upcoming = payload.upcoming || null;
+    const fetchedAt = payload.now ? Date.parse(payload.now) : Date.now() + clockSkewMs;
+    pendingManualTriggers = (payload.pending_manual_triggers || []).map((item) => ({
+      ...item,
+      fetchedAt: Number.isNaN(fetchedAt) ? Date.now() + clockSkewMs : fetchedAt,
+    }));
     renderUpcoming();
     const warn = document.getElementById("home-warnings");
     const notes = payload.warnings || [];
     warn.classList.toggle("hidden", notes.length === 0);
     warn.textContent = notes.join(" ");
+    renderManualTriggerDropNotice(payload.manual_trigger_drop_notice || null);
     if (payload.clock_date && !dateField.value) dateField.value = payload.clock_date;
     updateClockWeekday(dateField.value || payload.clock_date);
     renderClock(payload.clock || []);
@@ -1607,6 +1777,13 @@ menu.addEventListener("click", (event) => {
   goToHash(`#/schedules/new?template=${button.dataset.template}`);
 });
 document.addEventListener("click", () => menu.classList.add("hidden"));
+
+const manualDropDismiss = document.getElementById("manual-trigger-drop-dismiss");
+if (manualDropDismiss) {
+  manualDropDismiss.addEventListener("click", () => {
+    dismissManualTriggerDrop().catch(() => {});
+  });
+}
 
 document.getElementById("baseline-randomize").addEventListener("change", async (event) => {
   if (readOnly) return;

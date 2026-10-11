@@ -17,7 +17,7 @@ def play_chunks(chunks: Iterable[PcmChunk]) -> None:
     except OSError as exc:
         raise RuntimeError(
             "PortAudio is missing. On macOS: brew install portaudio. "
-            "On Debian/Raspberry Pi: sudo apt install libportaudio2"
+            "On Debian/Ubuntu: sudo apt install libportaudio2"
         ) from exc
 
     stream: sd.OutputStream | None = None

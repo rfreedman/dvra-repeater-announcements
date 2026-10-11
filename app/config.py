@@ -72,13 +72,69 @@ LOG_DIR = Path(os.environ.get("TTS_LOG_DIR", DATA_DIR / "logs")).expanduser()
 LOG_KEEP_DAYS = int(os.environ.get("TTS_LOG_KEEP_DAYS", "30"))
 TIMEZONE = os.environ.get("TTS_TIMEZONE", "America/New_York")
 PTT_LEAD_SECONDS = float(os.environ.get("TTS_PTT_LEAD_SECONDS", "0.4"))
+
+def radio_backend() -> str:
+    return os.environ.get("TTS_RADIO_BACKEND", "stub").strip().lower()
+DRA_USB_CHANNEL = os.environ.get("TTS_DRA_USB_CHANNEL", "left").strip().lower()
+if DRA_USB_CHANNEL not in {"left", "right", "mono"}:
+    import logging
+
+    logging.getLogger("app.config").warning(
+        "Invalid TTS_DRA_USB_CHANNEL=%r; using 'left'",
+        os.environ.get("TTS_DRA_USB_CHANNEL"),
+    )
+    DRA_USB_CHANNEL = "left"
+DRA_COS_LINE = os.environ.get("TTS_DRA_COS_LINE", "vol_dn").strip().lower()
+DRA_COS_ACTIVE_HIGH = _env_flag("TTS_DRA_COS_ACTIVE_HIGH", False)
+
+
+def _dra_audio_device_specs() -> list[str] | None:
+    raw = os.environ.get("TTS_DRA_AUDIO_DEVICES", "").strip()
+    if not raw:
+        return None
+    return [part.strip() for part in raw.split(",") if part.strip()]
+
+
+DRA_AUDIO_DEVICE_SPECS = _dra_audio_device_specs()
+DRA_CLEAR_SECONDS = float(os.environ.get("TTS_DRA_CLEAR_SECONDS", "0"))
+DRA_CLEAR_POLL_SECONDS = float(os.environ.get("TTS_DRA_CLEAR_POLL_SECONDS", "0.25"))
+
+
+def dra_cos_track_enabled() -> bool:
+    raw = os.environ.get("TTS_DRA_COS_TRACK")
+    if raw is None:
+        return True
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _dra_hid_path_bytes() -> bytes | None:
+    raw = os.environ.get("TTS_DRA_HID_PATH", "").strip()
+    if not raw:
+        return None
+    try:
+        return bytes.fromhex(raw)
+    except ValueError:
+        import logging
+
+        logging.getLogger("app.config").warning(
+            "Invalid TTS_DRA_HID_PATH (expected hex); ignoring"
+        )
+        return None
+
+
+DRA_HID_PATH_BYTES = _dra_hid_path_bytes()
 DEFAULT_BUSY_RETRY_SECONDS = float(os.environ.get("TTS_BUSY_RETRY_SECONDS", "5"))
 DEFAULT_BUSY_GIVE_UP_SECONDS = float(os.environ.get("TTS_BUSY_GIVE_UP_SECONDS", "45"))
 SCHEDULER_MAX_WAIT_SECONDS = float(os.environ.get("TTS_SCHEDULER_MAX_WAIT_SECONDS", "5"))
 DEFAULT_SLOT_HALF_WINDOW_MINUTES = int(os.environ.get("TTS_SLOT_HALF_WINDOW_MINUTES", "10"))
 LOOKAHEAD_HOURS = int(os.environ.get("TTS_SLOT_LOOKAHEAD_HOURS", "72"))
 TRIGGER_NOW = _env_flag("TTS_TRIGGER_NOW", False)
+FIRE_VERBOSE_LOG = _env_flag("TTS_FIRE_VERBOSE_LOG", False)
 SESSION_IDLE_SECONDS = int(os.environ.get("TTS_SESSION_IDLE_SECONDS", str(30 * 60)))
+
+
+def fire_verbose_log_enabled() -> bool:
+    return FIRE_VERBOSE_LOG
 
 
 def piper_quality_allowed(voice_id: str) -> bool:
