@@ -21,7 +21,10 @@ class Radio(Protocol):
 
 
 def channel_blocks_transmit(radio: Radio, *, clear_seconds: float = 0) -> bool:
-    """True if COS says we must not key yet (clear hold overrides flaky busy samples)."""
+    """True if COS says we must not key yet; skips the COS read once the clear hold is met.
+
+    Not a final pre-PTT check — ``fire._confirm_clear_before_ptt`` always reads COS fresh.
+    """
     idle_fn = getattr(radio, "continuous_idle_seconds", None)
     if clear_seconds > 0 and idle_fn is not None and idle_fn() >= clear_seconds:
         return False

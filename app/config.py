@@ -108,6 +108,7 @@ def _dra_audio_device_specs() -> list[str] | None:
 DRA_AUDIO_DEVICE_SPECS = _dra_audio_device_specs()
 DRA_CLEAR_SECONDS = float(os.environ.get("TTS_DRA_CLEAR_SECONDS", "0"))
 DRA_CLEAR_POLL_SECONDS = float(os.environ.get("TTS_DRA_CLEAR_POLL_SECONDS", "0.25"))
+DRA_FINAL_CHECK_SECONDS = float(os.environ.get("TTS_DRA_FINAL_CHECK_SECONDS", "1.0"))
 
 
 def dra_cos_track_enabled() -> bool:

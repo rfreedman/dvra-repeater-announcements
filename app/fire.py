@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import threading
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
@@ -8,7 +9,12 @@ from datetime import datetime, timedelta
 from functools import partial
 
 from app.audio import PcmChunk, materialize_chunks
-from app.config import DRA_CLEAR_POLL_SECONDS, DRA_CLEAR_SECONDS, PTT_LEAD_SECONDS
+from app.config import (
+    DRA_CLEAR_POLL_SECONDS,
+    DRA_CLEAR_SECONDS,
+    DRA_FINAL_CHECK_SECONDS,
+    PTT_LEAD_SECONDS,
+)
 from app.models import Announcement, Schedule
 from app.fire_trace import fire_trace
 from app.radio import ChannelBusyError, Radio, channel_blocks_transmit, transmit
@@ -48,6 +54,7 @@ class FireDeps:
     ptt_lead_seconds: float = PTT_LEAD_SECONDS
     dra_clear_seconds: float = DRA_CLEAR_SECONDS
     dra_clear_poll_seconds: float = DRA_CLEAR_POLL_SECONDS
+    dra_final_check_seconds: float = DRA_FINAL_CHECK_SECONDS
     set_running: Callable[[Announcement, str], None] | None = None
     clear_running: Callable[[], None] | None = None
     update_schedule: bool = True
@@ -112,6 +119,17 @@ def _defer_or_drop_on_busy(
 ) -> str | None:
     if not channel_blocks_transmit(deps.radio, clear_seconds=deps.dra_clear_seconds):
         return None
+    return _defer_or_drop_busy(deps, ctx, announcement, label, phase=phase)
+
+
+def _defer_or_drop_busy(
+    deps: FireDeps,
+    ctx: FireContext,
+    announcement: Announcement,
+    label: str,
+    *,
+    phase: str,
+) -> str:
     if _wall_now(deps) >= ctx.deadline:
         log.info(
             "Fire dropped; %s; channel still busy %s (deadline %s)",
@@ -149,6 +167,30 @@ def _defer_or_drop_on_busy(
         retry_at.isoformat(),
     )
     return "deferred"
+
+
+def _confirm_clear_before_ptt(
+    deps: FireDeps,
+    ctx: FireContext,
+    announcement: Announcement,
+    label: str,
+) -> str | None:
+    """Fresh COS reads right before PTT; any busy sample defers or drops the fire.
+
+    Unlike ``channel_blocks_transmit`` this never trusts accrued idle credit. With a clear
+    hold it keeps reading for ``dra_final_check_seconds``, so a key-up as the UI countdown
+    ends (the UI can lag the server by about a second) still stops the transmit.
+    """
+    poll = max(0.05, deps.dra_clear_poll_seconds)
+    samples = 1
+    if deps.dra_clear_seconds > 0 and deps.dra_final_check_seconds > 0:
+        samples += math.ceil(deps.dra_final_check_seconds / poll)
+    for index in range(samples):
+        if index:
+            deps.sleep_fn(poll)
+        if deps.radio.channel_busy():
+            return _defer_or_drop_busy(deps, ctx, announcement, label, phase="before PTT")
+    return None
 
 
 def _wait_clear_or_outcome(
@@ -297,9 +339,7 @@ def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
         if outcome:
             return outcome
 
-        outcome = _defer_or_drop_on_busy(
-            deps, ctx, announcement, label, phase="before PTT"
-        )
+        outcome = _confirm_clear_before_ptt(deps, ctx, announcement, label)
         if outcome:
             return outcome
 

@@ -81,6 +81,14 @@ APScheduler with a shifted/frozen clock before fixing; the new tests in
 - **Test:** `tests/test_dra_cos_idle.py::test_single_busy_sample_resets_idle_credit` (previously asserted the opposite).
 - **Remaining limit:** a kerchunk that starts and ends between two polls (under about 0.25 s) can still be missed, because only the latest HID report is decoded. Catching it would mean decoding every queued HID interrupt report (Linux only); not done, pending hardware testing.
 
+### 12. Key-up in the last second of the clear hold did not stop the transmit (found on the NUC)
+- **Symptom:** with the UI showing 0:01 remaining, keying up (even for a long transmission) did not reset the hold; the announcement played.
+- **Causes:**
+  - The "before PTT" check used `channel_blocks_transmit`, which **skips reading COS** once idle credit has reached the clear hold, so there was no real final check. A test (`test_fire_transmits_when_clear_hold_met_despite_busy_sample`) required this, based on the same "busy samples are flaky" assumption as the debounce in error 11.
+  - The UI countdown rounds up and refreshes once a second, so "0:01" can mean the server is about to key, or already has. Not confirmed with logs; the user chose to fix it on that assumption.
+- **Fix:** `app/fire.py` `_confirm_clear_before_ptt` reads COS directly, never trusting idle credit. With a clear hold it keeps reading for `TTS_DRA_FINAL_CHECK_SECONDS` (default 1.0 s, one read per poll interval) before PTT. Any busy read defers or drops the fire as a busy defer. Effect: the real hold is the clear hold plus up to 1 s; the UI shows "Starting…" during that last part.
+- **Tests:** `tests/test_clear_hold_transmit.py` (fresh busy read defers despite idle credit; key-up mid-window defers; the window reads for its full length).
+
 ---
 
 ## Tech debt addressed
