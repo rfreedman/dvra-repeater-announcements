@@ -111,6 +111,16 @@ body {
   margin: 0;
 }
 
+.mast-title {
+  display: flex;
+  flex-direction: column;
+}
+
+.mast-version {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
 .logo {
   width: 48px;
   height: 48px;

@@ -11,13 +11,13 @@ from typing import Annotated
 from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 from starlette.middleware.sessions import SessionMiddleware
 
+from app import __version__, config
 from app.audio import PcmChunk
-from app import config
 from app.auth import (
     authenticate,
     clear_session,
@@ -104,7 +104,7 @@ async def lifespan(_app: FastAPI):
     stop_scheduler()
 
 
-app = FastAPI(title="DVRA Repeater Announcements", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="DVRA Repeater Announcements", version=__version__, lifespan=lifespan)
 app.add_middleware(
     SessionMiddleware,
     secret_key=session_secret(),
@@ -703,8 +703,9 @@ def delete_schedule(schedule_id: str, _admin: AdminUser) -> dict[str, bool]:
 
 
 @app.get("/")
-def index() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+def index() -> HTMLResponse:
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    return HTMLResponse(html.replace("{{APP_VERSION}}", __version__))
 
 
 if STATIC_DIR.exists():
