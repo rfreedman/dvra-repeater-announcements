@@ -95,6 +95,7 @@ let ledBlinkTimer = null;
 let ledBlinkUntil = 0;
 let defaultScript = "";
 let announcements = [];
+let schedules = [];
 let settings = { slot_half_window_minutes: 10, baseline_randomize: false };
 let triggerNowEnabled = false;
 let triggerNowBusy = false;
@@ -693,7 +694,15 @@ function renderUpcoming() {
 }
 
 function announcementIsPlaying() {
-  return triggerNowBusy || upcoming?.status === "running";
+  return (
+    triggerNowBusy ||
+    upcoming?.status === "running" ||
+    pendingManualTriggers.length > 0
+  );
+}
+
+function schedulesUsingAnnouncement(announcementId) {
+  return schedules.filter((row) => row.announcement_id === announcementId);
 }
 
 function syncTriggerNowButtons() {
@@ -704,6 +713,14 @@ function syncTriggerNowButtons() {
     if (scheduleId) {
       button.textContent = triggerNowLabelForSchedule(scheduleId);
     }
+  }
+  syncDeleteButtons();
+}
+
+function syncDeleteButtons() {
+  const playing = announcementIsPlaying();
+  for (const button of document.querySelectorAll("[data-delete-button]")) {
+    button.disabled = playing;
   }
 }
 
@@ -958,9 +975,12 @@ function renderSchedules(rows) {
       del.type = "button";
       del.className = "danger";
       del.textContent = "Delete";
+      del.dataset.deleteButton = "1";
+      del.disabled = announcementIsPlaying();
       del.addEventListener("click", async (event) => {
         event.stopPropagation();
-        if (!window.confirm(`Delete schedule “${row.name}”?`)) return;
+        if (announcementIsPlaying()) return;
+        if (!window.confirm("Are you sure that you want to delete this schedule?")) return;
         const res = await fetch(`/api/schedules/${row.schedule_id}`, { method: "DELETE" });
         if (res.ok) refreshHome();
       });
@@ -1047,9 +1067,20 @@ function renderLibrary(items) {
     del.type = "button";
     del.className = "danger";
     del.textContent = "Delete";
+    del.dataset.deleteButton = "1";
+    del.disabled = announcementIsPlaying();
     del.addEventListener("click", async (event) => {
       event.stopPropagation();
-      if (!window.confirm(`Delete announcement “${item.name}”?`)) return;
+      if (announcementIsPlaying()) return;
+      const usedBy = schedulesUsingAnnouncement(item.id);
+      if (usedBy.length > 0) {
+        const names = usedBy.map((row) => row.name).join(", ");
+        window.alert(
+          `This announcement cannot be deleted because it is in use.\n\nSchedules: ${names}`,
+        );
+        return;
+      }
+      if (!window.confirm("Are you sure?")) return;
       const res = await fetch(`/api/announcements/${item.id}`, { method: "DELETE" });
       if (!res.ok) {
         let detail = res.statusText;
@@ -1094,6 +1125,7 @@ async function refreshHome() {
     const payload = await schedRes.json();
     const library = libRes.ok ? await libRes.json() : { announcements: [] };
     announcements = library.announcements || [];
+    schedules = payload.schedules || [];
     settings = payload.settings || settings;
     triggerNowEnabled = Boolean(payload.trigger_now_enabled);
     if (payload.now) {

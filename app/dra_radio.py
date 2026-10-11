@@ -75,7 +75,9 @@ class DraRadio:
         entries = list_cm119_hid_entries(hid)
         if not entries:
             raise RuntimeError(
-                "No CM119A HID interface found. Is the DRA plugged in and accessible?"
+                "No CM119A HID interface found. Is the DRA-36M plugged in and accessible?"
+                "\nIf attempting to test the system without the DRA-36M and radio, change TTS_RADIO_BACKEND in the .env file to \"stub\" instead of \"dra\""
+
             )
         if DRA_HID_PATH_BYTES is not None:
             entries = [e for e in entries if e.get("path") == DRA_HID_PATH_BYTES]

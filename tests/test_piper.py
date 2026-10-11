@@ -399,10 +399,11 @@ def test_lifespan_preloads_before_scheduler(monkeypatch):
         lambda self: order.append("preload") or [],
     )
     monkeypatch.setattr("app.server.warm_all", lambda announcements=None: order.append("warm"))
+    monkeypatch.setattr("app.server.init_radio_at_startup", lambda: order.append("radio"))
     monkeypatch.setattr("app.server.start_scheduler", lambda: order.append("start"))
     monkeypatch.setattr("app.server.stop_scheduler", lambda: None)
 
     with TestClient(app):
         pass
 
-    assert order[:3] == ["preload", "warm", "start"]
+    assert order[:4] == ["radio", "preload", "warm", "start"]
