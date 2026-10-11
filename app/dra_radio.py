@@ -59,7 +59,6 @@ class DraRadio:
         self._last_cos_busy: bool | None = None
         self._cos_devices: list[object | None] = [None] * len(hid_adapters)
         self._last_cos_raw_hex: str | None = None
-        self._busy_confirm_count = 0
 
     @property
     def hid_count(self) -> int:
@@ -121,15 +120,12 @@ class DraRadio:
         )
 
     def _apply_cos_busy(self, is_busy: bool) -> None:
-        """Update idle credit; require two consecutive busy samples to reset idle."""
+        """Update idle credit; one decoded busy sample resets it (a kerchunk may be one sample)."""
         mono = time.monotonic()
         if is_busy:
-            self._busy_confirm_count += 1
-            if self._busy_confirm_count >= 2:
-                self._idle_since_mono = None
+            self._idle_since_mono = None
             self._last_cos_busy = True
         else:
-            self._busy_confirm_count = 0
             if self._idle_since_mono is None:
                 self._idle_since_mono = mono
             self._last_cos_busy = False
@@ -318,13 +314,6 @@ class DraRadio:
             if current >= deadline:
                 return False
             if self.channel_busy():
-                idle = self.continuous_idle_seconds()
-                if idle >= clear_seconds:
-                    log.info(
-                        "COS clear satisfied (%.1fs idle; busy sample ignored)",
-                        idle,
-                    )
-                    return True
                 if clear_ready_at is not None:
                     log.debug("Clear window reset — COS busy again")
                 clear_ready_at = None

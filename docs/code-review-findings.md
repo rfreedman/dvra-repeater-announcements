@@ -74,6 +74,13 @@ APScheduler with a shifted/frozen clock before fixing; the new tests in
 - **Fix:** `app/scheduler.py`: radio state (busy, then clear hold) now takes priority over in-flight; `in_progress` is used only when no clear hold is configured. In-flight runs also record their give-up deadline (`_set_manual_inflight_deadline`), so "Give up in" stays correct after the retry job has been consumed.
 - **Test:** `tests/test_manual_trigger_status.py` (phase ordering and in-flight give-up time).
 
+### 11. Short kerchunks did not reset the clear hold (found on the NUC)
+- **Symptom:** during a manual trigger's clear-hold countdown, a quick kerchunk did not reset the countdown; it took about a second of transmission. This affected the real on-air hold, not just the display.
+- **Cause:** `DraRadio._apply_cos_busy` reset idle credit only after **two consecutive** busy samples. At the 0.25 s poll, a kerchunk shorter than about 0.5 s was ignored. The NUC verbose log confirmed it: one `decoded_busy=True` sample while idle credit kept climbing. The debounce dated from the Mac integration and wasn't documented. Missed or garbled HID reads already reach the code as "no reading" (keeping idle credit), not as busy, so the debounce wasn't protecting against bad reads.
+- **Fix:** one decoded busy sample resets idle credit. Removed the now-dead "busy sample ignored" bypass in `wait_for_transmit_clear`.
+- **Test:** `tests/test_dra_cos_idle.py::test_single_busy_sample_resets_idle_credit` (previously asserted the opposite).
+- **Remaining limit:** a kerchunk that starts and ends between two polls (under about 0.25 s) can still be missed, because only the latest HID report is decoded. Catching it would mean decoding every queued HID interrupt report (Linux only); not done, pending hardware testing.
+
 ---
 
 ## Tech debt addressed

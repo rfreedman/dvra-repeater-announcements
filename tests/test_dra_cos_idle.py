@@ -33,7 +33,8 @@ def test_idle_credit_survives_missed_hid_report():
     assert radio.continuous_idle_seconds() >= 0.04
 
 
-def test_single_busy_blip_does_not_reset_idle_credit():
+def test_single_busy_sample_resets_idle_credit():
+    """A kerchunk shorter than two polls shows up as exactly one busy sample."""
     radio = DraRadio(
         hid_adapters=[_TriAdapter([True])],  # type: ignore[list-item]
         audio_indices=[0],
@@ -45,7 +46,7 @@ def test_single_busy_blip_does_not_reset_idle_credit():
         radio._idle_since_mono = time.monotonic() - 12.0
         radio._last_cos_busy = False
     assert radio.refresh_cos() is True
-    assert radio.continuous_idle_seconds() >= 11.0
+    assert radio.continuous_idle_seconds() == 0.0
 
 
 def test_stall_bytes_do_not_start_idle():
