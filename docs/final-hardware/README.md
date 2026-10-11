@@ -225,7 +225,7 @@ Record jumper, level, COS polarity, and `--lead` in [`bench-record.md`](bench-re
 
 - **64-bit Linux** (Xubuntu on the NUC). The Piper stack requires 64-bit; do not use 32-bit OS builds.
 - `sudo apt install libportaudio2` (or equivalent) for PortAudio playback.
-- **DRA HID on Linux:** install udev rules for CM119 (`0d8c`/`013a`) on **`hidraw`** and **USB**, add the runtime user to **`plugdev`**, then replug — full steps in [`dra36m-check-tests.md`](dra36m-check-tests.md#linux-nuc-udev-and-plugdev). Run bench scripts as that user, not `sudo`.
+- **DRA HID on Linux:** install udev rules for CM119 (`0d8c`/`013a`) on **`hidraw`** and **USB**, add the runtime user to **`plugdev`**, then replug — full steps in [`dra36m-check-tests.md`](dra36m-check-tests.md#linux-nuc-udev-and-plugdev). Run bench scripts as that user, not `sudo`. Shack checklist: [`docs/NUC-notes.md`](../NUC-notes.md).
 - Keep `data/` (announcements JSON, PCM cache, logs) on the **internal SSD**.
 - Two DRA-36M units are USB-powered; plug both into **direct** NUC USB ports with adequate current.
 
@@ -247,5 +247,6 @@ Record jumper, level, COS polarity, and `--lead` in [`bench-record.md`](bench-re
 - Mini-DIN pinout: https://masterscommunications.com/products/radio-adapter/dra/txt/dra36-DIN-pinout.txt
 - 36 vs 36M: https://www.masterscommunications.com/products/radio-adapter/dra/dra36-vs-dra36m.html
 - DRA bench tests: [`dra36m-check-tests.md`](dra36m-check-tests.md)
+- Hardware notes index: [`docs/hardware-notes/README.md`](../hardware-notes/README.md) (connectors, [NUC notes](../NUC-notes.md))
 - Radio DATA jack: [`docs/hardware-notes/connectors.md`](../hardware-notes/connectors.md)
 - Scheduling: [`docs/how-to-schedule.md`](../how-to-schedule.md)

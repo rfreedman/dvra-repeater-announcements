@@ -1,0 +1,72 @@
+# NUC production notes (shack)
+
+Operational lessons from **Xubuntu on the Intel NUC** + **DRA-36M** bench checkout (2026-10). For jumpers, checkout order, and `dra36m_check.py` commands, see [`final-hardware/`](final-hardware/README.md).
+
+---
+
+## Permissions (CM119 USB + HID)
+
+Install udev rules and add the runtime user to **`plugdev`**. Full steps:
+
+[`final-hardware/dra36m-check-tests.md` — Linux: udev and plugdev](final-hardware/dra36m-check-tests.md#linux-nuc-udev-and-plugdev)
+
+Run bench scripts and `python -m app serve` as that user — **not** `sudo` (root has no PulseAudio session; PortAudio can fail with `PaErrorCode -9999`).
+
+---
+
+## ALSA mixer: unmute USB Speaker
+
+After plug-in or reboot, the CM119 USB card often comes up with **Speaker muted and 0%**. Symptom: **PTT keys** (HID OK) but **no modulation** on the air (smoke tone and Piper both silent).
+
+Check (adjust card number if `aplay -l` differs):
+
+```bash
+amixer -c 1 scontents
+amixer -c 1 sset Speaker 100% unmute
+```
+
+Re-run `python scripts/dra36m_check.py smoke -c left --seconds 2 --lead 0.6` to confirm tone on DATA IN. Adjust **R16** on the DRA (JU3=L) for deviation, not only software volume.
+
+Consider persisting unmute (boot script, `@reboot` cron, or a udev RUN rule) if the card resets to muted after replug.
+
+---
+
+## Piper sample rate vs CM119
+
+Piper outputs **22050 Hz**; the DRA USB interface accepts **44100 / 48000 Hz**. The app and bench scripts **resample to the device’s PortAudio default** (usually 44100). Log line example: `22050 Hz → 44100 Hz USB`.
+
+---
+
+## Desktop audio (KDE / PipeWire)
+
+Keep the **default Pulse/PipeWire output** on **HDMI or onboard**, not the C-Media USB device:
+
+```bash
+pactl set-default-sink alsa_output.pci-0000_00_1f.3.hdmi-stereo   # example; use `pactl list sinks short`
+```
+
+Otherwise **plasmashell** / **libcanberra** (volume click sounds) can target the DRA sink, leaving **COMM OK** on and **HB** blinking after tests even when the app has stopped. If that happens:
+
+1. Set default sink away from USB, kill stray sink-inputs if needed, or  
+2. **Unplug/replug** the DRA USB cable to reset the adapter LEDs.
+
+Do not rely on `sudo` for bench tests to “fix” permissions — use udev + `plugdev` instead.
+
+---
+
+## Optional single-DRA pin
+
+When only one DRA is connected, `probe` prints a path for the app:
+
+```text
+TTS_DRA_HID_PATH=<hex from probe>
+```
+
+Example from one shack NUC: `312d343a312e33` (USB path `1-4:1.3`). With two DRAs, fix USB ports and use `TTS_DRA_AUDIO_DEVICES` until per-radio HID mapping exists — see [`final-hardware/README.md`](final-hardware/README.md).
+
+---
+
+## App on the NUC
+
+- Set **`TTS_RADIO_BACKEND=dra`** in `.env` for on-air scheduled playback (keep **`stub`** on dev Macs without hardware).
+- Record rig-specific values in [`final-hardware/bench-record.md`](final-hardware/bench-record.md).
