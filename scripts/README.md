@@ -12,8 +12,10 @@ Quick start (JU1 on, JU5=A, **JU3=L** on both DRA; `-c left` is the script defau
 
 ```bash
 source .venv/bin/activate
-export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib   # if hidapi from Homebrew
+export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib   # if hidapi from Homebrew (macOS only)
 python scripts/dra36m_check.py retest -c left --with-voice --lead 0.6
 ```
+
+**Linux (NUC):** udev rules + `plugdev` for CM119 HID/USB — [`dra36m-check-tests.md`](../docs/final-hardware/dra36m-check-tests.md#linux-nuc-udev-and-plugdev).
 
 Subcommands: `probe`, `monitor`, `snap`, `ptt`, `tone`, `smoke`, `voice`, `voice-gate`, `retest`.

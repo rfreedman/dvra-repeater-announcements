@@ -1,0 +1,15 @@
+---
+description: Present troubleshooting and debugging steps one at a time; wait for user output before the next step
+alwaysApply: true
+---
+
+# Debugging and troubleshooting
+
+When the user is debugging, diagnosing failures, or following a troubleshooting workflow:
+
+- Give **one step at a time** — a single command, check, or action.
+- **Stop** after that step. Do not list step 2, 3, … in the same message unless the user explicitly asks for the full runbook.
+- Ask the user to **run the step and paste the result** (or say what they observed) before giving the next step.
+- Keep step text minimal: what to run, what to look for, where (e.g. NUC vs Mac) if it matters.
+
+If the user says they want all steps at once, or a checklist/doc, follow that instead for that request.

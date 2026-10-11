@@ -83,6 +83,27 @@ def _output_channels(channel: str) -> int:
     return 1 if channel == "mono" else 2
 
 
+def dra_device_samplerate(device_index: int) -> int:
+    """PortAudio default rate for a DRA USB device (CM119 is typically 44100 Hz)."""
+    import sounddevice as sd
+
+    return int(sd.query_devices(device_index)["default_samplerate"])
+
+
+def resample_pcm_int16_mono(pcm_int16: bytes, *, from_rate: int, to_rate: int) -> bytes:
+    """Linear resample mono int16 PCM (Piper 22050 Hz → DRA 44100 Hz on Linux)."""
+    if from_rate == to_rate or not pcm_int16:
+        return pcm_int16
+    samples = np.frombuffer(pcm_int16, dtype=np.int16)
+    if samples.size == 0:
+        return pcm_int16
+    out_count = max(1, int(round(samples.size * to_rate / from_rate)))
+    x_old = np.arange(samples.size, dtype=np.float64)
+    x_new = np.linspace(0, samples.size - 1, out_count)
+    resampled = np.interp(x_new, x_old, samples.astype(np.float64)).astype(np.int16)
+    return resampled.tobytes()
+
+
 def _write_mono_to_stream(stream, mono_f32: np.ndarray, *, channel: str) -> None:
     out = mono_to_channel(mono_f32, channel)
     if out.ndim == 1:
@@ -134,12 +155,29 @@ class DraUsbPlayback:
         if self._stream is None or not pcm_int16:
             return
         if sample_rate != self.samplerate:
-            raise ValueError(
-                f"Chunk rate {sample_rate} != stream rate {self.samplerate} "
-                "(Piper chunks should drive stream samplerate)"
+            pcm_int16 = resample_pcm_int16_mono(
+                pcm_int16, from_rate=sample_rate, to_rate=self.samplerate
             )
         mono = np.frombuffer(pcm_int16, dtype=np.int16).astype(np.float32) / 32768.0
         _write_mono_to_stream(self._stream, mono, channel=self.channel)
+
+
+def play_pcm_chunks_to_single_dra(
+    chunks: Iterable[PcmChunk],
+    *,
+    device_index: int,
+    channel: str = "left",
+    lead_silence: float = 0.0,
+) -> None:
+    """Play Piper chunks on one DRA USB output at the device's native sample rate."""
+    buffered = [chunk for chunk in materialize_chunks(chunks) if chunk.pcm_int16]
+    if not buffered:
+        return
+    stream_rate = dra_device_samplerate(device_index)
+    with DraUsbPlayback(device_index, channel, stream_rate) as playback:
+        playback.write_silence(lead_silence)
+        for chunk in buffered:
+            playback.write_pcm_int16_mono(chunk.pcm_int16, sample_rate=chunk.sample_rate)
 
 
 def play_pcm_chunks_to_dra_devices(
@@ -154,11 +192,11 @@ def play_pcm_chunks_to_dra_devices(
     if not buffered:
         return
 
-    sample_rate = buffered[0].sample_rate
     streams: list[DraUsbPlayback] = []
     try:
         for index in device_indices:
-            playback = DraUsbPlayback(index, channel, sample_rate)
+            stream_rate = dra_device_samplerate(index)
+            playback = DraUsbPlayback(index, channel, stream_rate)
             playback.__enter__()
             streams.append(playback)
         for playback in streams:

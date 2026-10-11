@@ -73,8 +73,9 @@ export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib
 | Item | Radio 1 | Radio 2 |
 |------|---------|---------|
 | NUC USB port (fixed) | | |
-| udev / ALSA / PortAudio name | | |
-| hidraw path | | |
+| udev rules + user in `plugdev` (see [dra36m-check-tests.md](dra36m-check-tests.md#linux-nuc-udev-and-plugdev)) | | |
+| ALSA / PortAudio name | | |
+| hidraw + `TTS_DRA_HID_PATH` if pinned | | |
 | DRA label (Radio 1 / 2) | | |
 | JU1 / JU5 / JU3 / PTT | JU1 on, JU5 A, **JU3 L**, T | Same |
 | TX pot (**R16**, JU3=L) | | |

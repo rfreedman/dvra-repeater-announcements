@@ -759,15 +759,17 @@ def play_pcm_chunks_to_dra(
     lead_silence: float = 0.0,
 ) -> None:
     """Play Piper chunks on one USB stream; optional silence first (PTT lead / COMM OK)."""
-    import sounddevice as sd
+    repo_root = SCRIPT_PATH.parent.parent
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+    from app.dra_playback import play_pcm_chunks_to_single_dra
 
-    if samplerate is None:
-        samplerate = _pcm_chunks_sample_rate(chunks)
-    if samplerate is None:
-        samplerate = int(sd.query_devices(device_idx)["default_samplerate"])
-    with DraUsbPlayback(device_idx, channel, samplerate) as out:
-        out.write_silence(lead_silence)
-        out.write_pcm_chunks(chunks)
+    play_pcm_chunks_to_single_dra(
+        chunks,
+        device_index=device_idx,
+        channel=channel,
+        lead_silence=lead_silence,
+    )
 
 
 VOICE_GATE_EPILOG = """\
@@ -871,8 +873,9 @@ def cmd_voice(args) -> int:
     print(f"Synthesizing Piper voice… ({len(text)} chars)")
     registry = get_registry()
     voice_id, piper_rate, chunks = registry.synthesize(text, voice=args.voice)
+    dra_sr = int(audio["default_samplerate"])
     print(
-        f"Voice test: PTT + Piper ({voice_id}, {piper_rate} Hz) on device {idx} "
+        f"Voice test: PTT + Piper ({voice_id}, {piper_rate} Hz → {dra_sr} Hz USB) on device {idx} "
         f"({audio['name']}), channel={args.channel}, lead={args.lead}s silence on air "
         "before speech — low power / dummy load."
     )

@@ -12,12 +12,54 @@ Script path: [`scripts/dra36m_check.py`](../../scripts/dra36m_check.py) ([`scrip
 |------|-------------|
 | Python venv | `pip install -r requirements.txt` plus **`pip install hidapi`** |
 | macOS | `brew install hidapi portaudio`; often `export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib` |
-| Linux | `sudo apt install libportaudio2`; udev/`hidraw` access on NUC |
+| Linux | `sudo apt install libportaudio2`; **udev + `plugdev`** — see [Linux: udev and plugdev](#linux-nuc-udev-and-plugdev) |
 | DRA jumpers | **JU1 on**, **JU5 = A (1200)**, **JU3 = L** on both production DRA (must match `-c`; default **`left`**) |
 | Radio | **1200 bps DATA**, speaker volume up, **mic unplugged** for on-air TX tests |
 | RF safety | Low power, dummy load, or quiet simplex |
 
 **Blue COMM OK** is a host-audio watchdog, not COS. **Bare `ptt` does not key RF** without USB streaming; use **`smoke`** or **`voice`** for real PTT.
+
+### Linux (NUC): udev and plugdev
+
+The DRA-36M CM119A needs **HID** (`open_path`) and **USB audio** (PortAudio). On Linux, `hidapi` needs both:
+
+- read/write on the matching **`/dev/hidraw*`** node, and  
+- read/write on the matching **`/dev/bus/usb/…/…`** node (not only `hidraw`).
+
+Without udev, `probe` can show **OK** for PortAudio then fail with **`OSError: open failed`** on HID even when your user can open `/dev/hidraw*` manually.
+
+**1. Install udev rules** (CM119A on the DRA: vendor `0d8c`, product `013a`):
+
+```bash
+sudo tee /etc/udev/rules.d/99-dra-cm119-hidraw.rules <<'EOF'
+SUBSYSTEM=="hidraw", KERNEL=="hidraw*", ATTRS{idVendor}=="0d8c", ATTRS{idProduct}=="013a", MODE="0660", GROUP="plugdev"
+EOF
+
+sudo tee /etc/udev/rules.d/99-dra-cm119-usb.rules <<'EOF'
+SUBSYSTEM=="usb", ATTR{idVendor}=="0d8c", ATTR{idProduct}=="013a", MODE="0660", GROUP="plugdev"
+EOF
+
+sudo udevadm control --reload-rules && sudo udevadm trigger
+```
+
+Unplug and replug each DRA (or reboot) so permissions apply. Two identical DRAs share the same rules; udev sets **`plugdev`** on **each** matching `hidraw` and USB device.
+
+**2. Add the bench / app user to `plugdev`:**
+
+```bash
+sudo usermod -aG plugdev "$USER"
+```
+
+Log out and back in (or start a new login session) so **`plugdev`** is in **`id -nG`**. The account that runs `python -m app serve` (systemd or interactive) needs this group.
+
+**3. Quick check** (DRA plugged in, normal user — **not** `sudo`):
+
+```bash
+id -nG | tr ' ' '\n' | grep -x plugdev
+ls -l /dev/hidraw* /dev/bus/usb/*/*
+```
+
+Matching CM119 nodes should look like **`crw-rw---- root plugdev`**. Do **not** run `dra36m_check.py` under **`sudo`**: root has no PulseAudio session and PortAudio may fail with **`PaErrorCode -9999`** / *Can't connect to server*.
 
 ---
 
@@ -252,6 +294,7 @@ Hidden helper: one HID read as JSON. Used by macOS COS polling fallback; not par
 ## NUC notes
 
 - Omit **`DYLD_*`** on Linux.
+- Install [udev rules and `plugdev`](#linux-nuc-udev-and-plugdev) before relying on `probe` / PTT / COS.
 - Prefer **`monitor --cos vol_dn`** as authoritative COS polarity for future app config.
 - Dual DRA: run this checklist **per radio** before dual-TX software exists.
 

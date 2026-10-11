@@ -162,7 +162,7 @@ Both DRA-36M units enumerate as the same C-Media CM119A (USB sound + HID). Enume
 1. Plug Radio 1’s DRA into a chosen NUC USB port and leave it there.
 2. Same for Radio 2 on a different port.
 3. udev rules keyed on **USB path** (`KERNELS=="1-1.x"`) or the device serial, not “first CM119A vs second.”
-4. Grant the service user access to both `hidraw` nodes and both ALSA / PortAudio devices.
+4. Grant the service user access to both CM119 **USB** and **`hidraw`** nodes (see [Linux udev + `plugdev`](dra36m-check-tests.md#linux-nuc-udev-and-plugdev)) and both ALSA / PortAudio devices. Put the app user in group **`plugdev`**.
 
 `lsusb` and `arecord -l` / `aplay -l` should show two C-Media devices. `ls /dev/hidraw*` should show two HID interfaces after the DRA are plugged in.
 
@@ -225,6 +225,7 @@ Record jumper, level, COS polarity, and `--lead` in [`bench-record.md`](bench-re
 
 - **64-bit Linux** (Xubuntu on the NUC). The Piper stack requires 64-bit; do not use 32-bit OS builds.
 - `sudo apt install libportaudio2` (or equivalent) for PortAudio playback.
+- **DRA HID on Linux:** install udev rules for CM119 (`0d8c`/`013a`) on **`hidraw`** and **USB**, add the runtime user to **`plugdev`**, then replug — full steps in [`dra36m-check-tests.md`](dra36m-check-tests.md#linux-nuc-udev-and-plugdev). Run bench scripts as that user, not `sudo`.
 - Keep `data/` (announcements JSON, PCM cache, logs) on the **internal SSD**.
 - Two DRA-36M units are USB-powered; plug both into **direct** NUC USB ports with adequate current.
 
