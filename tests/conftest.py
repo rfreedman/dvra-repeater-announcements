@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import os
 
-# Must be set before app.server imports SessionMiddleware.
+# Must be set before any app module is imported (app.config reads them at import).
 os.environ.setdefault("TTS_SESSION_SECRET", "test-session-secret-for-pytest")
+os.environ["TTS_SKIP_DOTENV"] = "1"
 
 from pathlib import Path
 
@@ -31,6 +32,23 @@ def fire_wall_clock_for_tests(monkeypatch):
 @pytest.fixture(autouse=True)
 def no_voice_preload(monkeypatch):
     monkeypatch.setattr("app.registry.EngineRegistry.preload", lambda self: [])
+
+
+@pytest.fixture(autouse=True)
+def keep_test_radio(monkeypatch):
+    """Server startup must not replace the radio a test registered (``radio`` fixture)."""
+    monkeypatch.setattr("app.server.init_radio_at_startup", lambda: None)
+    yield
+    set_radio(None)
+
+
+@pytest.fixture(autouse=True)
+def reset_login_limiter():
+    from app.auth import login_limiter
+
+    login_limiter.reset()
+    yield
+    login_limiter.reset()
 
 
 @pytest.fixture(autouse=True)

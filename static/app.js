@@ -1,11 +1,6 @@
 const PREFS_KEY = "announcements-prefs";
-const NEW_ANNOUNCEMENT = {
-  voice: "en_US-ryan-medium",
-  speed: 0.8,
-  sentence_pause: 0.25,
-  busy_retry_seconds: 30,
-  busy_give_up_seconds: 300,
-};
+// Timer-driven refreshes send this so they do not reset the server's idle logout.
+const BACKGROUND_HEADERS = { "X-Background-Poll": "1" };
 const DAYS = [
   ["mon", "Mon"],
   ["tue", "Tue"],
@@ -731,7 +726,7 @@ function tickUpcoming() {
     upcoming?.at &&
     new Date(upcoming.at).getTime() - (Date.now() + clockSkewMs) <= 15000;
   if (upcoming?.status === "running" || pendingManualTriggers.length > 0 || soon) {
-    refreshHome().catch(() => {});
+    refreshHome({ background: true }).catch(() => {});
   }
 }
 
@@ -1111,15 +1106,16 @@ function updateClockWeekday(clockDate) {
   if (el) el.textContent = weekdayFromDateStamp(clockDate);
 }
 
-async function refreshHome() {
+async function refreshHome({ background = false } = {}) {
   if (homeBusy) return;
   homeBusy = true;
   try {
     const dateField = document.getElementById("clock-date");
     const dateQuery = dateField.value ? `?clock_date=${dateField.value}` : "";
+    const opts = background ? { headers: BACKGROUND_HEADERS } : {};
     const [schedRes, libRes] = await Promise.all([
-      fetch(`/api/schedules${dateQuery}`),
-      fetch("/api/announcements"),
+      fetch(`/api/schedules${dateQuery}`, opts),
+      fetch("/api/announcements", opts),
     ]);
     if (!schedRes.ok) throw new Error("Could not load schedules");
     const payload = await schedRes.json();
@@ -1160,7 +1156,7 @@ async function refreshSystemStats() {
   if (statsBusy || !currentUser) return;
   statsBusy = true;
   try {
-    const res = await fetch("/api/system/stats");
+    const res = await fetch("/api/system/stats", { headers: BACKGROUND_HEADERS });
     if (res.ok) {
       renderSystemStats(await res.json());
     } else {
@@ -1223,7 +1219,7 @@ function renderSystemStats(payload) {
 }
 
 function startHomePolling() {
-  if (!pollTimer) pollTimer = setInterval(() => refreshHome().catch(() => {}), 15000);
+  if (!pollTimer) pollTimer = setInterval(() => refreshHome({ background: true }).catch(() => {}), 15000);
   if (!countdownTimer) countdownTimer = setInterval(tickUpcoming, 1000);
 }
 
@@ -1325,16 +1321,27 @@ async function loadDefaultScript() {
   defaultScript = (await res.text()).trim();
 }
 
+function newAnnouncementDefaults() {
+  return {
+    voice: catalog?.default_voice ?? null,
+    speed: catalog?.speed ?? 1,
+    sentence_pause: catalog?.sentence_pause ?? 0.25,
+    busy_retry_seconds: catalog?.busy_retry_seconds ?? 5,
+    busy_give_up_seconds: catalog?.busy_give_up_seconds ?? 45,
+  };
+}
+
 function blankAnnouncement() {
+  const defaults = newAnnouncementDefaults();
   editingAnnouncementId = null;
   document.getElementById("announcement-title").textContent = "New announcement";
   nameEl.value = "";
   textEl.value = defaultScript;
-  speedEl.value = String(NEW_ANNOUNCEMENT.speed);
-  pauseEl.value = String(NEW_ANNOUNCEMENT.sentence_pause);
-  document.getElementById("busy-retry").value = String(NEW_ANNOUNCEMENT.busy_retry_seconds);
-  document.getElementById("busy-giveup").value = String(NEW_ANNOUNCEMENT.busy_give_up_seconds);
-  if (catalog) renderVoices(NEW_ANNOUNCEMENT.voice);
+  speedEl.value = String(defaults.speed);
+  pauseEl.value = String(defaults.sentence_pause);
+  document.getElementById("busy-retry").value = String(defaults.busy_retry_seconds);
+  document.getElementById("busy-giveup").value = String(defaults.busy_give_up_seconds);
+  if (catalog) renderVoices(defaults.voice);
   updateCount();
   updateDeliveryLabels();
 }

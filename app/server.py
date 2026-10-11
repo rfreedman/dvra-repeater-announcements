@@ -7,7 +7,7 @@ import time
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from datetime import date, datetime
-from typing import Annotated, Literal
+from typing import Annotated
 from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -23,6 +23,7 @@ from app.auth import (
     clear_session,
     current_user_optional,
     hash_password,
+    login_limiter,
     require_admin,
     require_user,
     set_session_user,
@@ -50,7 +51,12 @@ from app.schedule_logic import (
     next_transmission,
     offset_allowed,
 )
-from app.pcm_cache import get_pcm_cache, warm_all, warm_announcement
+from app.pcm_cache import (
+    get_pcm_cache,
+    warm_all,
+    warm_announcement,
+    warm_announcement_in_background,
+)
 from app.scheduler import (
     get_running,
     clear_manual_trigger_drop_notice,
@@ -76,14 +82,11 @@ AuthUser = Annotated[User, Depends(require_user)]
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
     started = time.perf_counter()
     log.info("Starting up")
     try:
+        get_store().document()
+        get_user_store().count()
         await asyncio.to_thread(init_radio_at_startup)
         await asyncio.to_thread(get_registry().preload)
         await asyncio.to_thread(warm_all)
@@ -101,7 +104,7 @@ async def lifespan(_app: FastAPI):
     stop_scheduler()
 
 
-app = FastAPI(title="TTS Stream", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="DVRA Repeater Announcements", version="1.0.0", lifespan=lifespan)
 app.add_middleware(
     SessionMiddleware,
     secret_key=session_secret(),
@@ -183,6 +186,10 @@ class UserUpdateIn(BaseModel):
     username: str | None = Field(default=None, min_length=1, max_length=64)
     password: str | None = Field(default=None, min_length=1, max_length=256)
     role: Role | None = None
+
+
+def _warm_in_background(item: Announcement) -> None:
+    warm_announcement_in_background(item, warm_announcement)
 
 
 def _build_schedule(payload: ScheduleIn) -> Schedule:
@@ -323,9 +330,20 @@ def auth_setup(req: SetupIn, request: Request) -> dict[str, object]:
 def auth_login(req: LoginIn, request: Request) -> dict[str, object]:
     if get_user_store().count() == 0:
         raise HTTPException(status_code=409, detail="Setup required")
+    client = request.client.host if request.client else "unknown"
+    limiter_key = f"{client}:{req.username.strip().lower()}"
+    retry_after = login_limiter.retry_after(limiter_key)
+    if retry_after > 0:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many failed sign-ins. Try again in {int(retry_after) + 1} seconds.",
+            headers={"Retry-After": str(int(retry_after) + 1)},
+        )
     user = authenticate(req.username, req.password)
     if user is None:
+        login_limiter.record_failure(limiter_key)
         raise HTTPException(status_code=401, detail="Invalid username or password")
+    login_limiter.reset(limiter_key)
     set_session_user(request, user)
     return {"user": user.public()}
 
@@ -416,7 +434,7 @@ async def speak(req: SpeakRequest, request: Request, _user: AuthUser) -> Streami
         raise HTTPException(status_code=400, detail="Text is required")
     try:
         voice_id, sample_rate, chunks = await asyncio.to_thread(
-            lambda: registry.synthesize(
+            lambda: registry.stream_synthesize(
                 text,
                 voice=req.voice,
                 speed=req.speed,
@@ -563,7 +581,7 @@ def create_announcement(req: AnnouncementIn, _admin: AdminUser) -> dict[str, obj
         busy_give_up_seconds=req.busy_give_up_seconds,
     )
     stored = get_store().save_announcement(item)
-    warm_announcement(stored)
+    _warm_in_background(stored)
     return stored.model_dump(mode="json")
 
 
@@ -587,7 +605,7 @@ def update_announcement(
         }
     )
     stored = store.save_announcement(updated)
-    warm_announcement(stored)
+    _warm_in_background(stored)
     sync_jobs()
     return stored.model_dump(mode="json")
 

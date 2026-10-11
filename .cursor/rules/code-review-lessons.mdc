@@ -1,0 +1,33 @@
+---
+description: Lessons from the Oct 2026 code review — mistakes not to repeat in this project
+alwaysApply: true
+---
+
+# Code review lessons (read before changing scheduler, radio, auth, or tests)
+
+Full history, causes, and guarding tests: `docs/code-review-findings.md`.
+When you fix a bug or pay down tech debt, add an entry there (symptom, cause, fix, test)
+and add a one-line lesson here if it is a pattern worth avoiding.
+
+## Scheduler (`app/scheduler.py`)
+- Decide what to schedule or prune by **`fire_at`**, never by the slot center (:00/:30). Overlays fire up to ±`slot_half_window_minutes` from the center.
+- Never re-add an APScheduler `DateTrigger` whose time has passed: inside the misfire grace it runs again (double transmission). Only add future jobs; keep a past one only if it still exists.
+- Busy-retry (`defer:`) jobs live until their own `deadline_iso`; do not prune them by slot window.
+- Manual triggers never change slot jobs — don't call `sync_jobs()` from that path.
+
+## Radio / DRA
+- PTT: track each device as soon as it keys; on any failure unkey exactly those. A stuck PTT is the worst failure mode.
+- Multiple PortAudio streams: never write a whole buffer to one stream before the next — `write()` blocks. Interleave short blocks (`write_programs_interleaved`).
+- HTTP handlers must not sample COS or reschedule jobs; that belongs to the background COS thread.
+
+## Config, data, auth
+- `app/config.py` reads env at import; tests set `TTS_SKIP_DOTENV=1`. Never let a developer `.env` affect tests.
+- Never treat an unrecognized data file as empty — raise `DataFileError`; a later save would erase data.
+- Timer-driven UI requests send `X-Background-Poll: 1` so they don't defeat the idle logout.
+- One source of defaults: env/config → `/api/voices` → UI. Don't hard-code defaults in `static/app.js`.
+- Slot math uses `Settings.timezone` only; `Schedule.timezone` is legacy.
+
+## Tests
+- Run the full suite (`pytest`) before finishing; it must pass with and without a `.env`.
+- New behavior fix ⇒ a regression test that fails on the old code.
+- Server startup replaces the radio; tests rely on the `keep_test_radio` autouse fixture.

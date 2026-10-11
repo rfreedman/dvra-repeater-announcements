@@ -264,14 +264,20 @@ class PiperEngine(Engine):
         sample_rate = model.config.sample_rate
 
         def speech_chunks(speech: str) -> Iterator[PcmChunk]:
-            with lock:
-                for chunk in model.synthesize(speech, syn_config=syn_config):
-                    yield PcmChunk(
-                        pcm_int16=chunk.audio_int16_bytes,
-                        sample_rate=chunk.sample_rate,
-                        sample_width=chunk.sample_width,
-                        channels=chunk.sample_channels,
-                    )
+            # Hold the voice lock per sentence only, never across a yield: a slow
+            # streaming client must not block scheduled synthesis on the same voice.
+            sentences = model.synthesize(speech, syn_config=syn_config)
+            while True:
+                with lock:
+                    chunk = next(sentences, None)
+                if chunk is None:
+                    return
+                yield PcmChunk(
+                    pcm_int16=chunk.audio_int16_bytes,
+                    sample_rate=chunk.sample_rate,
+                    sample_width=chunk.sample_width,
+                    channels=chunk.sample_channels,
+                )
 
         for segment in parse_script(text):
             if isinstance(segment, PauseSegment):

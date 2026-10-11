@@ -31,7 +31,9 @@ def _env_flag(name: str, default: bool = False) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
-_load_dotenv(ROOT_DIR / ".env")
+# Tests set TTS_SKIP_DOTENV=1 so a developer's .env cannot change their results.
+if not _env_flag("TTS_SKIP_DOTENV"):
+    _load_dotenv(ROOT_DIR / ".env")
 
 VOICES_DIR = Path(os.environ.get("TTS_VOICES_DIR", ROOT_DIR / "voices")).expanduser()
 PIPER_VOICES_DIR = VOICES_DIR / "piper"
@@ -85,6 +87,14 @@ if DRA_USB_CHANNEL not in {"left", "right", "mono"}:
     )
     DRA_USB_CHANNEL = "left"
 DRA_COS_LINE = os.environ.get("TTS_DRA_COS_LINE", "vol_dn").strip().lower()
+if DRA_COS_LINE not in {"vol_dn", "vol_up", "allstar3"}:
+    import logging
+
+    logging.getLogger("app.config").warning(
+        "Invalid TTS_DRA_COS_LINE=%r; using 'vol_dn'",
+        os.environ.get("TTS_DRA_COS_LINE"),
+    )
+    DRA_COS_LINE = "vol_dn"
 DRA_COS_ACTIVE_HIGH = _env_flag("TTS_DRA_COS_ACTIVE_HIGH", False)
 
 

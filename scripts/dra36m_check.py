@@ -30,9 +30,24 @@ import time
 from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import NamedTuple
 
 SCRIPT_PATH = Path(__file__).resolve()
+REPO_ROOT = SCRIPT_PATH.parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+# Shared with the app so bench results match production HID/audio behavior.
+from app.cm119 import (  # noqa: E402
+    PRODUCT_ID_CM119A,
+    VENDOR_ID,
+    HidSample,
+    read_hid_input_report,
+    read_hid_sample,
+    set_gpio3_ptt,
+)
+from app.cm119 import cos_line_busy as _app_cos_line_busy  # noqa: E402
+from app.cm119 import open_cm119_hid_at as _open_cm119_hid_at  # noqa: E402
+from app.dra_playback import DraUsbPlayback, mono_to_channel  # noqa: E402
 
 
 def _subprocess_env() -> dict[str, str]:
@@ -46,13 +61,9 @@ def _macos_hid_one_shot(*, use_audio: bool) -> bool:
     return sys.platform == "darwin" and not use_audio
 
 
-VENDOR_ID = 0x0D8C
-PRODUCT_ID_CM119A = 0x013A
-
 # USB stereo channel routed to Mini-DIN DATA IN via DRA JU3 (L or R).
 CHANNEL_CHOICES = ("left", "right", "mono")
 COS_LINE_CHOICES = ("vol_dn", "vol_up", "allstar3", "dra_mac", "audio_mac", "hybrid_mac")
-_COS_BIT = {"vol_up": 0x01, "vol_dn": 0x02}
 
 MONITOR_EPILOG = """\
 COS (channel busy) comes from the radio SQL line on Mini-DIN pin 6 (DRA JU1).
@@ -79,14 +90,6 @@ def add_channel_argument(parser: argparse.ArgumentParser) -> None:
         help="USB audio channel for DATA IN: left (JU3=L, production default), "
         "right (JU3=R), or mono",
     )
-
-
-def samples_for_channel(mono, channel: str, *, np):
-    if channel == "right":
-        return np.column_stack([np.zeros_like(mono), mono])
-    if channel == "left":
-        return np.column_stack([mono, np.zeros_like(mono)])
-    return mono
 
 
 def _ensure_hid():
@@ -156,51 +159,9 @@ def require_cm119_entry(hid, *, wait_seconds: float = 20.0) -> dict:
     )
 
 
-def _open_cm119_hid_at(hid, path: bytes):
-    dev = hid.device()
-    dev.open_path(path)
-    dev.set_nonblocking(True)
-    return dev
-
-
 def _open_cm119_hid(hid):
     entry = require_cm119_entry(hid)
     return _open_cm119_hid_at(hid, entry["path"])
-
-
-def set_gpio3_ptt(dev, keyed: bool) -> int:
-    """Return bytes written (expect 5) or raise on failure."""
-    mask = 0x04  # GPIO3
-    data = 0x04 if keyed else 0x00
-    n = dev.write(bytes([0x00, 0x00, mask, data, 0x00]))
-    if n < 0:
-        raise OSError(f"HID write failed (returned {n})")
-    return n
-
-
-def normalize_input_report(raw: bytes) -> bytes | None:
-    if not raw:
-        return None
-    if len(raw) >= 5 and raw[0] == 0:
-        return bytes(raw[1:5])
-    if len(raw) >= 4:
-        return bytes(raw[:4])
-    return bytes(raw)
-
-
-class HidSample(NamedTuple):
-    raw: bytes | None
-    source: str  # ctrl | irq | irq-block | none
-
-
-def read_hid_input_report(dev) -> bytes | None:
-    """Read CM119 IR0..3 via GET_INPUT_REPORT (reliable on macOS)."""
-    if dev is None:
-        return None
-    try:
-        return normalize_input_report(bytes(dev.get_input_report(0, 5)))
-    except (OSError, ValueError):
-        return None
 
 
 def try_open_cm119_hid(hid, path: bytes):
@@ -208,71 +169,6 @@ def try_open_cm119_hid(hid, path: bytes):
         return _open_cm119_hid_at(hid, path)
     except OSError:
         return None
-
-
-def drain_hid_interrupt(dev, *, max_packets: int = 32) -> bytes | None:
-    """Non-blocking drain of interrupt IN; returns the last packet if any."""
-    latest: bytes | None = None
-    try:
-        dev.set_nonblocking(True)
-        for _ in range(max_packets):
-            data = dev.read(64, timeout_ms=0)
-            if not data:
-                break
-            latest = normalize_input_report(bytes(data))
-    except (OSError, ValueError):
-        return latest
-    return latest
-
-
-def read_hid_sample(dev, timeout_ms: int = 300) -> HidSample:
-    """Current CM119 input report (HID_IR0..3) and how it was obtained."""
-    if dev is None:
-        return HidSample(None, "not-open")
-    _ = timeout_ms
-    ctrl: bytes | None = None
-    for attempt in range(3):
-        ctrl = read_hid_input_report(dev)
-        if ctrl is not None:
-            break
-        if attempt < 2:
-            time.sleep(0.05)
-
-    if ctrl is not None:
-        if sys.platform == "darwin":
-            return HidSample(ctrl, "ctrl")
-        irq = drain_hid_interrupt(dev)
-        if irq is not None and irq != ctrl:
-            return HidSample(irq, "irq")
-        return HidSample(ctrl, "ctrl")
-
-    irq = drain_hid_interrupt(dev)
-    if irq is not None:
-        return HidSample(irq, "irq")
-
-    block_ms = 100 if sys.platform == "darwin" else min(timeout_ms, 150)
-    try:
-        dev.set_nonblocking(False)
-        data = dev.read(64, timeout_ms=block_ms)
-    except (OSError, ValueError):
-        data = None
-    finally:
-        try:
-            dev.set_nonblocking(True)
-        except (OSError, ValueError):
-            pass
-    if data:
-        blocked = normalize_input_report(bytes(data))
-        if blocked is not None:
-            return HidSample(blocked, "irq-block")
-
-    # After COS activity, macOS often needs the interrupt queue drained before
-    # GET_INPUT_REPORT works again for the squelched (idle) snapshot.
-    ctrl = read_hid_input_report(dev)
-    if ctrl is not None:
-        return HidSample(ctrl, "ctrl-recover")
-
-    return HidSample(None, "none")
 
 
 def read_hid_input(dev, timeout_ms: int = 300) -> bytes | None:
@@ -541,26 +437,12 @@ def cos_line_busy(
     active_low: bool = True,
 ) -> bool | None:
     """Return True if the channel is busy (receiving), False if idle, None if no report."""
-    if not raw:
-        return None
     if line == "dra_mac":
-        # macOS + DRA: squelched idle via GET_INPUT_REPORT (often all zero); active COS
-        # often makes the control read fail (handled as busy when raw is None).
-        if len(raw) < 3:
+        # Legacy macOS bench mode: squelched idle reads all zero; non-zero IR0..2 = busy.
+        if not raw or len(raw) < 3:
             return None
         return (raw[0] | raw[1] | raw[2]) != 0
-
-    if line == "allstar3":
-        if len(raw) < 3:
-            return None
-        return (raw[0] | raw[1] | raw[2]) == 0
-    if len(raw) < 1:
-        return None
-    mask = _COS_BIT[line]
-    bit_set = bool(raw[0] & mask)
-    if active_low:
-        return not bit_set
-    return bit_set
+    return _app_cos_line_busy(raw, line=line, active_low=active_low)
 
 
 def cmd_probe(_args) -> int:
@@ -612,8 +494,8 @@ def cmd_ptt(args) -> int:
     dev = _open_cm119_hid(hid)
     seconds = args.seconds
     print(f"Keying GPIO3 PTT for {seconds}s — watch the radio TX indicator...")
-    n = set_gpio3_ptt(dev, True)
-    print(f"  write returned {n} bytes")
+    set_gpio3_ptt(dev, True)
+    print("  PTT keyed")
     time.sleep(seconds)
     set_gpio3_ptt(dev, False)
     print("PTT released.")
@@ -633,7 +515,7 @@ def cmd_tone(args) -> int:
     freq = args.frequency
     t = np.linspace(0, duration, int(sr * duration), endpoint=False)
     mono = (args.level * np.sin(2 * np.pi * freq * t)).astype(np.float32)
-    samples = samples_for_channel(mono, args.channel, np=np)
+    samples = mono_to_channel(mono, args.channel)
     print(f"Playing {freq} Hz on device {idx} ({audio['name']}), channel={args.channel}")
     sd.play(samples, samplerate=sr, device=idx, blocking=True)
     return 0
@@ -653,7 +535,7 @@ def cmd_smoke(args) -> int:
     freq = args.frequency
     t = np.linspace(0, duration, int(sr * duration), endpoint=False)
     mono = (args.level * np.sin(2 * np.pi * freq * t)).astype(np.float32)
-    samples = samples_for_channel(mono, args.channel, np=np)
+    lead_frames = np.zeros(int(max(0.0, lead) * sr), dtype=np.float32)
 
     print(
         f"Smoke test: PTT + tone (channel={args.channel}, lead={lead}s silence then tone). "
@@ -662,8 +544,7 @@ def cmd_smoke(args) -> int:
     set_gpio3_ptt(dev, True)
     try:
         with DraUsbPlayback(idx, args.channel, sr) as out:
-            out.write_silence(lead)
-            out.write_array(samples)
+            out.write_mono_f32(np.concatenate([lead_frames, mono]))
     finally:
         set_gpio3_ptt(dev, False)
     raw = read_hid_input(dev)
@@ -671,76 +552,6 @@ def cmd_smoke(args) -> int:
     dev.close()
     print("Done.")
     return 0
-
-
-def _dra_output_channels(channel: str) -> int:
-    return 1 if channel == "mono" else 2
-
-
-def _write_mono_to_stream(stream, mono_f32, *, channel: str, np) -> None:
-    out = samples_for_channel(mono_f32, channel, np=np)
-    if out.ndim == 1:
-        stream.write(out.reshape(-1, 1))
-    else:
-        stream.write(out)
-
-
-class DraUsbPlayback:
-    """One PortAudio output stream to the DRA (heartbeat + continuous audio)."""
-
-    def __init__(self, device_idx: int, channel: str, samplerate: int):
-        import sounddevice as sd
-
-        self.device_idx = device_idx
-        self.channel = channel
-        self.samplerate = samplerate
-        self._channels = _dra_output_channels(channel)
-        self._stream: sd.OutputStream | None = None
-
-    def __enter__(self):
-        import sounddevice as sd
-
-        self._stream = sd.OutputStream(
-            device=self.device_idx,
-            samplerate=self.samplerate,
-            channels=self._channels,
-            dtype="float32",
-        )
-        self._stream.start()
-        return self
-
-    def __exit__(self, *exc):
-        if self._stream is not None:
-            self._stream.stop()
-            self._stream.close()
-            self._stream = None
-
-    def write_silence(self, seconds: float) -> None:
-        import numpy as np
-
-        if seconds <= 0 or self._stream is None:
-            return
-        frames = int(seconds * self.samplerate)
-        if frames <= 0:
-            return
-        zeros = np.zeros(frames, dtype=np.float32)
-        _write_mono_to_stream(self._stream, zeros, channel=self.channel, np=np)
-
-    def write_array(self, samples) -> None:
-        if self._stream is None or samples is None or len(samples) == 0:
-            return
-        self._stream.write(samples)
-
-    def write_pcm_chunks(self, chunks) -> None:
-        import numpy as np
-
-        if self._stream is None:
-            return
-        for chunk in chunks:
-            if not chunk.pcm_int16:
-                continue
-            mono = np.frombuffer(chunk.pcm_int16, dtype=np.int16).astype(np.float32) / 32768.0
-            _write_mono_to_stream(self._stream, mono, channel=self.channel, np=np)
 
 
 def _pcm_chunks_sample_rate(chunks) -> int | None:
@@ -759,9 +570,6 @@ def play_pcm_chunks_to_dra(
     lead_silence: float = 0.0,
 ) -> None:
     """Play Piper chunks on one USB stream; optional silence first (PTT lead / COMM OK)."""
-    repo_root = SCRIPT_PATH.parent.parent
-    if str(repo_root) not in sys.path:
-        sys.path.insert(0, str(repo_root))
     from app.dra_playback import play_pcm_chunks_to_single_dra
 
     play_pcm_chunks_to_single_dra(
@@ -855,9 +663,6 @@ def _voice_text_from_args(text_arg: str | list[str] | None) -> str:
 
 def cmd_voice(args) -> int:
     """PTT lead + Piper TTS through DRA USB audio + unkey (bench on-air test)."""
-    repo_root = SCRIPT_PATH.parent.parent
-    if str(repo_root) not in sys.path:
-        sys.path.insert(0, str(repo_root))
 
     from app.registry import get_registry
 
@@ -896,9 +701,6 @@ def cmd_voice(args) -> int:
 
 def cmd_voice_gate(args) -> int:
     """Wait for COS busy (other station), defer TX, then Piper once when idle."""
-    repo_root = SCRIPT_PATH.parent.parent
-    if str(repo_root) not in sys.path:
-        sys.path.insert(0, str(repo_root))
 
     from app.registry import get_registry
 

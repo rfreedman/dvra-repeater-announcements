@@ -42,7 +42,6 @@ class VoiceInfo:
 class Engine(ABC):
     id: str
     name: str
-    blurb: str
 
     @abstractmethod
     def default_voice_id(self) -> str: ...

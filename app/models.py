@@ -148,6 +148,8 @@ class Schedule(BaseModel):
     name: str
     enabled: bool = True
     kind: ScheduleKind
+    # Stored for compatibility only. Slot math always uses the document's
+    # Settings.timezone so every schedule shares one station clock.
     timezone: str = TIMEZONE
     announcement_id: str | None = None
     offset_minutes: int = 0

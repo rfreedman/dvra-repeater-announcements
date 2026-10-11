@@ -1,8 +1,7 @@
 """Clear-hold idle credit must allow transmit when COS samples flap busy."""
 from __future__ import annotations
 
-from app.audio import PcmChunk
-from app.fire import FireContext, handle_fire
+from app.fire import handle_fire
 from app.radio import StubRadio, channel_blocks_transmit
 from tests.test_fire import _announcement, _ctx, _deps
 

@@ -5,10 +5,8 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
-from apscheduler.triggers.date import DateTrigger
 
 from app.scheduler import (
-    _defer_id,
     nudge_manual_defer_jobs_if_clear_ready,
     run_manual_trigger,
 )

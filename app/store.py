@@ -18,6 +18,33 @@ _lock = threading.Lock()
 _store: AnnouncementStore | None = None
 
 
+class DataFileError(RuntimeError):
+    """A data file exists but is not in a format this version understands."""
+
+
+def read_versioned_json(path: Path, *, version: int, kind: str) -> dict | None:
+    """Parsed JSON object, or None if the file is missing/empty.
+
+    Raises instead of returning an empty document for an unknown format: the
+    next save would otherwise overwrite the operator's data.
+    """
+    if not path.exists():
+        return None
+    text = path.read_text(encoding="utf-8").strip()
+    if not text:
+        return None
+    raw = json.loads(text)
+    if raw == {}:
+        return None
+    if not isinstance(raw, dict) or raw.get("version") != version:
+        found = raw.get("version") if isinstance(raw, dict) else None
+        raise DataFileError(
+            f"{path} is not a version {version} {kind} file (found version {found!r}). "
+            "Move it aside or restore a backup; refusing to overwrite it."
+        )
+    return raw
+
+
 def empty_document() -> StoreDocument:
     return StoreDocument()
 
@@ -27,10 +54,8 @@ class AnnouncementStore:
         self.path = path
 
     def _read(self) -> StoreDocument:
-        if not self.path.exists():
-            return empty_document()
-        raw = json.loads(self.path.read_text(encoding="utf-8") or "{}")
-        if not isinstance(raw, dict) or raw.get("version") != 2:
+        raw = read_versioned_json(self.path, version=2, kind="announcements")
+        if raw is None:
             return empty_document()
         return StoreDocument.model_validate(raw)
 

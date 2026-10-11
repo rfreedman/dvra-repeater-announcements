@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from app.audio import PcmChunk
-from app.fire import FireContext, FireDeps, LoadedFire, handle_fire
-from app.models import Announcement, Schedule
+from app.fire import handle_fire
 from app.radio import ChannelBusyError, transmit
 
-from tests.test_fire import _announcement, _ctx, _deps, _schedule
+from tests.test_fire import _announcement, _ctx, _deps
 
 TZ = ZoneInfo("America/New_York")
 NOW = datetime(2026, 8, 27, 12, 0, tzinfo=TZ)

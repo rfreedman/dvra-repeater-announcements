@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.config import USERS_PATH
 from app.models import new_id
+from app.store import read_versioned_json
 
 Role = Literal["admin", "readonly"]
 
@@ -56,10 +57,8 @@ class UserStore:
         self.path = path
 
     def _read(self) -> UsersDocument:
-        if not self.path.exists():
-            return UsersDocument()
-        raw = json.loads(self.path.read_text(encoding="utf-8") or "{}")
-        if not isinstance(raw, dict) or raw.get("version") != 1:
+        raw = read_versioned_json(self.path, version=1, kind="users")
+        if raw is None:
             return UsersDocument()
         return UsersDocument.model_validate(raw)
 

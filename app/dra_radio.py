@@ -349,36 +349,38 @@ class DraRadio:
     def set_ptt(self, keyed: bool) -> None:
         hid = ensure_hid_module()
         with self._lock:
-            try:
-                if keyed:
-                    if self._ptt_keyed:
-                        return
-                    devices = []
-                    for index, adapter in enumerate(self._hid_adapters):
-                        dev = self._ensure_adapter_hid_locked(hid, index, adapter)
-                        fire_trace("PTT key using HID handle on %s", adapter.label)
-                        set_gpio3_ptt(dev, True)
-                        devices.append(dev)
-                    self._ptt_devices = devices
-                    self._ptt_keyed = True
-                else:
-                    for dev in self._ptt_devices:
-                        try:
-                            set_gpio3_ptt(dev, False)
-                        except OSError:
-                            log.warning("PTT unkey failed on one adapter", exc_info=True)
-                    self._ptt_devices = []
-                    self._ptt_keyed = False
-            except OSError as err:
-                log.warning("PTT HID key failed", exc_info=True)
+            if not keyed:
                 for dev in self._ptt_devices:
                     try:
                         set_gpio3_ptt(dev, False)
                     except OSError:
-                        pass
+                        log.warning("PTT unkey failed on one adapter", exc_info=True)
+                self._ptt_devices = []
+                self._ptt_keyed = False
+                return
+            if self._ptt_keyed:
+                return
+            # Track each radio as soon as it keys so a failure on a later adapter
+            # can unkey the ones already transmitting.
+            keyed_devices: list[object] = []
+            try:
+                for index, adapter in enumerate(self._hid_adapters):
+                    dev = self._ensure_adapter_hid_locked(hid, index, adapter)
+                    fire_trace("PTT key using HID handle on %s", adapter.label)
+                    keyed_devices.append(dev)
+                    set_gpio3_ptt(dev, True)
+            except OSError as err:
+                log.warning("PTT HID key failed", exc_info=True)
+                for dev in keyed_devices:
+                    try:
+                        set_gpio3_ptt(dev, False)
+                    except OSError:
+                        log.error("PTT unkey after failed key also failed", exc_info=True)
                 self._ptt_devices = []
                 self._ptt_keyed = False
                 raise ChannelBusyError("PTT HID unavailable") from err
+            self._ptt_devices = keyed_devices
+            self._ptt_keyed = True
 
     def play_transmit_audio(
         self,

@@ -5,6 +5,7 @@ import logging
 import sys
 import threading
 import time
+from collections.abc import Callable
 from ctypes import POINTER, byref, c_char_p, c_int32, c_uint32, c_void_p
 from dataclasses import replace
 from datetime import datetime, timedelta
@@ -14,6 +15,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.date import DateTrigger
 
 from app.config import (
+    DEFAULT_BUSY_GIVE_UP_SECONDS,
     DRA_CLEAR_SECONDS,
     LOOKAHEAD_HOURS,
     PTT_LEAD_SECONDS,
@@ -29,14 +31,20 @@ from app.fire import (
     handle_fire,
 )
 from app.fire_trace import fire_trace
+from app.models import Announcement, Schedule
 from app.pcm_cache import chunks_for_announcement
 from app.playback import play_chunks
 from app.radio import get_radio
 from app.schedule_logic import resolve_slot, resolve_window
-from app.slots import slot_from_key, zone_for
+from app.slots import as_local, slot_from_key, zone_for
 from app.store import get_store
 
 log = logging.getLogger("app.scheduler")
+
+# A slot job may run this late (App Nap, busy host) and still fire.
+SLOT_MISFIRE_GRACE_SECONDS = 30
+DEFER_MISFIRE_GRACE_SECONDS = 120
+MANUAL_KEY_PREFIX = "manual:"
 
 _scheduler: BackgroundScheduler | None = None
 _playback_lock = threading.Lock()
@@ -123,6 +131,10 @@ def _allow_idle_sleep() -> None:
     _idle_assertion = None
 
 
+def _station_zone() -> ZoneInfo:
+    return zone_for(get_store().document().settings.timezone)
+
+
 def get_running() -> dict[str, object] | None:
     with _running_lock:
         return dict(_running) if _running else None
@@ -135,7 +147,7 @@ def _set_running(announcement, schedule_id: str) -> None:
             "announcement_id": announcement.id,
             "announcement_name": announcement.name,
             "schedule_id": schedule_id,
-            "started_at": datetime.now(ZoneInfo(TIMEZONE)).isoformat(),
+            "started_at": datetime.now(_station_zone()).isoformat(),
         }
 
 
@@ -170,7 +182,7 @@ def record_manual_trigger_drop(
             "announcement_name": announcement_name,
             "reason": reason,
             "detail": detail,
-            "at": datetime.now(ZoneInfo(TIMEZONE)).isoformat(),
+            "at": datetime.now(_station_zone()).isoformat(),
         }
     log.info(
         "Manual trigger give-up; schedule=%s announcement=%s reason=%s",
@@ -227,15 +239,54 @@ def _slot_key_from_defer_job_id(jid: str) -> str | None:
     return jid[len("defer:") :]
 
 
-def _normalize_job_run_at(run_at: datetime) -> datetime:
-    zone = ZoneInfo(TIMEZONE)
-    if run_at.tzinfo is None:
-        return run_at.replace(tzinfo=zone)
-    return run_at.astimezone(zone)
+def _manual_schedule_id(jid: str) -> str | None:
+    key = _slot_key_from_defer_job_id(jid)
+    if key is None or not key.startswith(MANUAL_KEY_PREFIX):
+        return None
+    return key[len(MANUAL_KEY_PREFIX) :]
 
 
-def _defer_misfire_grace_seconds() -> int:
-    return 120
+def _parse_local(iso: str, zone: ZoneInfo) -> datetime:
+    return as_local(datetime.fromisoformat(iso), zone)
+
+
+def _fire_window(
+    zone: ZoneInfo,
+    *,
+    fired_at_iso: str | None,
+    deadline_iso: str | None,
+    default_fired_at: datetime,
+    announcement: Announcement | None,
+) -> tuple[datetime, datetime]:
+    """When this fire started, and when busy retries give up."""
+    fired_at = _parse_local(fired_at_iso, zone) if fired_at_iso else default_fired_at
+    if deadline_iso:
+        return fired_at, _parse_local(deadline_iso, zone)
+    give_up = (
+        announcement.busy_give_up_seconds if announcement else DEFAULT_BUSY_GIVE_UP_SECONDS
+    )
+    return fired_at, fired_at + timedelta(seconds=give_up)
+
+
+def _add_defer_job(
+    func: Callable[..., str],
+    slot_key: str,
+    run_at: datetime,
+    kwargs: dict[str, object],
+) -> bool:
+    sched = get_scheduler()
+    if sched is None:
+        log.error("Cannot defer fire for %s: scheduler not running", slot_key)
+        return False
+    sched.add_job(
+        func,
+        DateTrigger(run_date=as_local(run_at, ZoneInfo(TIMEZONE))),
+        id=_defer_id(slot_key),
+        replace_existing=True,
+        kwargs=kwargs,
+        misfire_grace_time=DEFER_MISFIRE_GRACE_SECONDS,
+    )
+    return True
 
 
 def _set_manual_inflight(schedule_id: str, announcement_name: str) -> None:
@@ -243,7 +294,7 @@ def _set_manual_inflight(schedule_id: str, announcement_name: str) -> None:
         _manual_inflight[schedule_id] = {
             "schedule_id": schedule_id,
             "announcement_name": announcement_name,
-            "started_at": datetime.now(ZoneInfo(TIMEZONE)).isoformat(),
+            "started_at": datetime.now(_station_zone()).isoformat(),
         }
 
 
@@ -262,8 +313,6 @@ def _pending_row_for_manual(
     announcement,
     schedule,
     *,
-    zone: ZoneInfo,
-    now: datetime,
     busy: bool,
     idle: float,
     clear_seconds: float,
@@ -302,7 +351,10 @@ def _pending_row_for_manual(
 
 
 def nudge_manual_defer_jobs_if_clear_ready() -> None:
-    """Run queued manual retries as soon as the clear hold is satisfied (not on retry timer)."""
+    """Run queued manual retries as soon as the clear hold is satisfied (not on retry timer).
+
+    Called from the background COS poll thread, never from HTTP handlers.
+    """
     if DRA_CLEAR_SECONDS <= 0:
         return
     sched = get_scheduler()
@@ -318,15 +370,12 @@ def nudge_manual_defer_jobs_if_clear_ready() -> None:
     zone = ZoneInfo(TIMEZONE)
     now = datetime.now(zone)
     for job in list(sched.get_jobs()):
-        key = _slot_key_from_defer_job_id(job.id or "")
-        if key is None or not key.startswith("manual:"):
+        if _manual_schedule_id(job.id or "") is None:
             continue
         next_run = job.next_run_time
         if next_run is None:
             continue
-        if next_run.tzinfo is None:
-            next_run = next_run.replace(tzinfo=zone)
-        wait_s = (next_run.astimezone(zone) - now).total_seconds()
+        wait_s = (as_local(next_run, zone) - now).total_seconds()
         if wait_s <= 0.2:
             continue
         kwargs = dict(job.kwargs or {})
@@ -334,148 +383,94 @@ def nudge_manual_defer_jobs_if_clear_ready() -> None:
         # Short PTT retries (~1s) should run on their timer, not get yanked to 50ms.
         if defer_kind == "ptt" and wait_s <= 2.0:
             continue
-        # idle >= clear hold: pull long backoffs onto the scheduler now.
         if wait_s > 2.0 and defer_kind not in ("busy", "clear", "ptt"):
             continue
-        if wait_s > 2.0 and defer_kind is None:
-            continue
-        jid = job.id or _defer_id(key)
         sched.add_job(
             run_manual_trigger,
-            DateTrigger(run_date=_normalize_job_run_at(now + timedelta(milliseconds=50))),
-            id=jid,
+            DateTrigger(run_date=now + timedelta(milliseconds=50)),
+            id=job.id,
             replace_existing=True,
             kwargs=kwargs,
-            misfire_grace_time=_defer_misfire_grace_seconds(),
+            misfire_grace_time=DEFER_MISFIRE_GRACE_SECONDS,
         )
         fire_trace(
             "Nudged manual defer job %s (idle=%.1fs, was %.1fs until run)",
-            jid,
+            job.id,
             idle,
             wait_s,
         )
         return
 
 
-def pending_manual_triggers() -> list[dict[str, object]]:
-    """Live status for manual Trigger now retries (busy defer / clear-window wait)."""
-    nudge_manual_defer_jobs_if_clear_ready()
-    sched = get_scheduler()
-    store = get_store()
-    document = store.document()
-    zone = zone_for(document.settings.timezone)
-    now = datetime.now(zone)
+def _radio_status_for_ui() -> tuple[bool, float, float]:
+    """(busy, idle seconds, clear hold seconds) without disturbing COS where possible."""
     radio = get_radio()
     wait_clear = getattr(radio, "wait_for_transmit_clear", None)
-    clear_seconds = float(DRA_CLEAR_SECONDS) if wait_clear is not None and DRA_CLEAR_SECONDS > 0 else 0.0
+    clear_seconds = (
+        float(DRA_CLEAR_SECONDS) if wait_clear is not None and DRA_CLEAR_SECONDS > 0 else 0.0
+    )
     snapshot = getattr(radio, "cos_defer_snapshot", None)
     if snapshot is not None:
         last_busy, idle = snapshot()
-        busy = True if last_busy is None else bool(last_busy)
-    else:
-        idle_fn = getattr(radio, "continuous_idle_seconds", None)
-        busy = bool(radio.channel_busy())
-        idle = float(idle_fn()) if idle_fn is not None else 0.0
+        return (True if last_busy is None else bool(last_busy)), float(idle), clear_seconds
+    idle_fn = getattr(radio, "continuous_idle_seconds", None)
+    busy = bool(radio.channel_busy())
+    idle = float(idle_fn()) if idle_fn is not None else 0.0
+    return busy, idle, clear_seconds
 
-    out: list[dict[str, object]] = []
-    seen: set[str] = set()
+
+def pending_manual_triggers() -> list[dict[str, object]]:
+    """Live status for manual Trigger now retries (busy defer / clear-window wait)."""
+    sched = get_scheduler()
+    deferred: dict[str, object] = {}
     if sched is not None:
         for job in sched.get_jobs():
-            key = _slot_key_from_defer_job_id(job.id or "")
-            if key is None or not key.startswith("manual:"):
-                continue
-            schedule_id = key[len("manual:") :]
-            schedule = store.get_schedule(schedule_id)
-            if schedule is None:
-                continue
-            announcement = (
-                store.get(schedule.announcement_id) if schedule.announcement_id else None
-            )
-            kwargs = job.kwargs or {}
-            deadline_iso = kwargs.get("deadline_iso")
-            give_up_remaining = 0.0
-            if deadline_iso:
-                deadline = datetime.fromisoformat(str(deadline_iso))
-                if deadline.tzinfo is None:
-                    deadline = deadline.replace(tzinfo=zone)
-                give_up_remaining = max(0.0, (deadline - now).total_seconds())
-
-            retry_in: float | None = None
-            next_run = job.next_run_time
-            if next_run is not None:
-                if next_run.tzinfo is None:
-                    next_run = next_run.replace(tzinfo=zone)
-                retry_in = max(0.0, (next_run.astimezone(zone) - now).total_seconds())
-
-            seen.add(schedule_id)
-            out.append(
-                _pending_row_for_manual(
-                    schedule_id,
-                    announcement,
-                    schedule,
-                    zone=zone,
-                    now=now,
-                    busy=busy,
-                    idle=idle,
-                    clear_seconds=clear_seconds,
-                    give_up_remaining=give_up_remaining,
-                    retry_in=retry_in,
-                    in_progress=False,
-                )
-            )
-
+            schedule_id = _manual_schedule_id(job.id or "")
+            if schedule_id is not None:
+                deferred[schedule_id] = job
     with _manual_inflight_lock:
-        inflight = dict(_manual_inflight)
-    for schedule_id, _meta in inflight.items():
-        if schedule_id in seen:
-            schedule = store.get_schedule(schedule_id)
-            if schedule is not None:
-                announcement = (
-                    store.get(schedule.announcement_id)
-                    if schedule.announcement_id
-                    else None
-                )
-                for row in out:
-                    if row.get("schedule_id") != schedule_id:
-                        continue
-                    give_up = float(row.get("give_up_remaining_seconds") or 0)
-                    row.update(
-                        _pending_row_for_manual(
-                            schedule_id,
-                            announcement,
-                            schedule,
-                            zone=zone,
-                            now=now,
-                            busy=busy,
-                            idle=idle,
-                            clear_seconds=clear_seconds,
-                            give_up_remaining=give_up,
-                            retry_in=0.0,
-                            in_progress=True,
-                        )
-                    )
-                    break
-            continue
-        schedule = store.get_schedule(schedule_id)
+        inflight = list(_manual_inflight)
+    schedule_ids = list(deferred) + [item for item in inflight if item not in deferred]
+    if not schedule_ids:
+        return []
+
+    document = get_store().document()
+    zone = zone_for(document.settings.timezone)
+    now = datetime.now(zone)
+    busy, idle, clear_seconds = _radio_status_for_ui()
+    out: list[dict[str, object]] = []
+    for schedule_id in schedule_ids:
+        schedule = document.schedule_by_id(schedule_id)
         if schedule is None:
             continue
-        announcement = (
-            store.get(schedule.announcement_id) if schedule.announcement_id else None
-        )
+        announcement = document.announcement_by_id(schedule.announcement_id)
+        in_progress = schedule_id in inflight
+        job = deferred.get(schedule_id)
         give_up_remaining = 0.0
+        retry_in: float | None = 0.0
+        if job is not None:
+            deadline_iso = (job.kwargs or {}).get("deadline_iso")
+            if deadline_iso:
+                deadline = _parse_local(str(deadline_iso), zone)
+                give_up_remaining = max(0.0, (deadline - now).total_seconds())
+            if not in_progress:
+                next_run = job.next_run_time
+                retry_in = (
+                    max(0.0, (as_local(next_run, zone) - now).total_seconds())
+                    if next_run is not None
+                    else None
+                )
         out.append(
             _pending_row_for_manual(
                 schedule_id,
                 announcement,
                 schedule,
-                zone=zone,
-                now=now,
                 busy=busy,
                 idle=idle,
                 clear_seconds=clear_seconds,
                 give_up_remaining=give_up_remaining,
-                retry_in=0.0,
-                in_progress=True,
+                retry_in=retry_in,
+                in_progress=in_progress,
             )
         )
     return out
@@ -491,23 +486,15 @@ def run_scheduled_fire(
     zone = zone_for(document.settings.timezone)
     slot = slot_from_key(slot_key, zone)
     resolved = resolve_slot(document, slot)
-    now = datetime.now(zone)
-    if fired_at_iso:
-        fired_at = datetime.fromisoformat(fired_at_iso)
-        if fired_at.tzinfo is None:
-            fired_at = fired_at.replace(tzinfo=zone)
-    else:
-        fired_at = resolved.fire_at
-    announcement = resolved.announcement
-    give_up = announcement.busy_give_up_seconds if announcement else 45
-    if deadline_iso:
-        deadline = datetime.fromisoformat(deadline_iso)
-        if deadline.tzinfo is None:
-            deadline = deadline.replace(tzinfo=zone)
-    else:
-        deadline = fired_at + timedelta(seconds=give_up)
+    fired_at, deadline = _fire_window(
+        zone,
+        fired_at_iso=fired_at_iso,
+        deadline_iso=deadline_iso,
+        default_fired_at=resolved.fire_at,
+        announcement=resolved.announcement,
+    )
     ctx = FireContext(
-        announcement_id=announcement.id if announcement else None,
+        announcement_id=resolved.announcement.id if resolved.announcement else None,
         schedule_id=resolved.schedule.id if resolved.schedule else None,
         slot_key=slot.key,
         fired_at=fired_at,
@@ -515,8 +502,7 @@ def run_scheduled_fire(
     )
 
     def load() -> LoadedFire | None:
-        current = store.document()
-        again = resolve_slot(current, slot)
+        again = resolve_slot(store.document(), slot)
         if again.schedule is None:
             return None
         return LoadedFire(
@@ -525,35 +511,26 @@ def run_scheduled_fire(
             silence=again.source == "silence",
         )
 
-    def synthesize(item) -> object:
-        return chunks_for_announcement(item)
-
     def defer(run_at: datetime, fire_ctx: FireContext) -> None:
-        sched = get_scheduler()
-        if sched is None:
-            log.error("Cannot defer fire for slot %s: scheduler not running", slot_key)
-            return
-        sched.add_job(
+        _add_defer_job(
             run_scheduled_fire,
-            DateTrigger(run_date=_normalize_job_run_at(run_at)),
-            id=_defer_id(slot_key),
-            replace_existing=True,
-            kwargs={
+            slot_key,
+            run_at,
+            {
                 "slot_key": fire_ctx.slot_key,
                 "fired_at_iso": fire_ctx.fired_at.isoformat(),
                 "deadline_iso": fire_ctx.deadline.isoformat(),
             },
-            misfire_grace_time=_defer_misfire_grace_seconds(),
         )
 
     deps = FireDeps(
-        now=now,
+        now=datetime.now(zone),
         radio=get_radio(),
         play_fn=play_chunks,
         sleep_fn=time.sleep,
         schedule_defer=defer,
         playback_lock=_playback_lock,
-        synthesize=synthesize,
+        synthesize=chunks_for_announcement,
         mark_last_run=store.set_last_run,
         consume_baseline=store.consume_baseline_slot,
         load=load,
@@ -595,30 +572,24 @@ def run_manual_trigger(
 
 def _run_manual_trigger_body(
     schedule_id: str,
-    schedule,
-    announcement,
+    schedule: Schedule,
+    announcement: Announcement | None,
     *,
     fired_at_iso: str | None,
     deadline_iso: str | None,
 ) -> str:
     store = get_store()
-    document = store.document()
-    zone = zone_for(document.settings.timezone)
+    zone = zone_for(store.document().settings.timezone)
     now = datetime.now(zone)
-    give_up = announcement.busy_give_up_seconds if announcement else 45
-    if fired_at_iso:
-        fired_at = datetime.fromisoformat(fired_at_iso)
-        if fired_at.tzinfo is None:
-            fired_at = fired_at.replace(tzinfo=zone)
-    else:
-        fired_at = now
-    if deadline_iso:
-        deadline = datetime.fromisoformat(deadline_iso)
-        if deadline.tzinfo is None:
-            deadline = deadline.replace(tzinfo=zone)
-    else:
-        deadline = fired_at + timedelta(seconds=give_up)
-    slot_key = f"manual:{schedule_id}"
+    fired_at, deadline = _fire_window(
+        zone,
+        fired_at_iso=fired_at_iso,
+        deadline_iso=deadline_iso,
+        default_fired_at=now,
+        announcement=announcement,
+    )
+    slot_key = f"{MANUAL_KEY_PREFIX}{schedule_id}"
+    jid = _defer_id(slot_key)
     ctx = FireContext(
         announcement_id=announcement.id if announcement else None,
         schedule_id=schedule.id,
@@ -639,33 +610,29 @@ def _run_manual_trigger_body(
         )
 
     def defer(run_at: datetime, fire_ctx: FireContext) -> None:
-        sched = get_scheduler()
-        if sched is None:
-            log.error(
-                "Cannot defer manual trigger for schedule %s: scheduler not running",
-                schedule_id,
-            )
-            return
-        sched.add_job(
+        added = _add_defer_job(
             run_manual_trigger,
-            DateTrigger(run_date=_normalize_job_run_at(run_at)),
-            id=_defer_id(slot_key),
-            replace_existing=True,
-            kwargs={
+            slot_key,
+            run_at,
+            {
                 "schedule_id": schedule_id,
                 "fired_at_iso": fire_ctx.fired_at.isoformat(),
                 "deadline_iso": fire_ctx.deadline.isoformat(),
                 "defer_kind": fire_ctx.defer_kind,
             },
-            misfire_grace_time=_defer_misfire_grace_seconds(),
         )
-        fire_trace(
-            "Manual defer job added schedule=%s job=%s run_at=%s defer_kind=%s",
-            schedule_id,
-            _defer_id(slot_key),
-            run_at.isoformat(),
-            fire_ctx.defer_kind,
-        )
+        if added:
+            fire_trace(
+                "Manual defer job added schedule=%s job=%s run_at=%s defer_kind=%s",
+                schedule_id,
+                jid,
+                run_at.isoformat(),
+                fire_ctx.defer_kind,
+            )
+
+    def defer_job_missing() -> bool:
+        sched = get_scheduler()
+        return sched is None or sched.get_job(jid) is None
 
     # Only the HTTP "trigger now" call should return immediately while waiting for
     # COS clear. Defer retries run on the scheduler thread and block in
@@ -702,73 +669,52 @@ def _run_manual_trigger_body(
     result = handle_fire(ctx, deps)
     if result == "skipped_lock":
         _clear_running()
-        if announcement is not None and now < deadline:
-            delay = defer_retry_delay(
-                get_radio(),
-                announcement,
-                kind="busy",
-                clear_seconds=DRA_CLEAR_SECONDS,
+        if announcement is None or now >= deadline:
+            log.info("Manual trigger dropped; playback lock held and past retry window")
+            return _finish_manual_trigger(
+                schedule_id, announcement, schedule, "dropped", drop_reason="give_up_lock"
             )
-            retry_at = now + timedelta(seconds=delay)
-            defer(retry_at, replace(ctx, defer_kind="busy"))
-            sync_jobs()
-            jid = _defer_id(slot_key)
-            sched = get_scheduler()
-            if sched is None or sched.get_job(jid) is None:
-                log.error("Manual defer job %s missing after skipped_lock retry", jid)
-                sync_jobs()
-                return _finish_manual_trigger(
-                    schedule_id,
-                    announcement,
-                    schedule,
-                    "dropped",
-                    drop_reason="scheduler_error",
-                )
-            fire_trace(
-                "Manual defer after skipped_lock schedule=%s job=%s at=%s",
-                schedule_id,
-                jid,
-                retry_at.isoformat(),
-            )
-            log.info(
-                "Manual trigger deferred; playback busy; retry job %s at %s",
-                jid,
-                retry_at.isoformat(),
-            )
-            return "deferred"
-        log.info("Manual trigger dropped; playback lock held and past retry window")
-        sync_jobs()
-        return _finish_manual_trigger(
-            schedule_id,
+        delay = defer_retry_delay(
+            get_radio(),
             announcement,
-            schedule,
-            "dropped",
-            drop_reason="give_up_lock",
+            kind="busy",
+            clear_seconds=DRA_CLEAR_SECONDS,
         )
+        retry_at = now + timedelta(seconds=delay)
+        defer(retry_at, replace(ctx, defer_kind="busy"))
+        if defer_job_missing():
+            log.error("Manual defer job %s missing after skipped_lock retry", jid)
+            return _finish_manual_trigger(
+                schedule_id, announcement, schedule, "dropped", drop_reason="scheduler_error"
+            )
+        log.info(
+            "Manual trigger deferred; playback busy; retry job %s at %s",
+            jid,
+            retry_at.isoformat(),
+        )
+        return "deferred"
     if result == "deferred":
         _clear_running()
-        sync_jobs()
-        sched = get_scheduler()
-        jid = _defer_id(slot_key)
-        if sched is None or sched.get_job(jid) is None:
-            log.error("Manual defer job %s missing after sync_jobs", jid)
+        if defer_job_missing():
+            log.error("Manual defer job %s missing", jid)
             return _finish_manual_trigger(
-                schedule_id,
-                announcement,
-                schedule,
-                "dropped",
-                drop_reason="scheduler_error",
+                schedule_id, announcement, schedule, "dropped", drop_reason="scheduler_error"
             )
-        fire_trace("Manual defer scheduled schedule=%s job=%s", schedule_id, jid)
         log.info("Manual trigger deferred; retry job %s scheduled", jid)
         return result
-    sync_jobs()
     if result == "dropped":
         log.info("Manual trigger dropped for schedule %s", schedule_id)
     return _finish_manual_trigger(schedule_id, announcement, schedule, result)
 
 
 def sync_jobs() -> None:
+    """Make APScheduler's slot jobs match the store.
+
+    Only *future* fire times get new jobs. A slot whose fire time has passed is
+    kept if its job is still pending (scheduler woke late) but is never re-added
+    once APScheduler has run and removed it — re-adding a past DateTrigger inside
+    the misfire grace makes the slot transmit a second time.
+    """
     scheduler = get_scheduler()
     if scheduler is None:
         return
@@ -776,13 +722,21 @@ def sync_jobs() -> None:
     zone = zone_for(document.settings.timezone)
     now = datetime.now(zone)
     until = now + timedelta(hours=LOOKAHEAD_HOURS)
+    # Overlays fire up to the slot half-window after their slot center.
+    lookback = timedelta(
+        minutes=document.settings.slot_half_window_minutes,
+        seconds=SLOT_MISFIRE_GRACE_SECONDS,
+    )
+    existing = {job.id for job in scheduler.get_jobs() if job.id}
     wanted: set[str] = set()
-    for item in resolve_window(document, now - timedelta(seconds=30), until):
+    for item in resolve_window(document, now - lookback, until):
         if item.source == "none":
             continue
-        if item.fire_at < now - timedelta(seconds=30):
-            continue
         jid = _slot_job_id(item.slot.key)
+        if item.fire_at <= now:
+            if jid in existing:
+                wanted.add(jid)
+            continue
         wanted.add(jid)
         scheduler.add_job(
             run_scheduled_fire,
@@ -790,20 +744,24 @@ def sync_jobs() -> None:
             id=jid,
             replace_existing=True,
             kwargs={"slot_key": item.slot.key},
-            misfire_grace_time=30,
+            misfire_grace_time=SLOT_MISFIRE_GRACE_SECONDS,
         )
     for job in list(scheduler.get_jobs()):
         jid = job.id or ""
         if jid.startswith("slot:") and jid not in wanted:
             scheduler.remove_job(jid)
-        if jid.startswith("defer:"):
-            key = _slot_key_from_defer_job_id(jid)
-            if key is None:
-                continue
-            if key.startswith("manual:"):
-                continue
-            if _slot_job_id(key) not in wanted:
-                scheduler.remove_job(jid)
+            continue
+        key = _slot_key_from_defer_job_id(jid)
+        if key is None or key.startswith(MANUAL_KEY_PREFIX):
+            continue
+        # Busy retries live until their own give-up deadline; drop them only when
+        # the slot no longer has anything to transmit.
+        try:
+            source = resolve_slot(document, slot_from_key(key, zone)).source
+        except ValueError:
+            source = "none"
+        if source in ("none", "silence"):
+            scheduler.remove_job(jid)
 
 
 def get_scheduler() -> BackgroundScheduler | None:

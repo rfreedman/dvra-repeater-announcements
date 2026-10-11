@@ -10,3 +10,5 @@ data/
 .env
 .DS_Store
 .idea/
+# Stray files created by tools that treat ":memory:" as a path
+:memory:*

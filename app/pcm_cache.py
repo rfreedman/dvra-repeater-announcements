@@ -6,6 +6,7 @@ import logging
 import shutil
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from app.audio import PcmChunk
@@ -13,8 +14,18 @@ from app.config import PCM_CACHE_DIR
 from app.models import Announcement
 
 log = logging.getLogger("app.pcm_cache")
-_lock = threading.Lock()
+_locks_guard = threading.Lock()
+_locks: dict[str, threading.Lock] = {}
 _cache: PcmCache | None = None
+
+
+def _lock_for(announcement_id: str) -> threading.Lock:
+    """One lock per announcement so rendering one never blocks a fire of another."""
+    with _locks_guard:
+        lock = _locks.get(announcement_id)
+        if lock is None:
+            lock = _locks[announcement_id] = threading.Lock()
+        return lock
 
 
 def fingerprint(
@@ -141,7 +152,7 @@ def chunks_for_announcement(announcement: Announcement) -> list[PcmChunk]:
     voice_mtime_ns = registry.engine.voice_mtime_ns(voice_id)
     expected = _fingerprint_for(announcement, voice_id, voice_mtime_ns)
     cache = get_pcm_cache()
-    with _lock:
+    with _lock_for(announcement.id):
         hit = cache.read(announcement.id, expected)
         elapsed = time.perf_counter() - started
         if hit is not None:
@@ -169,6 +180,21 @@ def warm_announcement(announcement: Announcement) -> None:
             announcement.name,
             time.perf_counter() - started,
         )
+
+
+def warm_announcement_in_background(
+    announcement: Announcement,
+    warm: Callable[[Announcement], None] = warm_announcement,
+) -> threading.Thread:
+    """Render after an edit without holding the HTTP request (fires render on a miss anyway)."""
+    thread = threading.Thread(
+        target=warm,
+        args=(announcement,),
+        name=f"pcm-warm-{announcement.id}",
+        daemon=True,
+    )
+    thread.start()
+    return thread
 
 
 def warm_all(announcements: list[Announcement] | None = None) -> None:

@@ -128,6 +128,8 @@ After voices preload and the scheduler starts, a successful startup logs a line 
 Startup complete in 12.3s (radio mode: stub)
 ```
 
+If the server restarts after a slot's fire time has passed, that slot is skipped rather than played late. Busy retries (`TTS_BUSY_RETRY_SECONDS` / give-up) only exist while the process is running.
+
 `radio mode` is **`stub`** or **`dra`**, derived from the radio instance registered during startup (`StubRadio` vs `DraRadio`), not from re-reading `.env` at log time. On the NUC you should see **`dra`** when `TTS_RADIO_BACKEND=dra` and HID/audio init succeeded; dev machines without hardware typically show **`stub`**. DRA misconfiguration still fails before this line (process exits with an error on stderr). The same message is written to the console and to `TTS_LOG_DIR`/`announcements.log` (see below).
 
 ### `voices`
@@ -208,7 +210,7 @@ python -m app users delete bob
 | `TTS_DATA_DIR` | `./data` | Saved announcements JSON |
 | `TTS_USERS_PATH` | `$TTS_DATA_DIR/users.json` | Web UI users |
 | `TTS_SESSION_SECRET` | auto (`data/.session_secret`) | Signs login session cookies |
-| `TTS_SESSION_IDLE_SECONDS` | `1800` (30 min) | Log out after this much idle time |
+| `TTS_SESSION_IDLE_SECONDS` | `1800` (30 min) | Log out after this much idle time (the UI's automatic 15 s refreshes do not count as activity) |
 | `TTS_PCM_CACHE_DIR` | `./data/pcm` | Pre-rendered announcement PCM (written on save and at startup; scheduled fires play this) |
 | `TTS_LOG_DIR` | `./data/logs` | Daily `announcements.log` files (30 days; uvicorn access lines are not written here) |
 | `TTS_PTT_LEAD_SECONDS` | `0.4` | Delay after PTT before audio (on **dra**, silence is streamed on USB; on **stub**, host sleep) |
@@ -221,8 +223,8 @@ python -m app users delete bob
 | `TTS_DRA_CLEAR_POLL_SECONDS` | `0.25` | COS poll interval during clear wait and background idle tracking |
 | `TTS_DRA_COS_TRACK` | `true` | Background COS polls while the scheduler runs (idle before Trigger now counts toward clear) |
 | `TTS_DRA_HID_PATH` | *(auto)* | Hex HID path to pin one DRA (Mac dev when several CM119 interfaces exist) |
-| `TTS_BUSY_RETRY_SECONDS` | `5` | Default retry while the channel is busy |
-| `TTS_BUSY_GIVE_UP_SECONDS` | `45` | Default drop this fire if still busy |
+| `TTS_BUSY_RETRY_SECONDS` | `5` | Retry interval while the channel is busy; also the value pre-filled for a **new announcement** in the UI |
+| `TTS_BUSY_GIVE_UP_SECONDS` | `45` | Drop this fire if still busy after this long; also pre-filled for a new announcement |
 | `TTS_SCHEDULER_MAX_WAIT_SECONDS` | `5` | How long the scheduler may sleep before checking the clock again |
 | `TTS_SLOT_HALF_WINDOW_MINUTES` | `10` | How far an overlay may shift from its slot center |
 | `TTS_TRIGGER_NOW` | `false` | Dev only: show **Trigger now** on schedule rows (does not change Last or the next slot) |
@@ -280,7 +282,9 @@ Streams 16-bit little-endian mono PCM. Format headers:
 - `X-Sample-Rate` (usually 22050)
 - `X-Sample-Width` (`2`), `X-Channels` (`1`)
 
-`GET /api/voices` lists voices. `POST /api/prepare` downloads/loads a model without speaking. Most `/api/*` routes require a login session cookie. User management is under `/api/users` (Admin only). Auth helpers: `/api/auth/status`, `/api/auth/setup`, `/api/auth/login`, `/api/auth/logout`, `/api/auth/me`.
+Audio is produced one Piper sentence at a time and sent as it is ready.
+
+`GET /api/voices` lists voices and the server defaults for new announcements (speed, sentence pause, busy retry / give-up). `POST /api/prepare` downloads/loads a model without speaking. Most `/api/*` routes require a login session cookie. Five failed sign-ins for the same username from the same address within 5 minutes return `429` until the window passes. Requests carrying `X-Background-Poll: 1` are authenticated but do not reset the idle timer. User management is under `/api/users` (Admin only). Auth helpers: `/api/auth/status`, `/api/auth/setup`, `/api/auth/login`, `/api/auth/logout`, `/api/auth/me`.
 
 `GET /api/system/stats` returns `{"celsius", "thermal_state", "cpu_percent", "memory_percent"}` (authenticated). CPU% uses `psutil.cpu_percent(interval=None)` (average since the previous poll, ~15s with the UI poller); memory uses psutil. Temperature is °C from Linux thermal sysfs, or macOS `ProcessInfo.thermalState` (`nominal` / `fair` / `serious` / `critical`) when Celsius is unavailable.
 
@@ -289,3 +293,13 @@ Streams 16-bit little-endian mono PCM. Format headers:
 ```bash
 pytest
 ```
+
+Tests set `TTS_SKIP_DOTENV=1` (in `tests/conftest.py`) so your local `.env` cannot change their results.
+
+## Data files
+
+`data/announcements.json` (version 2) and `data/users.json` (version 1) are read on every request. If either file exists but is not the expected version, the app refuses to start (and API calls fail) instead of treating it as empty — an empty read followed by any save would overwrite your data. Move the file aside or restore a backup. An empty file or `{}` is treated as a fresh install.
+
+## Review history
+
+Issues found in code review, what was changed, and the regression tests that guard them are recorded in [docs/code-review-findings.md](docs/code-review-findings.md).

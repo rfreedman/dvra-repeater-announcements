@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
+import pytest
+
 from app.audio import PcmChunk
 from app.models import Announcement, Schedule
 from app.radio import StubRadio, set_radio
+from app.store import DataFileError
 
 
 def _seed_baseline(store, name="Station ID"):
@@ -15,13 +18,19 @@ def _seed_baseline(store, name="Station ID"):
     return announcement, schedule
 
 
-def test_old_nested_json_is_ignored(store):
-    store.path.write_text(
-        '{"announcements": [{"id": "old", "name": "Legacy", "text": "gone", "schedules": []}]}\n',
-        encoding="utf-8",
-    )
+def test_unversioned_json_is_refused_not_overwritten(store):
+    legacy = '{"announcements": [{"id": "old", "name": "Legacy", "text": "gone", "schedules": []}]}\n'
+    store.path.write_text(legacy, encoding="utf-8")
+    with pytest.raises(DataFileError):
+        store.list_announcements()
+    with pytest.raises(DataFileError):
+        store.save_announcement(Announcement(name="New", text="Hello"))
+    assert store.path.read_text(encoding="utf-8") == legacy
+
+
+def test_empty_json_file_is_an_empty_store(store):
+    store.path.write_text("{}\n", encoding="utf-8")
     assert store.list_announcements() == []
-    assert store.list_schedules() == []
 
 
 def test_empty_store_lists_nothing(client, store):
@@ -190,7 +199,7 @@ def test_speak_does_not_key_ptt(client, store, monkeypatch):
 
         return "en_US-ryan-medium", 22050, chunks()
 
-    monkeypatch.setattr("app.server.registry.synthesize", fake_synthesize)
+    monkeypatch.setattr("app.server.registry.stream_synthesize", fake_synthesize)
     res = client.post("/api/speak", json={"text": "hello from preview"})
     assert res.status_code == 200
     assert res.content == b"\x00\x00"

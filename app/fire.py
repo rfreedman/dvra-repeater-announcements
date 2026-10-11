@@ -5,6 +5,7 @@ import threading
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
+from functools import partial
 
 from app.audio import PcmChunk, materialize_chunks
 from app.config import DRA_CLEAR_POLL_SECONDS, DRA_CLEAR_SECONDS, PTT_LEAD_SECONDS
@@ -53,6 +54,22 @@ class FireDeps:
     nonblocking_clear_wait: bool = False
 
 
+class _RunningOnKeyRadio:
+    """Mark UI running only after PTT keys (DRA uses play_transmit_audio, not play_fn)."""
+
+    def __init__(self, inner: Radio, on_key: Callable[[], None] | None) -> None:
+        self._inner = inner
+        self._on_key = on_key
+
+    def __getattr__(self, name: str):
+        return getattr(self._inner, name)
+
+    def set_ptt(self, keyed: bool) -> None:
+        self._inner.set_ptt(keyed)
+        if keyed and self._on_key is not None:
+            self._on_key()
+
+
 def clear_hold_met(radio: Radio, *, clear_seconds: float) -> bool:
     if clear_seconds <= 0:
         return True
@@ -68,11 +85,11 @@ def defer_retry_delay(
     clear_seconds: float,
     nonblocking_clear: bool = False,
 ) -> float:
-    """Seconds until the next defer attempt (shorter when clear hold already met)."""
+    """Seconds until the next defer attempt (shorter when an enabled clear hold is already met)."""
     if kind == "clear" and nonblocking_clear:
         return min(0.5, float(announcement.busy_retry_seconds))
     base = float(announcement.busy_retry_seconds)
-    if clear_hold_met(radio, clear_seconds=clear_seconds):
+    if clear_seconds > 0 and clear_hold_met(radio, clear_seconds=clear_seconds):
         return min(base, 1.0)
     return base
 
@@ -286,24 +303,11 @@ def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
         if outcome:
             return outcome
 
-        class RunningOnKeyRadio:
-            """Mark UI running only after PTT keys (DRA uses play_transmit_audio, not play_fn)."""
-
-            def __init__(self, inner: Radio) -> None:
-                self._inner = inner
-
-            def __getattr__(self, name: str):
-                return getattr(self._inner, name)
-
-            def set_ptt(self, keyed: bool) -> None:
-                self._inner.set_ptt(keyed)
-                if keyed and deps.set_running:
-                    deps.set_running(announcement, schedule.id)
-
+        on_key = partial(deps.set_running, announcement, schedule.id) if deps.set_running else None
         try:
             transmit(
                 chunks,
-                radio=RunningOnKeyRadio(deps.radio),
+                radio=_RunningOnKeyRadio(deps.radio, on_key),
                 play_fn=deps.play_fn,
                 sleep_fn=deps.sleep_fn,
                 lead_seconds=deps.ptt_lead_seconds,
@@ -358,5 +362,4 @@ def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
     finally:
         if deps.clear_running:
             deps.clear_running()
-        if deps.playback_lock.locked():
-            deps.playback_lock.release()
+        deps.playback_lock.release()

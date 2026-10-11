@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import time
 from typing import Annotated
 
@@ -12,6 +13,50 @@ from app.users import Role, User, get_user_store
 SESSION_USER_KEY = "user_id"
 SESSION_LAST_ACTIVE_KEY = "last_active"
 MIN_PASSWORD_LEN = 8
+# The UI sends this on timer-driven refreshes; they must not count as activity,
+# or an open tab would never reach the idle timeout.
+BACKGROUND_POLL_HEADER = "X-Background-Poll"
+
+
+class LoginRateLimiter:
+    """Lock out a client+username after repeated failed sign-ins (in memory)."""
+
+    def __init__(self, *, max_failures: int = 5, window_seconds: float = 300.0) -> None:
+        self.max_failures = max_failures
+        self.window_seconds = window_seconds
+        self._failures: dict[str, list[float]] = {}
+        self._lock = threading.Lock()
+
+    def _recent(self, key: str, now: float) -> list[float]:
+        recent = [t for t in self._failures.get(key, []) if now - t < self.window_seconds]
+        if recent:
+            self._failures[key] = recent
+        else:
+            self._failures.pop(key, None)
+        return recent
+
+    def retry_after(self, key: str) -> float:
+        now = time.time()
+        with self._lock:
+            recent = self._recent(key, now)
+            if len(recent) < self.max_failures:
+                return 0.0
+            return max(0.0, self.window_seconds - (now - recent[0]))
+
+    def record_failure(self, key: str) -> None:
+        now = time.time()
+        with self._lock:
+            self._failures[key] = [*self._recent(key, now), now]
+
+    def reset(self, key: str | None = None) -> None:
+        with self._lock:
+            if key is None:
+                self._failures.clear()
+            else:
+                self._failures.pop(key, None)
+
+
+login_limiter = LoginRateLimiter()
 
 
 def hash_password(password: str) -> str:
@@ -66,7 +111,8 @@ def current_user_optional(request: Request) -> User | None:
     if user is None:
         clear_session(request)
         return None
-    touch_session(request)
+    if request.headers.get(BACKGROUND_POLL_HEADER) != "1":
+        touch_session(request)
     return user
 
 

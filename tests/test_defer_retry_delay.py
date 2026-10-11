@@ -22,6 +22,11 @@ def test_short_retry_when_clear_hold_met():
     assert delay == 1.0
 
 
+def test_full_retry_when_clear_hold_disabled():
+    ann = _announcement().model_copy(update={"busy_retry_seconds": 30.0})
+    assert defer_retry_delay(IdleRadio(0.0), ann, kind="busy", clear_seconds=0) == 30.0
+
+
 def test_full_retry_when_still_waiting_for_clear():
     ann = _announcement()
     ann = ann.model_copy(update={"busy_retry_seconds": 30.0})

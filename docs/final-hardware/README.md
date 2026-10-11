@@ -117,7 +117,7 @@ The 36M has **no JU2** (CTCSS input was omitted). All other jumper numbers match
 
 **TX level:** With **JU3 = L**, adjust **R16** (left-channel pot) on each DRA until DATA-IN deviation is clean for Piper speech. **R14** is for the right channel only (unused with this jumper choice).
 
-**Software:** Bench TX commands use **`-c left`** (or omit `-c` — [`dra36m_check.py`](../../scripts/dra36m_check.py) defaults to left). Future dual-DRA playback must upmix or route mono Piper onto the **left** channel of **both** USB devices.
+**Software:** Bench TX commands use **`-c left`** (or omit `-c` — [`dra36m_check.py`](../../scripts/dra36m_check.py) defaults to left). The app routes mono Piper onto the **left** channel of **both** USB devices and feeds the two streams in alternating 50 ms blocks so both radios play at the same time ([`app/dra_playback.py`](../../app/dra_playback.py)). The bench script imports its HID/audio helpers from `app/cm119.py` and `app/dra_playback.py`, so run it from the repo with the project virtualenv.
 
 R12 is receive level and is irrelevant until something reads RX audio.
 

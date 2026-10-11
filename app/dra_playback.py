@@ -104,12 +104,29 @@ def resample_pcm_int16_mono(pcm_int16: bytes, *, from_rate: int, to_rate: int) -
     return resampled.tobytes()
 
 
+# PortAudio ``write`` blocks until the data is buffered, so with two radios each
+# stream gets a short block in turn; writing a whole announcement to one stream
+# would make the second radio wait (keyed, silent) until the first finished.
+WRITE_BLOCK_SECONDS = 0.05
+
+
 def _write_mono_to_stream(stream, mono_f32: np.ndarray, *, channel: str) -> None:
     out = mono_to_channel(mono_f32, channel)
     if out.ndim == 1:
         stream.write(out.reshape(-1, 1))
     else:
         stream.write(out)
+
+
+def mono_program_f32(chunks: Iterable[PcmChunk], *, samplerate: int, lead_silence: float) -> np.ndarray:
+    """Lead silence + every chunk, resampled to ``samplerate``, as float32 mono."""
+    parts = [np.zeros(int(max(0.0, lead_silence) * samplerate), dtype=np.int16)]
+    for chunk in chunks:
+        if not chunk.pcm_int16:
+            continue
+        pcm = resample_pcm_int16_mono(chunk.pcm_int16, from_rate=chunk.sample_rate, to_rate=samplerate)
+        parts.append(np.frombuffer(pcm, dtype=np.int16))
+    return np.concatenate(parts).astype(np.float32) / 32768.0
 
 
 class DraUsbPlayback:
@@ -142,24 +159,59 @@ class DraUsbPlayback:
             self._stream.close()
             self._stream = None
 
-    def write_silence(self, seconds: float) -> None:
-        if seconds <= 0 or self._stream is None:
+    def write_mono_f32(self, mono: np.ndarray) -> None:
+        if self._stream is None or mono.size == 0:
             return
-        frames = int(seconds * self.samplerate)
-        if frames <= 0:
-            return
-        zeros = np.zeros(frames, dtype=np.float32)
-        _write_mono_to_stream(self._stream, zeros, channel=self.channel)
-
-    def write_pcm_int16_mono(self, pcm_int16: bytes, *, sample_rate: int) -> None:
-        if self._stream is None or not pcm_int16:
-            return
-        if sample_rate != self.samplerate:
-            pcm_int16 = resample_pcm_int16_mono(
-                pcm_int16, from_rate=sample_rate, to_rate=self.samplerate
-            )
-        mono = np.frombuffer(pcm_int16, dtype=np.int16).astype(np.float32) / 32768.0
         _write_mono_to_stream(self._stream, mono, channel=self.channel)
+
+
+def write_programs_interleaved(
+    streams: list[DraUsbPlayback],
+    programs: list[np.ndarray],
+    *,
+    block_seconds: float = WRITE_BLOCK_SECONDS,
+) -> None:
+    """Feed each stream its program in lock-step blocks so all radios play together."""
+    if not streams:
+        return
+    duration = max(len(program) / stream.samplerate for stream, program in zip(streams, programs))
+    blocks = int(np.ceil(duration / block_seconds))
+    for block in range(blocks):
+        start_s = block * block_seconds
+        end_s = start_s + block_seconds
+        for stream, program in zip(streams, programs):
+            start = int(round(start_s * stream.samplerate))
+            end = int(round(end_s * stream.samplerate))
+            if start < len(program):
+                stream.write_mono_f32(program[start:end])
+
+
+def play_pcm_chunks_to_dra_devices(
+    chunks: Iterable[PcmChunk],
+    *,
+    device_indices: list[int],
+    channel: str = "left",
+    lead_silence: float = 0.0,
+) -> None:
+    """Play the same announcement on one or two DRA USB outputs at the same time."""
+    buffered = [chunk for chunk in materialize_chunks(chunks) if chunk.pcm_int16]
+    if not buffered:
+        return
+
+    streams: list[DraUsbPlayback] = []
+    try:
+        for index in device_indices:
+            playback = DraUsbPlayback(index, channel, dra_device_samplerate(index))
+            playback.__enter__()
+            streams.append(playback)
+        programs = [
+            mono_program_f32(buffered, samplerate=stream.samplerate, lead_silence=lead_silence)
+            for stream in streams
+        ]
+        write_programs_interleaved(streams, programs)
+    finally:
+        for playback in streams:
+            playback.__exit__()
 
 
 def play_pcm_chunks_to_single_dra(
@@ -170,43 +222,9 @@ def play_pcm_chunks_to_single_dra(
     lead_silence: float = 0.0,
 ) -> None:
     """Play Piper chunks on one DRA USB output at the device's native sample rate."""
-    buffered = [chunk for chunk in materialize_chunks(chunks) if chunk.pcm_int16]
-    if not buffered:
-        return
-    stream_rate = dra_device_samplerate(device_index)
-    with DraUsbPlayback(device_index, channel, stream_rate) as playback:
-        playback.write_silence(lead_silence)
-        for chunk in buffered:
-            playback.write_pcm_int16_mono(chunk.pcm_int16, sample_rate=chunk.sample_rate)
-
-
-def play_pcm_chunks_to_dra_devices(
-    chunks: Iterable[PcmChunk],
-    *,
-    device_indices: list[int],
-    channel: str = "left",
-    lead_silence: float = 0.0,
-) -> None:
-    """Play the same announcement on one or two DRA USB outputs (production dual-TX)."""
-    buffered = [chunk for chunk in materialize_chunks(chunks) if chunk.pcm_int16]
-    if not buffered:
-        return
-
-    streams: list[DraUsbPlayback] = []
-    try:
-        for index in device_indices:
-            stream_rate = dra_device_samplerate(index)
-            playback = DraUsbPlayback(index, channel, stream_rate)
-            playback.__enter__()
-            streams.append(playback)
-        for playback in streams:
-            playback.write_silence(lead_silence)
-        for chunk in buffered:
-            for playback in streams:
-                playback.write_pcm_int16_mono(
-                    chunk.pcm_int16,
-                    sample_rate=chunk.sample_rate,
-                )
-    finally:
-        for playback in streams:
-            playback.__exit__()
+    play_pcm_chunks_to_dra_devices(
+        chunks,
+        device_indices=[device_index],
+        channel=channel,
+        lead_silence=lead_silence,
+    )

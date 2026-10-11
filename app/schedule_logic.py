@@ -93,12 +93,12 @@ def _countdown_occupies(
     start_day: date,
     event_day: date,
     event_stamp: str,
-    timezone_name: str,
     allowed_stamps: list[str],
 ) -> bool:
     if slot.day < start_day:
         return False
-    event = slot_from_parts(event_day, event_stamp, zone_for(timezone_name))
+    # Slots are always in the station zone (document settings), never Schedule.timezone.
+    event = slot_from_parts(event_day, event_stamp, slot.center.tzinfo)
     if event is None or slot.center >= event.center:
         return False
     if allowed_stamps and slot.stamp not in allowed_stamps:
@@ -114,7 +114,6 @@ def _range_matches(schedule: Schedule, slot: Slot) -> bool:
         schedule.start_date,
         schedule.event_date,
         schedule.event_slot,
-        schedule.timezone,
         schedule.slots,
     )
 
@@ -144,7 +143,6 @@ def _monthly_range_matches(schedule: Schedule, slot: Slot) -> bool:
                     start_day,
                     event_day,
                     schedule.event_slot,
-                    schedule.timezone,
                     schedule.slots,
                 ):
                     return True
@@ -514,7 +512,7 @@ def schedule_warning(
         return "Won't play — the announcement is missing."
     elif not (document.announcement_by_id(schedule.announcement_id).text or "").strip():
         return "Won't play — announcement text is empty."
-    zone = zone_for(schedule.timezone)
+    zone = zone_for(document.settings.timezone)
     when = now or datetime.now(zone)
     if schedule.kind == "once" and schedule.on_date and schedule.on_date < when.date():
         return "Won't play — the date has already passed."

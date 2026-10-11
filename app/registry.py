@@ -1,9 +1,14 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 
 from app.audio import PcmChunk, materialize_chunks
-from app.config import DEFAULT_SENTENCE_PAUSE, DEFAULT_SPEED
+from app.config import (
+    DEFAULT_BUSY_GIVE_UP_SECONDS,
+    DEFAULT_BUSY_RETRY_SECONDS,
+    DEFAULT_SENTENCE_PAUSE,
+    DEFAULT_SPEED,
+)
 from app.engines.base import VoiceInfo
 from app.engines.piper import PiperEngine
 
@@ -18,6 +23,24 @@ class EngineRegistry:
     def preload(self) -> list[str]:
         return self.engine.preload()
 
+    def stream_synthesize(
+        self,
+        text: str,
+        voice: str | None = None,
+        speed: float = DEFAULT_SPEED,
+        sentence_pause: float = DEFAULT_SENTENCE_PAUSE,
+    ) -> tuple[str, int, Iterator[PcmChunk]]:
+        """Resolve/load the voice now; PCM is produced lazily, one sentence at a time."""
+        voice_id = self.engine.prepare(voice)
+        rate = self.engine.sample_rate(voice_id)
+        chunks = self.engine.synthesize(
+            text,
+            voice=voice_id,
+            speed=speed,
+            sentence_pause=sentence_pause,
+        )
+        return voice_id, rate, chunks
+
     def synthesize(
         self,
         text: str,
@@ -25,17 +48,10 @@ class EngineRegistry:
         speed: float = DEFAULT_SPEED,
         sentence_pause: float = DEFAULT_SENTENCE_PAUSE,
     ) -> tuple[str, int, Sequence[PcmChunk]]:
-        voice_id = self.engine.prepare(voice)
-        rate = self.engine.sample_rate(voice_id)
-        chunks = materialize_chunks(
-            self.engine.synthesize(
-                text,
-                voice=voice_id,
-                speed=speed,
-                sentence_pause=sentence_pause,
-            )
+        voice_id, rate, chunks = self.stream_synthesize(
+            text, voice=voice, speed=speed, sentence_pause=sentence_pause
         )
-        return voice_id, rate, chunks
+        return voice_id, rate, materialize_chunks(chunks)
 
     def voices_payload(self) -> dict[str, object]:
         return {
@@ -43,6 +59,8 @@ class EngineRegistry:
             "ready": self.engine.is_ready(),
             "speed": DEFAULT_SPEED,
             "sentence_pause": DEFAULT_SENTENCE_PAUSE,
+            "busy_retry_seconds": DEFAULT_BUSY_RETRY_SECONDS,
+            "busy_give_up_seconds": DEFAULT_BUSY_GIVE_UP_SECONDS,
             "voices": [voice.to_dict() for voice in self.engine.list_voices()],
         }
 
