@@ -982,7 +982,8 @@ function renderSchedules(rows) {
       del.addEventListener("click", async (event) => {
         event.stopPropagation();
         if (announcementIsPlaying()) return;
-        if (!window.confirm("Are you sure that you want to delete this schedule?")) return;
+        const label = row.name ? `the schedule "${row.name}"` : "this schedule";
+        if (!window.confirm(`Are you sure that you want to delete ${label}?`)) return;
         const res = await fetch(`/api/schedules/${row.schedule_id}`, { method: "DELETE" });
         if (res.ok) refreshHome();
       });
@@ -1082,7 +1083,8 @@ function renderLibrary(items) {
         );
         return;
       }
-      if (!window.confirm("Are you sure?")) return;
+      const label = item.name ? `the announcement "${item.name}"` : "this announcement";
+      if (!window.confirm(`Are you sure that you want to delete ${label}?`)) return;
       const res = await fetch(`/api/announcements/${item.id}`, { method: "DELETE" });
       if (!res.ok) {
         let detail = res.statusText;
