@@ -20,12 +20,8 @@ def _message_for_os_error(exc: OSError) -> str:
 
 def init_radio_at_startup() -> None:
     """Eager DRA/stub radio init so misconfiguration fails before serving traffic."""
-    from app.config import radio_backend
     from app.radio import create_radio_from_config, set_radio
 
-    backend = radio_backend()
-    if backend in ("", "stub"):
-        return
     try:
         radio = create_radio_from_config()
         set_radio(radio)

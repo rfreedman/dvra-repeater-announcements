@@ -118,3 +118,17 @@ def get_radio() -> Radio:
 def set_radio(radio: Radio | None) -> None:
     global _radio
     _radio = radio
+
+
+def radio_mode_label(radio: Radio) -> str:
+    if isinstance(radio, StubRadio):
+        return "stub"
+    from app.dra_radio import DraRadio
+
+    if isinstance(radio, DraRadio):
+        return "dra"
+    return type(radio).__name__.lower()
+
+
+def active_radio_mode_label() -> str:
+    return radio_mode_label(get_radio())

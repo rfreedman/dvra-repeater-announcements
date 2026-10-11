@@ -151,6 +151,8 @@ SQL polarity: radio pin 6 is **high when the squelch is open**. CM119A COS for A
 
 **Application:** Set `TTS_RADIO_BACKEND=dra` on the NUC (keep `stub` on dev Macs without hardware). The app uses [`DraRadio`](../../app/dra_radio.py): defer/drop on busy, **re-check after synthesize**, optional **`TTS_DRA_CLEAR_SECONDS`** (continuous idle before PTT, same idea as `voice-gate`). While the scheduler runs, **background COS polling** (`TTS_DRA_COS_TRACK`, default on) accrues idle time so Trigger now or a slot fire can **key immediately** if the channel was already quiet long enough. Final busy check at keying; **both** PTT lines together; **left** USB channel; PTT lead as USB silence. Single-DRA Mac dev may set **`TTS_DRA_HID_PATH`** (hex from `probe`); dual-NUC pairing by USB path order is still operational—use **`TTS_DRA_AUDIO_DEVICES`** and fixed USB ports until per-radio HID mapping exists.
 
+When startup succeeds, the server logs **`Startup complete in …s (radio mode: dra)`** or **`… stub`**, reflecting the registered radio implementation. Use that line (stderr or `data/logs/announcements.log`) to confirm the NUC is on **dra** before relying on on-air PTT/COS.
+
 Bench verification before enabling **dra**: [`dra36m-check-tests.md`](dra36m-check-tests.md) and [`scripts/dra36m_check.py`](../../scripts/dra36m_check.py).
 
 ---

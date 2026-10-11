@@ -61,6 +61,7 @@ from app.scheduler import (
     stop_scheduler,
     sync_jobs,
 )
+from app.radio import active_radio_mode_label
 from app.startup import StartupError, fail_startup, init_radio_at_startup
 from app.store import get_store
 from app.system_status import read_system_stats
@@ -91,7 +92,11 @@ async def lifespan(_app: FastAPI):
         fail_startup(str(exc))
     except Exception as exc:
         fail_startup(str(exc) or exc.__class__.__name__)
-    log.info("Startup complete in %.1fs", time.perf_counter() - started)
+    log.info(
+        "Startup complete in %.1fs (radio mode: %s)",
+        time.perf_counter() - started,
+        active_radio_mode_label(),
+    )
     yield
     stop_scheduler()
 

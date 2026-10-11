@@ -69,4 +69,5 @@ Example from one shack NUC: `312d343a312e33` (USB path `1-4:1.3`). With two DRAs
 ## App on the NUC
 
 - Set **`TTS_RADIO_BACKEND=dra`** in `.env` for on-air scheduled playback (keep **`stub`** on dev Macs without hardware).
+- After a clean start, check the log for **`Startup complete … (radio mode: dra)`** (console or `data/logs/announcements.log`). If you still see **`stub`**, the process registered the in-memory backend—fix `.env` and restart. If startup exits before that line, DRA init failed (HID, udev, or audio device).
 - Record rig-specific values in [`final-hardware/bench-record.md`](final-hardware/bench-record.md).

@@ -122,6 +122,14 @@ python -m app serve
 
 Open [http://127.0.0.1:8000](http://127.0.0.1:8000) (or your host/port). Scheduled announcements play on the **server’s** audio output, not the browser.
 
+After voices preload and the scheduler starts, a successful startup logs a line like:
+
+```text
+Startup complete in 12.3s (radio mode: stub)
+```
+
+`radio mode` is **`stub`** or **`dra`**, derived from the radio instance registered during startup (`StubRadio` vs `DraRadio`), not from re-reading `.env` at log time. On the NUC you should see **`dra`** when `TTS_RADIO_BACKEND=dra` and HID/audio init succeeded; dev machines without hardware typically show **`stub`**. DRA misconfiguration still fails before this line (process exits with an error on stderr). The same message is written to the console and to `TTS_LOG_DIR`/`announcements.log` (see below).
+
 ### `voices`
 
 List Piper voices known to the app (featured catalog plus models on disk), with id, alias, name, locale, quality, and whether the model is already downloaded.
@@ -204,7 +212,7 @@ python -m app users delete bob
 | `TTS_PCM_CACHE_DIR` | `./data/pcm` | Pre-rendered announcement PCM (written on save and at startup; scheduled fires play this) |
 | `TTS_LOG_DIR` | `./data/logs` | Daily `announcements.log` files (30 days; uvicorn access lines are not written here) |
 | `TTS_PTT_LEAD_SECONDS` | `0.4` | Delay after PTT before audio (on **dra**, silence is streamed on USB; on **stub**, host sleep) |
-| `TTS_RADIO_BACKEND` | `stub` | `stub` = in-memory PTT/COS; `dra` = CM119A HID + DRA USB audio (requires `hidapi`) |
+| `TTS_RADIO_BACKEND` | `stub` | `stub` = in-memory PTT/COS; `dra` = CM119A HID + DRA USB audio (requires `hidapi`). Confirm the active mode in the startup log: `(radio mode: stub)` or `(radio mode: dra)` |
 | `TTS_DRA_USB_CHANNEL` | `left` | USB channel for DATA IN (**JU3=L** → `left`) |
 | `TTS_DRA_COS_LINE` | `vol_dn` | HID COS decode (`vol_dn` or `allstar3`) |
 | `TTS_DRA_COS_ACTIVE_HIGH` | `false` | Set `true` if idle/busy labels swap on `monitor` |
