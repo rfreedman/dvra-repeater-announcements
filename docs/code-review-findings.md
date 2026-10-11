@@ -68,6 +68,12 @@ APScheduler with a shifted/frozen clock before fixing; the new tests in
 - **Fix:** `static/app.js` `tickUpcoming()` also polls while `triggerNowBusy` (a trigger request is in flight).
 - **Test:** `tests/test_manual_trigger_status.py` checks the server reports `upcoming.status == "running"` while a manual transmit is in progress. The frontend polling itself has no automated test.
 
+### 10. "Trigger in progress" instead of the clear-hold countdown (found on the NUC)
+- **Symptom:** pressing Trigger now right after the channel went idle (but before the 10 s clear hold) showed "Trigger in progress / Waiting for clear channel or transmitting" with no countdown. On-air behavior was correct. Pressing it while the channel was busy showed the countdown as expected.
+- **Cause:** the HTTP trigger defers the clear wait to a scheduler retry about 0.5 s later. That retry is "in flight" while it blocks for the rest of the hold. `_pending_row_for_manual` checked in-flight *before* busy and clear hold, so the whole wait was labeled `in_progress`. (The UI's `in_progress` countdown could never appear: `interpolatedClearRemaining` only works for `clear_window`.) In the busy case the retry usually runs only once the hold is already met, so the bug didn't show.
+- **Fix:** `app/scheduler.py`: radio state (busy, then clear hold) now takes priority over in-flight; `in_progress` is used only when no clear hold is configured. In-flight runs also record their give-up deadline (`_set_manual_inflight_deadline`), so "Give up in" stays correct after the retry job has been consumed.
+- **Test:** `tests/test_manual_trigger_status.py` (phase ordering and in-flight give-up time).
+
 ---
 
 ## Tech debt addressed

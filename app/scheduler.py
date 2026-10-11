@@ -298,6 +298,13 @@ def _set_manual_inflight(schedule_id: str, announcement_name: str) -> None:
         }
 
 
+def _set_manual_inflight_deadline(schedule_id: str, deadline: datetime) -> None:
+    with _manual_inflight_lock:
+        entry = _manual_inflight.get(schedule_id)
+        if entry is not None:
+            entry["deadline_iso"] = deadline.isoformat()
+
+
 def _clear_manual_inflight(schedule_id: str) -> None:
     with _manual_inflight_lock:
         _manual_inflight.pop(schedule_id, None)
@@ -320,20 +327,20 @@ def _pending_row_for_manual(
     retry_in: float | None,
     in_progress: bool,
 ) -> dict[str, object]:
+    # Radio state wins over in_progress: an in-flight retry spends most of its time
+    # blocked in the clear-hold wait, and the UI should show that countdown.
     if clear_seconds > 0 and idle >= clear_seconds:
         phase = "clear_window"
         clear_remaining = 0.0
-    elif in_progress:
-        phase = "in_progress"
-        clear_remaining = (
-            max(0.0, clear_seconds - idle) if clear_seconds > 0 else None
-        )
     elif busy:
         phase = "channel_busy"
         clear_remaining = None
     elif clear_seconds > 0:
         phase = "clear_window"
         clear_remaining = max(0.0, clear_seconds - idle)
+    elif in_progress:
+        phase = "in_progress"
+        clear_remaining = None
     else:
         phase = "retry_pending"
         clear_remaining = None
@@ -429,7 +436,10 @@ def pending_manual_triggers() -> list[dict[str, object]]:
             if schedule_id is not None:
                 deferred[schedule_id] = job
     with _manual_inflight_lock:
-        inflight = list(_manual_inflight)
+        inflight_deadlines = {
+            key: entry.get("deadline_iso") for key, entry in _manual_inflight.items()
+        }
+    inflight = list(inflight_deadlines)
     schedule_ids = list(deferred) + [item for item in inflight if item not in deferred]
     if not schedule_ids:
         return []
@@ -448,18 +458,19 @@ def pending_manual_triggers() -> list[dict[str, object]]:
         job = deferred.get(schedule_id)
         give_up_remaining = 0.0
         retry_in: float | None = 0.0
+        deadline_iso = inflight_deadlines.get(schedule_id)
         if job is not None:
-            deadline_iso = (job.kwargs or {}).get("deadline_iso")
-            if deadline_iso:
-                deadline = _parse_local(str(deadline_iso), zone)
-                give_up_remaining = max(0.0, (deadline - now).total_seconds())
-            if not in_progress:
-                next_run = job.next_run_time
-                retry_in = (
-                    max(0.0, (as_local(next_run, zone) - now).total_seconds())
-                    if next_run is not None
-                    else None
-                )
+            deadline_iso = (job.kwargs or {}).get("deadline_iso") or deadline_iso
+        if deadline_iso:
+            deadline = _parse_local(str(deadline_iso), zone)
+            give_up_remaining = max(0.0, (deadline - now).total_seconds())
+        if job is not None and not in_progress:
+            next_run = job.next_run_time
+            retry_in = (
+                max(0.0, (as_local(next_run, zone) - now).total_seconds())
+                if next_run is not None
+                else None
+            )
         out.append(
             _pending_row_for_manual(
                 schedule_id,
@@ -588,6 +599,7 @@ def _run_manual_trigger_body(
         default_fired_at=now,
         announcement=announcement,
     )
+    _set_manual_inflight_deadline(schedule_id, deadline)
     slot_key = f"{MANUAL_KEY_PREFIX}{schedule_id}"
     jid = _defer_id(slot_key)
     ctx = FireContext(
