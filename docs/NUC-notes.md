@@ -62,7 +62,15 @@ When only one DRA is connected, `probe` prints a path for the app:
 TTS_DRA_HID_PATH=<hex from probe>
 ```
 
-Example from one shack NUC: `312d343a312e33` (USB path `1-4:1.3`). With two DRAs, fix USB ports and use `TTS_DRA_AUDIO_DEVICES` until per-radio HID mapping exists — see [`final-hardware/README.md`](final-hardware/README.md).
+Example from one shack NUC: `312d343a312e33` (USB path `1-4:1.3`).
+
+## Two DRAs on one NUC
+
+Dual transmit uses **two separate CM119A devices** (one per DRA-36M): two USB audio endpoints and **two** HID interfaces. At startup the app should log **2 HID + 2 PortAudio** pairings.
+
+- Leave **`TTS_DRA_HID_PATH` unset** — it selects a single CM119 and hides the second radio’s PTT/COS.
+- Use **fixed USB ports** on the NUC; optional **`TTS_DRA_AUDIO_DEVICES`** if device order varies.
+- If HID count ≠ audio count, run `python scripts/dra36m_check.py probe`, confirm udev/`plugdev`, and see [Identifying two identical adapters](final-hardware/README.md#identifying-two-identical-adapters) in [`final-hardware/README.md`](final-hardware/README.md).
 
 ---
 

@@ -94,23 +94,40 @@ class DraRadio:
             for i, entry in enumerate(entries)
         ]
         audio_indices = resolve_dra_audio_indices(device_specs=DRA_AUDIO_DEVICE_SPECS)
+        n_hid = len(adapters)
+        n_audio = len(audio_indices)
+        count = min(n_hid, n_audio)
 
-        if len(adapters) == 1 and len(audio_indices) == 1:
+        if n_hid == n_audio == 1:
             log.info(
                 "Single DRA paired: HID %s → PortAudio index %s",
                 adapters[0].path.hex(),
                 audio_indices[0],
             )
-        elif len(adapters) != len(audio_indices):
-            log.warning(
-                "DRA HID count (%s) != audio device count (%s); using %s pair(s). "
-                "On dual-NUC production, set TTS_DRA_AUDIO_DEVICES per radio and "
-                "plan stable USB-path binding (see docs/final-hardware/README.md).",
-                len(adapters),
-                len(audio_indices),
-                min(len(adapters), len(audio_indices)),
+        elif n_hid == n_audio:
+            log.info(
+                "DRA paired on one host: %s CM119 HID → %s PortAudio device(s)",
+                n_hid,
+                n_audio,
             )
-        count = min(len(adapters), len(audio_indices))
+            for i in range(n_hid):
+                log.info(
+                    "  dra-%s HID %s → PortAudio index %s",
+                    i + 1,
+                    adapters[i].path.hex(),
+                    audio_indices[i],
+                )
+        else:
+            log.warning(
+                "DRA HID count (%s) != PortAudio device count (%s); using %s pair(s). "
+                "Two radios on one NUC need two CM119 HID interfaces "
+                "(python scripts/dra36m_check.py probe). Unset TTS_DRA_HID_PATH when both "
+                "DRAs are connected; check udev/plugdev (docs/final-hardware/README.md). "
+                "Optional: TTS_DRA_AUDIO_DEVICES and fixed USB ports.",
+                n_hid,
+                n_audio,
+                count,
+            )
         return cls(
             hid_adapters=adapters[:count],
             audio_indices=audio_indices[:count],
