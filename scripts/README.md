@@ -1,5 +1,9 @@
 # Scripts
 
+## `deploy.sh`
+
+Run from the dev machine: stops the app on the NUC, runs `git pull` there, and restarts `./serve.sh` in the background. The host defaults to `repeater-nuc`; override it with `DEPLOY_HOST` or the first argument. Needs uv on the NUC. Details: [README — Deploying (NUC)](../README.md#deploying-nuc).
+
 ## `dra36m_check.py`
 
 Bench verification for **DRA-36M** (CM119A USB audio + HID PTT/COS) before wiring the announcements app.

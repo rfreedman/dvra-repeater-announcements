@@ -31,7 +31,22 @@ uv lock --upgrade          # move every dependency to the newest allowed version
 
 ### Deploying (NUC)
 
-With uv on the NUC, install exactly the locked versions, without test packages:
+The NUC runs the app the same way as dev: a git clone, uv, and `./serve.sh`. Install uv once on the NUC (it goes in `~/.local/bin`):
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+From the dev machine, deploy whatever is pushed to `origin/main`:
+
+```bash
+scripts/deploy.sh                 # default host repeater-nuc
+scripts/deploy.sh other-host      # or DEPLOY_HOST=other-host; DEPLOY_PATH overrides the NUC repo path
+```
+
+The script refuses to run with uncommitted or unpushed local changes. On the NUC it checks that uv is present, that the clone is clean, and that `origin/main` fast-forwards, all before touching the app. Then it stops the running `python -m app serve` with SIGTERM, pulls, and starts `./serve.sh` in the background, which syncs dependencies. It waits for `Startup complete` in the log and warns if the radio mode is `stub`. Background output goes to `data/logs/serve.out` on the NUC. If the app does not stop within 30 s, the deploy aborts without updating; it never SIGKILLs the app, because that can leave PTT keyed.
+
+To install the locked versions by hand, without test packages:
 
 ```bash
 uv sync --frozen --no-dev
