@@ -5,6 +5,7 @@ import threading
 from datetime import datetime, timedelta
 
 from app import scheduler
+from app.auth import BACKGROUND_POLL_HEADER
 from app.audio import PcmChunk
 from app.scheduler import (
     _clear_manual_inflight,
@@ -87,7 +88,7 @@ def test_schedules_poll_reports_running_during_immediate_manual_transmit(
     worker.start()
     try:
         assert on_air.wait(5)
-        payload = client.get("/api/schedules", headers={"X-Background-Poll": "1"}).json()
+        payload = client.get("/api/schedules", headers={BACKGROUND_POLL_HEADER: "1"}).json()
         assert payload["upcoming"]["status"] == "running"
         assert payload["upcoming"]["schedule_id"] == schedule.id
     finally:

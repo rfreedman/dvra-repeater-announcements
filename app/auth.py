@@ -14,7 +14,8 @@ SESSION_USER_KEY = "user_id"
 SESSION_LAST_ACTIVE_KEY = "last_active"
 MIN_PASSWORD_LEN = 8
 # The UI sends this on timer-driven refreshes; they must not count as activity,
-# or an open tab would never reach the idle timeout.
+# or an open tab would never reach the idle timeout. Only its presence matters; the
+# value is ignored. static/app.js (BACKGROUND_HEADERS) must use the same name.
 BACKGROUND_POLL_HEADER = "X-Background-Poll"
 
 
@@ -111,7 +112,7 @@ def current_user_optional(request: Request) -> User | None:
     if user is None:
         clear_session(request)
         return None
-    if request.headers.get(BACKGROUND_POLL_HEADER) != "1":
+    if BACKGROUND_POLL_HEADER not in request.headers:
         touch_session(request)
     return user
 

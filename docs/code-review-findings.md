@@ -59,8 +59,9 @@ APScheduler with a shifted/frozen clock before fixing; the new tests in
 
 ### 8. Idle logout never happened while a tab was open
 - **Symptom:** the documented 30-minute idle logout never fired; the UI polls every 15 s and every authenticated request reset the timer.
-- **Fix:** timer-driven requests in `static/app.js` send `X-Background-Poll: 1`; `app/auth.py` authenticates them without refreshing `last_active`.
-- **Test:** `test_background_poll_does_not_extend_idle_session`.
+- **Fix:** timer-driven requests in `static/app.js` send an `X-Background-Poll` header; `app/auth.py` authenticates them without refreshing `last_active`.
+- **Follow-up:** the server first required the header value to be exactly `"1"`, a magic value typed separately in Python and JS that could silently drift. It now checks only that the header is present, so just the header name (`BACKGROUND_POLL_HEADER`) has to match.
+- **Tests:** `test_background_poll_does_not_extend_idle_session` (runs with several values, all ignored) and `test_request_without_background_header_extends_idle_session`.
 
 ### 9. "Trigger now" button showed "Playing" late or not at all (found on the NUC after deploy)
 - **Symptom:** after a manual trigger the button changed to "Playing" late, sometimes never. Scheduled fires were fine.

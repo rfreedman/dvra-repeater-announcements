@@ -23,7 +23,7 @@ and add a one-line lesson here if it is a pattern worth avoiding.
 ## Config, data, auth
 - `app/config.py` reads env at import; tests set `TTS_SKIP_DOTENV=1`. Never let a developer `.env` affect tests.
 - Never treat an unrecognized data file as empty — raise `DataFileError`; a later save would erase data.
-- Timer-driven UI requests send `X-Background-Poll: 1` so they don't defeat the idle logout.
+- Timer-driven UI requests send an `X-Background-Poll` header so they don't defeat the idle logout. The server checks only that it is present — don't add a magic value that must match between Python and JS. Tests use `app.auth.BACKGROUND_POLL_HEADER`.
 - UI status that can change during a long request (e.g. Trigger now transmitting inside its POST) needs fast polling while that request is in flight — don't rely on the 15 s timer.
 - Manual trigger status: report the radio phase (busy / clear-hold countdown) even while a retry is in flight — retries spend most of their time blocked in the clear wait. "In progress" is not a useful UI state.
 - COS: never debounce busy samples — a kerchunk is often a single 0.25 s sample and must reset the clear hold. Missed HID reads are "no reading", not busy; handle them there.

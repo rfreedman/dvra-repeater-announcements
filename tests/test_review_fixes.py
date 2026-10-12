@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
+from app.auth import BACKGROUND_POLL_HEADER
 from app.engines.piper import PiperEngine
 from app.server import app
 from app.store import DataFileError
@@ -20,17 +21,31 @@ def test_schedules_poll_does_not_sample_radio_when_nothing_pending(client, store
     assert not any(event[0] == "busy_check" for event in radio.events)
 
 
-def test_background_poll_does_not_extend_idle_session(users, admin_user, monkeypatch):
+@pytest.mark.parametrize("value", ["1", "0", "true"])
+def test_background_poll_does_not_extend_idle_session(users, admin_user, monkeypatch, value):
+    """Header presence alone marks a background poll; its value is ignored."""
     monkeypatch.setattr("app.auth.SESSION_IDLE_SECONDS", 30)
     clock = {"t": 1_000_000.0}
     monkeypatch.setattr("app.auth.time.time", lambda: clock["t"])
-    poll = {"X-Background-Poll": "1"}
+    poll = {BACKGROUND_POLL_HEADER: value}
     with TestClient(app) as client:
         client.post("/api/auth/login", json={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD})
         clock["t"] += 20
         assert client.get("/api/auth/me", headers=poll).status_code == 200
         clock["t"] += 20  # 40 s since the last real activity
         assert client.get("/api/auth/me", headers=poll).status_code == 401
+
+
+def test_request_without_background_header_extends_idle_session(users, admin_user, monkeypatch):
+    monkeypatch.setattr("app.auth.SESSION_IDLE_SECONDS", 30)
+    clock = {"t": 1_000_000.0}
+    monkeypatch.setattr("app.auth.time.time", lambda: clock["t"])
+    with TestClient(app) as client:
+        client.post("/api/auth/login", json={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD})
+        clock["t"] += 20
+        assert client.get("/api/auth/me").status_code == 200
+        clock["t"] += 20  # 40 s since login, 20 s since the last request
+        assert client.get("/api/auth/me").status_code == 200
 
 
 def test_repeated_failed_logins_are_rate_limited(users, admin_user):

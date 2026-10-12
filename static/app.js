@@ -1,5 +1,6 @@
 const PREFS_KEY = "announcements-prefs";
 // Timer-driven refreshes send this so they do not reset the server's idle logout.
+// The server checks only that the header is present (BACKGROUND_POLL_HEADER in app/auth.py).
 const BACKGROUND_HEADERS = { "X-Background-Poll": "1" };
 const DAYS = [
   ["mon", "Mon"],
