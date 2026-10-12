@@ -1,6 +1,6 @@
 [project]
 name = "dvra-repeater-announcements"
-version = "1.1.0"
+version = "0.2.1"
 description = "Piper TTS repeater announcements with a FastAPI UI, scheduler, and DRA-36M radio control"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -17,6 +17,15 @@ dependencies = [
     "psutil>=5.9",
     "pyobjc-framework-Cocoa>=10.0; sys_platform == 'darwin'",
 ]
+
+[build-system]
+requires = ["uv_build>=0.11.14,<0.12"]
+build-backend = "uv_build"
+
+# The importable package is app/ at the repo root (not src/<name>/).
+[tool.uv.build-backend]
+module-name = "app"
+module-root = ""
 
 [dependency-groups]
 dev = [

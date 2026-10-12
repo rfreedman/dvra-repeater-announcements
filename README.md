@@ -41,10 +41,23 @@ Without uv on the NUC, generate a pinned `requirements.txt` on the dev machine a
 
 ```bash
 uv export --format requirements-txt --no-dev -o requirements.txt   # dev machine
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt  # NUC
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt  # NUC, from the repo root
 ```
 
-The exported file pins every package (with hashes) and keeps platform markers, so the macOS-only `pyobjc-framework-Cocoa` is skipped on Linux. It is gitignored: regenerate it after any dependency change rather than editing it.
+The exported file pins every package (with hashes) and keeps platform markers, so the macOS-only `pyobjc-framework-Cocoa` is skipped on Linux. It ends with `-e .`, which installs this project in editable mode (that is where the app gets its version), so run the `pip install` from the repo root. It is gitignored: regenerate it after any dependency change rather than editing it.
+
+`./serve.sh` runs `uv sync --inexact --no-dev` before starting (when uv is installed), so the venv always matches `pyproject.toml` / `uv.lock`.
+
+### Versioning
+
+The version is written once, in `pyproject.toml`. The app reads it from the installed package (`importlib.metadata`), and it appears in the UI header and the API (`/docs`, `/openapi.json`). Do not add a version literal anywhere else.
+
+```bash
+uv version                 # show the current version
+uv version --bump patch    # 0.2.0 -> 0.2.1 (also minor / major); updates pyproject.toml and uv.lock
+```
+
+The project is installed in editable mode, but the version is recorded at install time, so a bump shows up after the next `uv sync`. `./serve.sh` and any `uv run ...` command do that automatically. If you start the app another way, run `uv sync` first. `tests/test_api.py::test_installed_version_matches_pyproject` fails when the installed version is stale.
 
 The first run downloads the default voice into `voices/` (gitignored).
 

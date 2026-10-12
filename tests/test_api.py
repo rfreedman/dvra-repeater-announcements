@@ -294,3 +294,13 @@ def test_index_shows_app_version(client):
     html = client.get("/").text
     assert f"v{__version__}" in html
     assert "{{APP_VERSION}}" not in html
+
+
+def test_installed_version_matches_pyproject():
+    """Fails when the venv is stale after a version bump; run `uv sync`."""
+    tomllib = pytest.importorskip("tomllib")
+    from app import __version__
+    from app.config import ROOT_DIR
+
+    pyproject = tomllib.loads((ROOT_DIR / "pyproject.toml").read_text(encoding="utf-8"))
+    assert __version__ == pyproject["project"]["version"]
