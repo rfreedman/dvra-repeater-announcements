@@ -89,10 +89,18 @@ mkdir -p "$(dirname "$out")"
 setsid nohup ./serve.sh >"$out" 2>&1 </dev/null &
 pid=$!
 echo "Starting app (output: $1/$out)"
+serve_lines=0
 
 for ((i = 0; i < start_timeout; i++)); do
-  if line="$(grep -m 1 'Startup complete' "$out")"; then
-    echo "$line"
+  if [[ -f "$out" ]]; then
+    total="$(wc -l <"$out" | tr -d ' ')"
+    if (( total > serve_lines )); then
+      tail -n +"$((serve_lines + 1))" "$out"
+      serve_lines=$total
+    fi
+  fi
+  if grep -q 'Startup complete' "$out" 2>/dev/null; then
+    line="$(grep -m 1 'Startup complete' "$out")"
     if [[ "$line" == *"radio mode: stub"* ]]; then
       echo "WARNING: radio mode is stub; set TTS_RADIO_BACKEND=dra in .env for on-air playback." >&2
     fi
