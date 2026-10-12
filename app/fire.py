@@ -21,6 +21,12 @@ from app.radio import ChannelBusyError, Radio, channel_blocks_transmit, transmit
 
 log = logging.getLogger("app.fire")
 
+# Defer retry delays (seconds). See defer_retry_delay() and README “Defer timing”.
+# Non-blocking manual clear wait: scheduler re-checks soon without blocking the HTTP thread.
+DEFER_CLEAR_NONBLOCKING_MAX_SECONDS = 0.5
+# When the clear hold is already met, retry soon instead of waiting the full busy_retry interval.
+DEFER_RETRY_WHEN_CLEAR_MET_CAP_SECONDS = 1.0
+
 
 @dataclass
 class FireContext:
@@ -94,10 +100,10 @@ def defer_retry_delay(
 ) -> float:
     """Seconds until the next defer attempt (shorter when an enabled clear hold is already met)."""
     if kind == "clear" and nonblocking_clear:
-        return min(0.5, float(announcement.busy_retry_seconds))
+        return min(DEFER_CLEAR_NONBLOCKING_MAX_SECONDS, float(announcement.busy_retry_seconds))
     base = float(announcement.busy_retry_seconds)
     if clear_seconds > 0 and clear_hold_met(radio, clear_seconds=clear_seconds):
-        return min(base, 1.0)
+        return min(base, DEFER_RETRY_WHEN_CLEAR_MET_CAP_SECONDS)
     return base
 
 

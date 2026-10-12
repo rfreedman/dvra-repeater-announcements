@@ -46,6 +46,13 @@ SLOT_MISFIRE_GRACE_SECONDS = 30
 DEFER_MISFIRE_GRACE_SECONDS = 120
 MANUAL_KEY_PREFIX = "manual:"
 
+# Manual defer nudge (nudge_manual_defer_jobs_if_clear_ready). See README “Defer timing”.
+SCHEDULER_MIN_WAKE_SECONDS = 0.5  # PromptBackgroundScheduler sleep floor (macOS App Nap)
+MANUAL_NUDGE_SKIP_IF_RUN_WITHIN_SECONDS = 0.2  # defer job already about to run
+MANUAL_NUDGE_PTT_TIMER_PROTECT_SECONDS = 2.0  # leave short PTT retries on their timer
+MANUAL_NUDGE_MIN_WAIT_FOR_UNKNOWN_KIND_SECONDS = 2.0  # only nudge unknown defer_kind if sooner
+MANUAL_NUDGE_RUN_DELAY_MS = 50  # reschedule manual defer this soon after clear hold is met
+
 _scheduler: BackgroundScheduler | None = None
 _playback_lock = threading.Lock()
 _idle_assertion: c_uint32 | None = None
@@ -72,7 +79,7 @@ class PromptBackgroundScheduler(BackgroundScheduler):
 
     def __init__(self, *args, max_wait_seconds: float = SCHEDULER_MAX_WAIT_SECONDS, **kwargs):
         super().__init__(*args, **kwargs)
-        self.max_wait_seconds = max(0.5, float(max_wait_seconds))
+        self.max_wait_seconds = max(SCHEDULER_MIN_WAKE_SECONDS, float(max_wait_seconds))
 
     def _process_jobs(self):
         wait = super()._process_jobs()
@@ -383,18 +390,21 @@ def nudge_manual_defer_jobs_if_clear_ready() -> None:
         if next_run is None:
             continue
         wait_s = (as_local(next_run, zone) - now).total_seconds()
-        if wait_s <= 0.2:
+        if wait_s <= MANUAL_NUDGE_SKIP_IF_RUN_WITHIN_SECONDS:
             continue
         kwargs = dict(job.kwargs or {})
         defer_kind = kwargs.get("defer_kind")
-        # Short PTT retries (~1s) should run on their timer, not get yanked to 50ms.
-        if defer_kind == "ptt" and wait_s <= 2.0:
+        # Short PTT retries (~1s) should run on their timer, not yanked to MANUAL_NUDGE_RUN_DELAY_MS.
+        if defer_kind == "ptt" and wait_s <= MANUAL_NUDGE_PTT_TIMER_PROTECT_SECONDS:
             continue
-        if wait_s > 2.0 and defer_kind not in ("busy", "clear", "ptt"):
+        if (
+            wait_s > MANUAL_NUDGE_MIN_WAIT_FOR_UNKNOWN_KIND_SECONDS
+            and defer_kind not in ("busy", "clear", "ptt")
+        ):
             continue
         sched.add_job(
             run_manual_trigger,
-            DateTrigger(run_date=now + timedelta(milliseconds=50)),
+            DateTrigger(run_date=now + timedelta(milliseconds=MANUAL_NUDGE_RUN_DELAY_MS)),
             id=job.id,
             replace_existing=True,
             kwargs=kwargs,
@@ -648,7 +658,7 @@ def _run_manual_trigger_body(
 
     # Only the HTTP "trigger now" call should return immediately while waiting for
     # COS clear. Defer retries run on the scheduler thread and block in
-    # wait_for_transmit_clear so we do not stack 0.5s jobs that lose to
+    # wait_for_transmit_clear so we do not stack short defer jobs that lose to
     # max_instances=1 or skipped_lock while synthesis holds the playback lock.
     defer_retry = fired_at_iso is not None or deadline_iso is not None
     if not defer_retry:

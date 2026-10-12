@@ -286,6 +286,20 @@ python -m app users delete bob
 | `TTS_SLOT_HALF_WINDOW_MINUTES` | `10` | How far an overlay may shift from its slot center |
 | `TTS_TRIGGER_NOW` | `false` | Dev only: show **Trigger now** on schedule rows (does not change Last or the next slot) |
 
+### Defer timing (fixed in code, not env vars)
+
+These complement `TTS_BUSY_RETRY_SECONDS` on each announcement and `TTS_DRA_CLEAR_SECONDS` / `TTS_DRA_CLEAR_POLL_SECONDS` for COS. They are **not** configurable today; names live in `app/fire.py` and `app/scheduler.py` if you need to tune behavior in a fork.
+
+| Constant | Default | Role |
+| --- | --- | --- |
+| `DEFER_CLEAR_NONBLOCKING_MAX_SECONDS` | `0.5` | After **Trigger now**, first clear-hold retry is scheduled within this cap so the HTTP request returns while the COS poll thread keeps waiting. |
+| `DEFER_RETRY_WHEN_CLEAR_MET_CAP_SECONDS` | `1.0` | When the clear hold is already satisfied, defer retries run at most this often instead of the full per-announcement busy retry interval. |
+| `SCHEDULER_MIN_WAKE_SECONDS` | `0.5` | Shortest sleep between APScheduler wakeups (avoids missing fires under macOS App Nap). |
+| `MANUAL_NUDGE_SKIP_IF_RUN_WITHIN_SECONDS` | `0.2` | Background COS nudge does not reschedule a manual defer that is already about to run. |
+| `MANUAL_NUDGE_PTT_TIMER_PROTECT_SECONDS` | `2.0` | Short PTT defer retries keep their scheduled time instead of being pulled forward when the channel clears. |
+| `MANUAL_NUDGE_MIN_WAIT_FOR_UNKNOWN_KIND_SECONDS` | `2.0` | Only `busy` / `clear` / `ptt` defers with a longer wait are nudged when idle credit meets the clear hold. |
+| `MANUAL_NUDGE_RUN_DELAY_MS` | `50` | How soon to run a nudged manual defer after the clear hold is met. |
+
 On a low-RAM host, set `TTS_PIPER_QUALITIES=medium` so only medium models are listed and preloaded. High-quality voices use more CPU and RAM.
 
 ### Piper voices
