@@ -60,7 +60,6 @@ from app.schedule_logic import (
     find_conflicts,
     flatten_schedule_row,
     next_runs_by_schedule,
-    next_transmission,
     offset_allowed,
 )
 from app.pcm_cache import (
@@ -69,16 +68,16 @@ from app.pcm_cache import (
     warm_announcement,
     warm_announcement_in_background,
 )
+from app.home_live import build_home_live_status, notify_home_live_status
 from app.scheduler import (
-    get_running,
     clear_manual_trigger_drop_notice,
     peek_manual_trigger_drop_notice,
-    pending_manual_triggers,
     run_manual_trigger,
     start_scheduler,
     stop_scheduler,
     sync_jobs,
 )
+from app.sse_hub import format_sse, subscribe, unsubscribe
 from app.radio import active_radio_mode_label
 from app.startup import StartupError, fail_startup, init_radio_at_startup
 from app.store import get_store
@@ -112,6 +111,9 @@ async def lifespan(_app: FastAPI):
         time.perf_counter() - started,
         active_radio_mode_label(),
     )
+    import app.sse_hub as sse_hub
+
+    sse_hub.set_event_loop(asyncio.get_running_loop())
     yield
     stop_scheduler()
 
@@ -291,30 +293,6 @@ def _clock_payload(document: StoreDocument, day: date) -> list[dict[str, object]
             }
         )
     return rows
-
-
-def _upcoming(document: StoreDocument, running: dict[str, object] | None) -> dict[str, object] | None:
-    if running:
-        return {
-            "announcement_id": running.get("announcement_id"),
-            "announcement_name": running.get("announcement_name"),
-            "schedule_id": running.get("schedule_id"),
-            "at": running.get("started_at"),
-            "status": "running",
-        }
-    now = datetime.now(ZoneInfo(document.settings.timezone))
-    nxt = next_transmission(document, now)
-    if nxt is None or nxt.announcement is None:
-        return None
-    return {
-        "announcement_id": nxt.announcement.id,
-        "announcement_name": nxt.announcement.name,
-        "schedule_id": nxt.schedule.id if nxt.schedule else None,
-        "schedule_name": nxt.schedule.name if nxt.schedule else None,
-        "at": nxt.fire_at.isoformat(),
-        "status": "waiting",
-        "slot": nxt.slot.stamp,
-    }
 
 
 @app.get("/api/health")
@@ -566,23 +544,54 @@ def list_schedules(_user: AuthUser, clock_date: date | None = None) -> dict[str,
             str(row["name"] or ""),
         )
     )
+    live = build_home_live_status()
     return {
-        "now": now.isoformat(),
-        "upcoming": _upcoming(document, get_running()),
+        **live,
         "warnings": document_warnings(document),
         "settings": document.settings.model_dump(mode="json"),
         "clock_date": day.isoformat(),
         "clock": _clock_payload(document, day),
         "schedules": rows,
         "trigger_now_enabled": config.TRIGGER_NOW,
-        "pending_manual_triggers": pending_manual_triggers(),
-        "manual_trigger_drop_notice": peek_manual_trigger_drop_notice(),
     }
+
+
+async def _home_live_event_stream(request: Request) -> AsyncIterator[str]:
+    queue = subscribe()
+    try:
+        yield format_sse("snapshot", build_home_live_status())
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                payload = await asyncio.wait_for(queue.get(), timeout=30.0)
+            except asyncio.TimeoutError:
+                yield ": ping\n\n"
+                continue
+            if payload is None:
+                break
+            yield format_sse("status", payload)
+    finally:
+        unsubscribe(queue)
+
+
+@app.get("/api/events/home")
+async def home_live_events(request: Request, _user: AuthUser) -> StreamingResponse:
+    return StreamingResponse(
+        _home_live_event_stream(request),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-store",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.post("/api/manual-trigger-drop/dismiss")
 def dismiss_manual_trigger_drop(_admin: AdminUser) -> dict[str, bool]:
     clear_manual_trigger_drop_notice()
+    notify_home_live_status(force=True)
     return {"ok": True}
 
 
@@ -720,7 +729,9 @@ def trigger_schedule_now(schedule_id: str, _admin: AdminUser) -> dict[str, str]:
         )
         raise HTTPException(status_code=409, detail=detail)
     if result == "deferred":
+        notify_home_live_status(force=True)
         return {"result": "deferred"}
+    notify_home_live_status(force=True)
     return {"result": result}
 
 

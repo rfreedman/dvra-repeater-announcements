@@ -210,7 +210,7 @@ def test_speak_does_not_key_ptt(client, store, monkeypatch):
 def test_upcoming_is_running_when_a_fire_is_in_progress(client, store, monkeypatch):
     _seed_baseline(store)
     monkeypatch.setattr(
-        "app.server.get_running",
+        "app.home_live.get_running",
         lambda: {
             "announcement_id": "ann-live",
             "announcement_name": "On-the-hour",

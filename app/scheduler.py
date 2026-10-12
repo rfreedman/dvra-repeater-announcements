@@ -41,6 +41,13 @@ from app.store import get_store
 
 log = logging.getLogger("app.scheduler")
 
+
+def _notify_home_live(*, force: bool = False) -> None:
+    from app.home_live import notify_home_live_status
+
+    notify_home_live_status(force=force)
+
+
 # A slot job may run this late (App Nap, busy host) and still fire.
 SLOT_MISFIRE_GRACE_SECONDS = 30
 DEFER_MISFIRE_GRACE_SECONDS = 120
@@ -156,12 +163,14 @@ def _set_running(announcement, schedule_id: str) -> None:
             "schedule_id": schedule_id,
             "started_at": datetime.now(_station_zone()).isoformat(),
         }
+    _notify_home_live(force=True)
 
 
 def _clear_running() -> None:
     global _running
     with _running_lock:
         _running = None
+    _notify_home_live(force=True)
 
 
 def peek_manual_trigger_drop_notice() -> dict[str, object] | None:
@@ -191,6 +200,7 @@ def record_manual_trigger_drop(
             "detail": detail,
             "at": datetime.now(_station_zone()).isoformat(),
         }
+    _notify_home_live(force=True)
     log.info(
         "Manual trigger give-up; schedule=%s announcement=%s reason=%s",
         schedule_id,
@@ -217,6 +227,7 @@ def _finish_manual_trigger(
 ) -> str:
     if result == "transmitted":
         clear_manual_trigger_drop_notice()
+        _notify_home_live(force=True)
     elif result == "dropped":
         record_manual_trigger_drop(
             schedule_id,
@@ -303,6 +314,7 @@ def _set_manual_inflight(schedule_id: str, announcement_name: str) -> None:
             "announcement_name": announcement_name,
             "started_at": datetime.now(_station_zone()).isoformat(),
         }
+    _notify_home_live()
 
 
 def _set_manual_inflight_deadline(schedule_id: str, deadline: datetime) -> None:
@@ -589,6 +601,7 @@ def run_manual_trigger(
         )
     finally:
         _clear_manual_inflight(schedule_id)
+        _notify_home_live(force=True)
 
 
 def _run_manual_trigger_body(

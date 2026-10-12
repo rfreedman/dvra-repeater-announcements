@@ -82,6 +82,9 @@ let session = 0;
 let pollTimer = null;
 let statsTimer = null;
 let countdownTimer = null;
+let homeSseWanted = false;
+let homeSseAbort = null;
+let homeSseConnected = false;
 let upcoming = null;
 let clockSkewMs = 0;
 let homeBusy = false;
@@ -720,20 +723,6 @@ function syncDeleteButtons() {
 
 function tickUpcoming() {
   renderUpcoming();
-  // A Trigger now POST can transmit inside the request (clear hold already met),
-  // so poll while it is in flight or the UI only learns "Playing" on the 15 s timer.
-  if (!upcoming && pendingManualTriggers.length === 0 && !triggerNowBusy) return;
-  const soon =
-    upcoming?.at &&
-    new Date(upcoming.at).getTime() - (Date.now() + clockSkewMs) <= 15000;
-  if (
-    triggerNowBusy ||
-    upcoming?.status === "running" ||
-    pendingManualTriggers.length > 0 ||
-    soon
-  ) {
-    refreshHome({ background: true }).catch(() => {});
-  }
 }
 
 function fillDayChips(container, selected, { exclusive = false } = {}) {
@@ -1114,6 +1103,22 @@ function updateClockWeekday(clockDate) {
   if (el) el.textContent = weekdayFromDateStamp(clockDate);
 }
 
+function applyHomeLiveStatus(payload) {
+  if (payload.now) {
+    const serverNow = Date.parse(payload.now);
+    if (!Number.isNaN(serverNow)) clockSkewMs = serverNow - Date.now();
+  }
+  upcoming = payload.upcoming || null;
+  const fetchedAt = payload.now ? Date.parse(payload.now) : Date.now() + clockSkewMs;
+  pendingManualTriggers = (payload.pending_manual_triggers || []).map((item) => ({
+    ...item,
+    fetchedAt: Number.isNaN(fetchedAt) ? Date.now() + clockSkewMs : fetchedAt,
+  }));
+  renderUpcoming();
+  renderManualTriggerDropNotice(payload.manual_trigger_drop_notice || null);
+  syncTriggerNowButtons();
+}
+
 async function refreshHome({ background = false } = {}) {
   if (homeBusy) return;
   homeBusy = true;
@@ -1132,32 +1137,92 @@ async function refreshHome({ background = false } = {}) {
     schedules = payload.schedules || [];
     settings = payload.settings || settings;
     triggerNowEnabled = Boolean(payload.trigger_now_enabled);
-    if (payload.now) {
-      const serverNow = Date.parse(payload.now);
-      if (!Number.isNaN(serverNow)) clockSkewMs = serverNow - Date.now();
-    }
-    upcoming = payload.upcoming || null;
-    const fetchedAt = payload.now ? Date.parse(payload.now) : Date.now() + clockSkewMs;
-    pendingManualTriggers = (payload.pending_manual_triggers || []).map((item) => ({
-      ...item,
-      fetchedAt: Number.isNaN(fetchedAt) ? Date.now() + clockSkewMs : fetchedAt,
-    }));
-    renderUpcoming();
+    applyHomeLiveStatus(payload);
     const warn = document.getElementById("home-warnings");
     const notes = payload.warnings || [];
     warn.classList.toggle("hidden", notes.length === 0);
     warn.textContent = notes.join(" ");
-    renderManualTriggerDropNotice(payload.manual_trigger_drop_notice || null);
     if (payload.clock_date && !dateField.value) dateField.value = payload.clock_date;
     updateClockWeekday(dateField.value || payload.clock_date);
     renderClock(payload.clock || []);
     renderSchedules(payload.schedules || []);
     renderLibrary(announcements);
     document.getElementById("baseline-randomize").checked = Boolean(settings.baseline_randomize);
-    syncTriggerNowButtons();
   } finally {
     homeBusy = false;
   }
+}
+
+function parseSseBlock(block) {
+  let eventName = "message";
+  const dataLines = [];
+  for (const line of block.split("\n")) {
+    if (line.startsWith("event:")) eventName = line.slice(6).trim();
+    else if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
+  }
+  if (!dataLines.length) return null;
+  try {
+    return { event: eventName, data: JSON.parse(dataLines.join("\n")) };
+  } catch {
+    return null;
+  }
+}
+
+async function streamHomeLiveEvents(signal) {
+  const res = await fetch("/api/events/home", { headers: BACKGROUND_HEADERS, signal });
+  if (!res.ok) throw new Error("Could not open home event stream");
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  homeSseConnected = true;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let splitAt = buffer.indexOf("\n\n");
+      while (splitAt >= 0) {
+        const block = buffer.slice(0, splitAt);
+        buffer = buffer.slice(splitAt + 2);
+        const parsed = parseSseBlock(block);
+        if (parsed && (parsed.event === "snapshot" || parsed.event === "status")) {
+          applyHomeLiveStatus(parsed.data);
+        }
+        splitAt = buffer.indexOf("\n\n");
+      }
+    }
+  } finally {
+    homeSseConnected = false;
+    reader.releaseLock();
+  }
+}
+
+async function runHomeSseLoop() {
+  let backoffMs = 1000;
+  while (homeSseWanted) {
+    const controller = new AbortController();
+    homeSseAbort = controller;
+    try {
+      await streamHomeLiveEvents(controller.signal);
+      backoffMs = 1000;
+    } catch (err) {
+      if (!homeSseWanted || err?.name === "AbortError") break;
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
+      backoffMs = Math.min(backoffMs * 2, 30000);
+    } finally {
+      if (homeSseAbort === controller) homeSseAbort = null;
+    }
+  }
+  homeSseConnected = false;
+}
+
+function stopHomeSse() {
+  homeSseWanted = false;
+  if (homeSseAbort) {
+    homeSseAbort.abort();
+    homeSseAbort = null;
+  }
+  homeSseConnected = false;
 }
 
 async function refreshSystemStats() {
@@ -1229,9 +1294,14 @@ function renderSystemStats(payload) {
 function startHomePolling() {
   if (!pollTimer) pollTimer = setInterval(() => refreshHome({ background: true }).catch(() => {}), 15000);
   if (!countdownTimer) countdownTimer = setInterval(tickUpcoming, 1000);
+  if (!homeSseWanted) {
+    homeSseWanted = true;
+    runHomeSseLoop().catch(() => {});
+  }
 }
 
 function stopHomePolling() {
+  stopHomeSse();
   if (pollTimer) {
     clearInterval(pollTimer);
     pollTimer = null;

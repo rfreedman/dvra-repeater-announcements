@@ -28,6 +28,9 @@ def _poll_loop() -> None:
                 if refresh is not None:
                     refresh()
             nudge_manual_defer_jobs_if_clear_ready()
+            from app.home_live import notify_home_live_status_throttled
+
+            notify_home_live_status_throttled()
         except Exception:
             log.warning("COS background poll failed", exc_info=True)
         if _stop.wait(poll):

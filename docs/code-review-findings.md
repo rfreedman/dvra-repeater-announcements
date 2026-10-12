@@ -120,6 +120,7 @@ APScheduler with a shifted/frozen clock before fixing; the new tests in
 | `Announcement` model lacked API validation bounds (GitHub #1) | Shared limits in `app/config.py` (`MIN_SPEECH_SPEED`, `MAX_*`); `Announcement` uses matching `Field` constraints and `normalize_announcement_text()`; `SpeakRequest` / `AnnouncementIn` use the same constants. Invalid rows fail on load via `StoreDocument`. Tests: `tests/test_announcement_validation.py`. |
 | Defer/nudge magic numbers in `fire.py` / `scheduler.py` (GitHub #3) | Named module constants with comments; README “Defer timing” table documents defaults (not env vars). Tests: `tests/test_defer_timing_constants.py` plus existing `test_defer_retry_delay`, `test_manual_nudge_clear`. |
 | Duplicated atomic JSON writes in stores (GitHub #4) | `write_json_atomic()` in `app/store.py`; `AnnouncementStore` and `UserStore` `_write` call it. Test: `tests/test_write_json_atomic.py`. |
+| Second operator stuck on “Waiting…” after Trigger now finished (GitHub #27) | SSE `publish_home_live_status` dropped the idle/clear snapshot when it fell inside the 50 ms debounce after COS throttled updates; throttled COS stops publishing once pending/running is empty. **Fix:** `force=True` on terminal notifies (`_clear_running`, manual trigger `finally`, transmit/drop). Test: `test_force_publish_bypasses_min_interval`. |
 
 ## Known limitations left as-is
 
