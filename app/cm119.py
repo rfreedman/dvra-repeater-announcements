@@ -33,11 +33,13 @@ def ensure_hid_module():
         import hid  # type: ignore[import-untyped]
     except ImportError as exc:
         raise RuntimeError(
-            "hidapi is required for TTS_RADIO_BACKEND=dra. Install: pip install hidapi"
+            "hidapi is required for TTS_RADIO_BACKEND=dra. Install: uv sync "
+            "(pip deploy: pip install -r requirements.txt)"
         ) from exc
     if not hasattr(hid, "device"):
         raise RuntimeError(
-            "Wrong 'hid' package installed. Run: pip uninstall hid && pip install hidapi"
+            "Wrong 'hid' package installed. Run: uv pip uninstall hid && uv sync "
+            "(pip deploy: pip uninstall hid && pip install -r requirements.txt)"
         )
     return hid
 

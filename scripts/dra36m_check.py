@@ -4,7 +4,7 @@
 Uses the Direwolf/hamlib 5-byte HID output report for GPIO3 PTT.
 See: https://github.com/nwdigitalradio/direwolf/blob/master/cm108.c
 
-Requires: brew install hidapi, pip install hidapi sounddevice numpy
+Requires: brew install hidapi (macOS), then `uv sync` in the repo (hidapi, sounddevice, numpy)
 On macOS: DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib may be needed.
 
 Full test procedures and flags: docs/final-hardware/dra36m-check-tests.md
@@ -100,11 +100,9 @@ def _ensure_hid():
     try:
         import hid  # type: ignore[import-untyped]
     except ImportError as exc:
-        raise SystemExit("Install hidapi: pip install hidapi") from exc
+        raise SystemExit("Install hidapi: uv sync") from exc
     if not hasattr(hid, "device"):
-        raise SystemExit(
-            "Wrong 'hid' package installed. Run: pip uninstall hid && pip install hidapi"
-        )
+        raise SystemExit("Wrong 'hid' package installed. Run: uv pip uninstall hid && uv sync")
     return hid
 
 

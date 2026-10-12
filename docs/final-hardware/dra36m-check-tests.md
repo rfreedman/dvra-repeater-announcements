@@ -10,7 +10,7 @@ Script path: [`scripts/dra36m_check.py`](../../scripts/dra36m_check.py) ([`scrip
 
 | Item | Requirement |
 |------|-------------|
-| Python venv | `pip install -r requirements.txt` plus **`pip install hidapi`** |
+| Python venv | `uv sync` (installs `hidapi`, `sounddevice`, `numpy`; see the main README) |
 | macOS | `brew install hidapi portaudio`; often `export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib` |
 | Linux | `sudo apt install libportaudio2`; **udev + `plugdev`** — see [Linux: udev and plugdev](#linux-nuc-udev-and-plugdev) |
 | DRA jumpers | **JU1 on**, **JU5 = A (1200)**, **JU3 = L** on both production DRA (must match `-c`; default **`left`**) |

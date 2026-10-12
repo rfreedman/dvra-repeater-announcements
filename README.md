@@ -8,15 +8,43 @@ Piper streams one sentence at a time and has many English voices (plus any [Pipe
 
 - macOS or **64-bit Linux** (production station hardware: [docs/final-hardware/README.md](docs/final-hardware/README.md); DRA bench tests: [dra36m-check-tests.md](docs/final-hardware/dra36m-check-tests.md), [scripts/README.md](scripts/README.md)).
 - Python 3.10+
+- [uv](https://docs.astral.sh/uv/) (`brew install uv` on macOS, or `curl -LsSf https://astral.sh/uv/install.sh | sh`)
 - For CLI playback: PortAudio (`brew install portaudio` on macOS, `sudo apt install libportaudio2` on Debian/Ubuntu)
 
 ## Setup
 
+Dependencies are declared in `pyproject.toml` and pinned in `uv.lock` (commit both). There is no hand-maintained `requirements.txt`.
+
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+uv sync                    # creates .venv and installs the app + dev/test packages
+source .venv/bin/activate  # optional; or prefix commands with `uv run`
 ```
+
+Add or remove a dependency with uv so `pyproject.toml` and `uv.lock` stay in step (don't `pip install` into the venv; the next `uv sync` removes anything undeclared):
+
+```bash
+uv add some-package        # runtime dependency
+uv add --dev some-package  # test/dev only (not installed in production)
+uv remove some-package
+uv lock --upgrade          # move every dependency to the newest allowed version
+```
+
+### Deploying (NUC)
+
+With uv on the NUC, install exactly the locked versions, without test packages:
+
+```bash
+uv sync --frozen --no-dev
+```
+
+Without uv on the NUC, generate a pinned `requirements.txt` on the dev machine and install it with pip:
+
+```bash
+uv export --format requirements-txt --no-dev -o requirements.txt   # dev machine
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt  # NUC
+```
+
+The exported file pins every package (with hashes) and keeps platform markers, so the macOS-only `pyobjc-framework-Cocoa` is skipped on Linux. It is gitignored: regenerate it after any dependency change rather than editing it.
 
 The first run downloads the default voice into `voices/` (gitignored).
 
@@ -292,7 +320,7 @@ Audio is produced one Piper sentence at a time and sent as it is ready.
 `GET /api/schedules` returns upcoming fire, today’s slot clock, warnings, settings, and schedule rows. Announcements are `GET/POST /api/announcements` and `PUT/DELETE /api/announcements/{id}`. Schedules are `GET/POST /api/schedules` and `PUT/PATCH/DELETE /api/schedules/{id}`. `PUT /api/settings` updates baseline shuffle and the slot window.
 
 ```bash
-pytest
+uv run pytest -q
 ```
 
 Tests set `TTS_SKIP_DOTENV=1` (in `tests/conftest.py`) so your local `.env` cannot change their results.

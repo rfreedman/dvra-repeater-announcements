@@ -8,6 +8,8 @@ __pycache__/
 voices/
 data/
 .env
+# Generated for deployment with `uv export` (see README); pyproject.toml + uv.lock are the source
+requirements.txt
 .DS_Store
 .idea/
 # Stray files created by tools that treat ":memory:" as a path
