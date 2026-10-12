@@ -26,6 +26,28 @@ def list_dra_output_devices() -> list[tuple[int, dict]]:
     return out
 
 
+def _is_alsa_hw_portaudio_name(name: str) -> bool:
+    """True for Linux ALSA hardware devices, e.g. ``… (hw:1,0)``."""
+    return "(hw:" in name
+
+
+def auto_select_dra_outputs(
+    devices: list[tuple[int, dict]] | None = None,
+) -> list[tuple[int, dict]]:
+    """DRA-like outputs for auto pairing (no ``TTS_DRA_AUDIO_DEVICES``).
+
+    On a Linux NUC with PipeWire, the same CM119 often appears as both an ALSA
+    ``(hw:…)`` device and an ``alsa_output.usb-…`` sink. Prefer ``(hw:…)`` entries
+    so one physical DRA is not counted twice. When no ``(hw:…)`` names exist
+    (typical macOS), return every DRA-like output.
+    """
+    all_dra = devices if devices is not None else list_dra_output_devices()
+    hw = [(index, dev) for index, dev in all_dra if _is_alsa_hw_portaudio_name(dev["name"])]
+    if hw:
+        return hw
+    return all_dra
+
+
 def resolve_dra_audio_indices(
     *,
     device_specs: list[str] | None = None,
@@ -33,7 +55,7 @@ def resolve_dra_audio_indices(
     """Return PortAudio output indices for each DRA.
 
     *device_specs* — optional substrings or integer indices (one per DRA). When omitted,
-    every DRA-like output device is used (sorted by index).
+    uses :func:`auto_select_dra_outputs` (ALSA ``hw`` devices when present).
     """
     import sounddevice as sd
 
@@ -44,7 +66,7 @@ def resolve_dra_audio_indices(
         )
 
     if not device_specs:
-        return [index for index, _dev in all_dra]
+        return [index for index, _dev in auto_select_dra_outputs(all_dra)]
 
     indices: list[int] = []
     for spec in device_specs:

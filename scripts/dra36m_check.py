@@ -47,7 +47,12 @@ from app.cm119 import (  # noqa: E402
 )
 from app.cm119 import cos_line_busy as _app_cos_line_busy  # noqa: E402
 from app.cm119 import open_cm119_hid_at as _open_cm119_hid_at  # noqa: E402
-from app.dra_playback import DraUsbPlayback, mono_to_channel  # noqa: E402
+from app.dra_playback import (  # noqa: E402
+    DraUsbPlayback,
+    auto_select_dra_outputs,
+    list_dra_output_devices,
+    mono_to_channel,
+)
 
 
 def _subprocess_env() -> dict[str, str]:
@@ -326,22 +331,18 @@ def _read_cos_sample(hid, hid_path: bytes | None, dev) -> HidSample:
 
 def find_dra_usb_audio():
     """PortAudio index and device dict for the DRA CM119 USB sound device."""
-    import sounddevice as sd
-
-    for i, dev in enumerate(sd.query_devices()):
-        name = dev["name"]
-        if "USB PnP Sound Device" not in name and "C-Media" not in name:
-            continue
+    for index, dev in auto_select_dra_outputs(list_dra_output_devices()):
         if dev["max_output_channels"] >= 1 or dev["max_input_channels"] >= 1:
-            return i, dev
+            return index, dev
     return None, None
 
 
 def find_dra_audio_device():
-    idx, dev = find_dra_usb_audio()
-    if idx is None or dev["max_output_channels"] < 1:
-        return None, None
-    return idx, dev
+    """First DRA output device (same auto-selection as ``resolve_dra_audio_indices``)."""
+    for index, dev in auto_select_dra_outputs(list_dra_output_devices()):
+        if dev["max_output_channels"] >= 1:
+            return index, dev
+    return None, None
 
 
 class DraUsbCapture:

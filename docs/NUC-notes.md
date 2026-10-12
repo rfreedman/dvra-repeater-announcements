@@ -70,6 +70,7 @@ Dual transmit uses **two separate CM119A devices** (one per DRA-36M): two USB au
 
 - Leave **`TTS_DRA_HID_PATH` unset** — it selects a single CM119 and hides the second radio’s PTT/COS.
 - Use **fixed USB ports** on the NUC; optional **`TTS_DRA_AUDIO_DEVICES`** if device order varies.
+- With PipeWire, the same CM119 may appear as both `(hw:…)` and `alsa_output.usb-…` in PortAudio; the app auto-selects **`(hw:…)`** only so one DRA is not counted twice.
 - If HID count ≠ audio count, run `python scripts/dra36m_check.py probe`, confirm udev/`plugdev`, and see [Identifying two identical adapters](final-hardware/README.md#identifying-two-identical-adapters) in [`final-hardware/README.md`](final-hardware/README.md).
 
 ---
