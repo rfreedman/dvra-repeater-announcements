@@ -5,9 +5,16 @@ from __future__ import annotations
 import asyncio
 import json
 
-from app.home_live import build_home_live_status, notify_home_live_status
+from app.home_live import build_home_live_status, notify_home_data_changed, notify_home_live_status
 from app.scheduler import _clear_running, _set_running
-from app.sse_hub import format_sse, publish_home_live_status, set_event_loop, subscribe, unsubscribe
+from app.sse_hub import (
+    format_sse,
+    publish_home_data_changed,
+    publish_home_live_status,
+    set_event_loop,
+    subscribe,
+    unsubscribe,
+)
 from tests.test_api import _seed_baseline
 
 
@@ -43,7 +50,8 @@ def test_force_publish_bypasses_min_interval(store):
             publish_home_live_status(force=True)
             await asyncio.sleep(0)
             second = await asyncio.wait_for(queue.get(), timeout=2.0)
-            assert "now" in second
+            assert second.event == "status"
+            assert "now" in second.data
         finally:
             unsubscribe(queue)
 
@@ -61,14 +69,53 @@ def test_sse_hub_delivers_publish(store):
             await asyncio.sleep(0.06)
             publish_home_live_status()
             await asyncio.sleep(0)
-            payload = await asyncio.wait_for(queue.get(), timeout=2.0)
-            assert payload is not None
-            assert "now" in payload
-            assert "pending_manual_triggers" in payload
+            message = await asyncio.wait_for(queue.get(), timeout=2.0)
+            assert message.event == "status"
+            assert "now" in message.data
+            assert "pending_manual_triggers" in message.data
         finally:
             unsubscribe(queue)
 
     asyncio.run(run())
+
+
+def test_data_changed_event(store):
+    async def run() -> None:
+        loop = asyncio.get_running_loop()
+        set_event_loop(loop)
+        queue = subscribe()
+        try:
+            publish_home_data_changed()
+            await asyncio.sleep(0)
+            message = await asyncio.wait_for(queue.get(), timeout=2.0)
+            assert message.event == "data_changed"
+            assert message.data == {}
+        finally:
+            unsubscribe(queue)
+
+    asyncio.run(run())
+
+
+def test_create_schedule_notifies_data_changed(client, store, monkeypatch):
+    _seed_baseline(store)
+    calls: list[str] = []
+
+    def _record() -> None:
+        calls.append("data_changed")
+
+    monkeypatch.setattr("app.server.notify_home_data_changed", _record)
+    res = client.post(
+        "/api/schedules",
+        json={
+            "name": "Extra net",
+            "kind": "weekly",
+            "announcement_id": store.list_announcements()[0].id,
+            "days": ["mon"],
+            "slots": ["20:00"],
+        },
+    )
+    assert res.status_code == 200
+    assert calls == ["data_changed"]
 
 
 def test_build_home_live_status_reflects_running(store):
@@ -93,3 +140,7 @@ def test_build_home_live_status_matches_schedules_keys(client, store):
 
 def test_notify_home_live_status_no_subscribers():
     notify_home_live_status()
+
+
+def test_notify_home_data_changed_no_subscribers():
+    notify_home_data_changed()

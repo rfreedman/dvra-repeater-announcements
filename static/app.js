@@ -1203,7 +1203,10 @@ async function streamHomeLiveEvents(signal) {
         const block = buffer.slice(0, splitAt);
         buffer = buffer.slice(splitAt + 2);
         const parsed = parseSseBlock(block);
-        if (parsed && (parsed.event === "snapshot" || parsed.event === "status")) {
+        if (!parsed) continue;
+        if (parsed.event === "data_changed") {
+          refreshHome({ background: true }).catch(() => {});
+        } else if (parsed.event === "snapshot" || parsed.event === "status") {
           applyHomeLiveStatus(parsed.data);
         }
         splitAt = buffer.indexOf("\n\n");

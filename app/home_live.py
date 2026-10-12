@@ -72,6 +72,16 @@ def notify_home_live_status(*, allow_throttle: bool = False, force: bool = False
         log.debug("SSE home live notify failed", exc_info=True)
 
 
+def notify_home_data_changed() -> None:
+    """Tell home SSE clients to reload schedules/library (multi-operator edits)."""
+    try:
+        from app.sse_hub import publish_home_data_changed
+
+        publish_home_data_changed()
+    except Exception:
+        log.debug("SSE home data_changed notify failed", exc_info=True)
+
+
 def notify_home_live_status_throttled() -> None:
     """At most once per second; for background COS while manual defer is active."""
     global _last_throttled_publish_mono

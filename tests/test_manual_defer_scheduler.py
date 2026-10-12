@@ -34,6 +34,7 @@ def test_manual_busy_defers_then_transmits_via_scheduler(
 
     # First fire: busy at start. Retry job: channel clear through transmit.
     radio.busy_sequence = [True, False, False, False, False]
+    radio._busy_index = 0
 
     sched = get_scheduler()
     assert sched is not None

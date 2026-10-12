@@ -14,3 +14,9 @@ requirements.txt
 .idea/
 # Stray files created by tools that treat ":memory:" as a path
 :memory:*
+
+# direnv local cache (per-machine)
+.direnv/
+
+# optional personal overrides (if you ever split secrets/local tweaks out of .envrc)
+.envrc.local

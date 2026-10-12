@@ -51,6 +51,13 @@ class StubRadio:
         self.events.append(("busy_check", value))
         return value
 
+    def cos_defer_snapshot(self) -> tuple[bool | None, float]:
+        """Peek COS for UI/SSE without consuming ``busy_sequence`` (matches DRA snapshot path)."""
+        if self.busy_sequence is not None:
+            index = min(self._busy_index, len(self.busy_sequence) - 1)
+            return bool(self.busy_sequence[index]), 0.0
+        return self.busy, 0.0
+
     def set_ptt(self, keyed: bool) -> None:
         self.ptt = bool(keyed)
         self.events.append(("ptt", self.ptt))

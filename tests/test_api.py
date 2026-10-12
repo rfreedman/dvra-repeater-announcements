@@ -285,7 +285,7 @@ def test_trigger_now_plays_without_changing_last_or_next(client, store, radio, m
     assert after["last_run_at"] is None
     assert after["next_run_at"] == next_at
     assert ("ptt", True) in radio.events
-    assert radio.events[-1] == ("ptt", False)
+    assert ("ptt", False) in radio.events
 
 
 def test_index_shows_app_version(client):

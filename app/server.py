@@ -68,7 +68,7 @@ from app.pcm_cache import (
     warm_announcement,
     warm_announcement_in_background,
 )
-from app.home_live import build_home_live_status, notify_home_live_status
+from app.home_live import build_home_live_status, notify_home_data_changed, notify_home_live_status
 from app.scheduler import (
     clear_manual_trigger_drop_notice,
     peek_manual_trigger_drop_notice,
@@ -527,6 +527,7 @@ def put_settings(req: SettingsIn, _admin: AdminUser) -> dict[str, object]:
             )
     stored = store.save_settings(settings)
     sync_jobs()
+    notify_home_data_changed()
     return stored.model_dump(mode="json")
 
 
@@ -570,7 +571,7 @@ async def _home_live_event_stream(request: Request) -> AsyncIterator[str]:
                 continue
             if payload is None:
                 break
-            yield format_sse("status", payload)
+            yield format_sse(payload.event, payload.data)
     finally:
         unsubscribe(queue)
 
@@ -621,6 +622,7 @@ def create_announcement(req: AnnouncementIn, _admin: AdminUser) -> dict[str, obj
     )
     stored = get_store().save_announcement(item)
     _warm_in_background(stored)
+    notify_home_data_changed()
     return stored.model_dump(mode="json")
 
 
@@ -646,6 +648,7 @@ def update_announcement(
     stored = store.save_announcement(updated)
     _warm_in_background(stored)
     sync_jobs()
+    notify_home_data_changed()
     return stored.model_dump(mode="json")
 
 
@@ -658,6 +661,7 @@ def delete_announcement(announcement_id: str, _admin: AdminUser) -> dict[str, bo
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     get_pcm_cache().drop(announcement_id)
     sync_jobs()
+    notify_home_data_changed()
     return {"ok": True}
 
 
@@ -667,6 +671,7 @@ def create_schedule(req: ScheduleIn, _admin: AdminUser) -> dict[str, object]:
     _reject_schedule(incoming)
     stored = get_store().save_schedule(incoming)
     sync_jobs()
+    notify_home_data_changed()
     return stored.model_dump(mode="json")
 
 
@@ -687,6 +692,7 @@ def replace_schedule(schedule_id: str, req: ScheduleIn, _admin: AdminUser) -> di
     _reject_schedule(incoming, skip_id=schedule_id)
     stored = get_store().save_schedule(incoming)
     sync_jobs()
+    notify_home_data_changed()
     return stored.model_dump(mode="json")
 
 
@@ -704,6 +710,7 @@ def patch_schedule(schedule_id: str, req: SchedulePatch, _admin: AdminUser) -> d
     if stored is None:
         raise HTTPException(status_code=404, detail="Schedule not found")
     sync_jobs()
+    notify_home_data_changed()
     return stored.model_dump(mode="json")
 
 
@@ -740,6 +747,7 @@ def delete_schedule(schedule_id: str, _admin: AdminUser) -> dict[str, bool]:
     if not get_store().delete_schedule(schedule_id):
         raise HTTPException(status_code=404, detail="Schedule not found")
     sync_jobs()
+    notify_home_data_changed()
     return {"ok": True}
 
 
