@@ -46,6 +46,23 @@ if ! git merge-base --is-ancestor HEAD "origin/$branch"; then
   exit 1
 fi
 
+version_at() {
+  git show "$1:pyproject.toml" | sed -n 's/^version *= *"\(.*\)"/\1/p' | head -n 1
+}
+deployed="$(version_at HEAD)"
+candidate="$(version_at "origin/$branch")"
+if [[ "$(git rev-parse HEAD)" != "$(git rev-parse "origin/$branch")" ]]; then
+  newest="$(printf '%s\n%s\n' "$deployed" "$candidate" | sort -V | tail -n 1)"
+  if [[ "$candidate" == "$deployed" || "$newest" != "$candidate" ]]; then
+    echo "origin/$branch has new commits but version is $candidate (deployed: $deployed)." >&2
+    echo "Bump it on the dev machine, then commit, push, and re-run scripts/deploy.sh:" >&2
+    echo "  uv version --bump patch     # or minor / major" >&2
+    echo "App left running; nothing deployed." >&2
+    exit 1
+  fi
+  echo "Deploying version $deployed -> $candidate"
+fi
+
 pids="$(pgrep -u "$USER" -f "$pattern" || true)"
 if [[ -n "$pids" ]]; then
   echo "Stopping app (pid $pids)"
@@ -67,8 +84,7 @@ fi
 old="$(git rev-parse --short HEAD)"
 git merge --quiet --ff-only "origin/$branch"
 new="$(git rev-parse --short HEAD)"
-version="$(sed -n 's/^version *= *"\(.*\)"/\1/p' pyproject.toml | head -n 1)"
-echo "Updated $old -> $new (version $version)"
+echo "Updated $old -> $new (version $(version_at HEAD))"
 mkdir -p "$(dirname "$out")"
 setsid nohup ./serve.sh >"$out" 2>&1 </dev/null &
 pid=$!

@@ -44,7 +44,7 @@ scripts/deploy.sh                 # default host repeater-nuc
 scripts/deploy.sh other-host      # or DEPLOY_HOST=other-host; DEPLOY_PATH overrides the NUC repo path
 ```
 
-The script refuses to run with uncommitted or unpushed local changes. On the NUC it checks that uv is present, that the clone is clean, and that `origin/main` fast-forwards, all before touching the app. Then it stops the running `python -m app serve` with SIGTERM, pulls, and starts `./serve.sh` in the background, which syncs dependencies. It waits for `Startup complete` in the log and warns if the radio mode is `stub`. Background output goes to `data/logs/serve.out` on the NUC. If the app does not stop within 30 s, the deploy aborts without updating; it never SIGKILLs the app, because that can leave PTT keyed.
+The script refuses to run with uncommitted or unpushed local changes. On the NUC it checks that uv is present, that the clone is clean, and that `origin/main` fast-forwards, all before touching the app. If `origin/main` has new commits, its `pyproject.toml` version must be greater than the one the NUC is running (bump with `uv version --bump patch`, commit, push); otherwise the deploy stops and leaves the app running. A redeploy with no new commits just restarts the app. Then it stops the running `python -m app serve` with SIGTERM, pulls, and starts `./serve.sh` in the background, which syncs dependencies. It waits for `Startup complete` in the log and warns if the radio mode is `stub`. Background output goes to `data/logs/serve.out` on the NUC. If the app does not stop within 30 s, the deploy aborts without updating; it never SIGKILLs the app, because that can leave PTT keyed.
 
 To install the locked versions by hand, without test packages:
 
