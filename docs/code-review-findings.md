@@ -119,6 +119,7 @@ APScheduler with a shifted/frozen clock before fixing; the new tests in
 | Small items | Unused `Engine.blurb` removed; `RunningOnKeyRadio` moved out of `handle_fire` to module level; redundant `locked()` check before releasing the playback lock removed; unused imports cleaned in app, scripts, and tests. |
 | `Announcement` model lacked API validation bounds (GitHub #1) | Shared limits in `app/config.py` (`MIN_SPEECH_SPEED`, `MAX_*`); `Announcement` uses matching `Field` constraints and `normalize_announcement_text()`; `SpeakRequest` / `AnnouncementIn` use the same constants. Invalid rows fail on load via `StoreDocument`. Tests: `tests/test_announcement_validation.py`. |
 | Defer/nudge magic numbers in `fire.py` / `scheduler.py` (GitHub #3) | Named module constants with comments; README “Defer timing” table documents defaults (not env vars). Tests: `tests/test_defer_timing_constants.py` plus existing `test_defer_retry_delay`, `test_manual_nudge_clear`. |
+| Duplicated atomic JSON writes in stores (GitHub #4) | `write_json_atomic()` in `app/store.py`; `AnnouncementStore` and `UserStore` `_write` call it. Test: `tests/test_write_json_atomic.py`. |
 
 ## Known limitations left as-is
 

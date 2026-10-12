@@ -45,6 +45,15 @@ def read_versioned_json(path: Path, *, version: int, kind: str) -> dict | None:
     return raw
 
 
+def write_json_atomic(path: Path, data: dict) -> None:
+    """Write JSON atomically via a same-directory .tmp file and replace."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(data, indent=2) + "\n"
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(payload, encoding="utf-8")
+    tmp.replace(path)
+
+
 def empty_document() -> StoreDocument:
     return StoreDocument()
 
@@ -60,11 +69,7 @@ class AnnouncementStore:
         return StoreDocument.model_validate(raw)
 
     def _write(self, document: StoreDocument) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        payload = json.dumps(document.model_dump(mode="json"), indent=2)
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(payload + "\n", encoding="utf-8")
-        tmp.replace(self.path)
+        write_json_atomic(self.path, document.model_dump(mode="json"))
 
     def document(self) -> StoreDocument:
         with _lock:

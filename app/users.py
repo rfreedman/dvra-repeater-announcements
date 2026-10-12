@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,7 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.config import USERS_PATH
 from app.models import new_id
-from app.store import read_versioned_json
+from app.store import read_versioned_json, write_json_atomic
 
 Role = Literal["admin", "readonly"]
 
@@ -63,11 +62,7 @@ class UserStore:
         return UsersDocument.model_validate(raw)
 
     def _write(self, document: UsersDocument) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        payload = json.dumps(document.model_dump(mode="json"), indent=2)
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(payload + "\n", encoding="utf-8")
-        tmp.replace(self.path)
+        write_json_atomic(self.path, document.model_dump(mode="json"))
 
     def document(self) -> UsersDocument:
         with _lock:
