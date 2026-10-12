@@ -723,6 +723,20 @@ function syncDeleteButtons() {
 
 function tickUpcoming() {
   renderUpcoming();
+  if (homeSseConnected) return;
+  // When SSE is down (cache, proxy, reconnect), fall back to fast poll during active radio work.
+  if (!upcoming && pendingManualTriggers.length === 0 && !triggerNowBusy) return;
+  const soon =
+    upcoming?.at &&
+    new Date(upcoming.at).getTime() - (Date.now() + clockSkewMs) <= 15000;
+  if (
+    triggerNowBusy ||
+    upcoming?.status === "running" ||
+    pendingManualTriggers.length > 0 ||
+    soon
+  ) {
+    refreshHome({ background: true }).catch(() => {});
+  }
 }
 
 function fillDayChips(container, selected, { exclusive = false } = {}) {
@@ -1169,7 +1183,11 @@ function parseSseBlock(block) {
 }
 
 async function streamHomeLiveEvents(signal) {
-  const res = await fetch("/api/events/home", { headers: BACKGROUND_HEADERS, signal });
+  const res = await fetch("/api/events/home", {
+    headers: BACKGROUND_HEADERS,
+    credentials: "same-origin",
+    signal,
+  });
   if (!res.ok) throw new Error("Could not open home event stream");
   const reader = res.body.getReader();
   const decoder = new TextDecoder();

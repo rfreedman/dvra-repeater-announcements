@@ -46,7 +46,8 @@ def publish_home_live_status(*, allow_throttle: bool = False, force: bool = Fals
     if not _has_subscribers():
         return
     loop = _loop
-    if loop is None or not loop.is_running():
+    if loop is None:
+        log.debug("SSE publish skipped: event loop not registered")
         return
     import time
 
@@ -78,7 +79,7 @@ def publish_home_live_status(*, allow_throttle: bool = False, force: bool = Fals
         try:
             loop.call_soon_threadsafe(_enqueue, queue, payload)
         except RuntimeError:
-            pass
+            log.debug("SSE publish skipped: event loop not running", exc_info=True)
 
 
 def _enqueue(queue: asyncio.Queue[dict[str, Any] | None], payload: dict[str, Any]) -> None:
