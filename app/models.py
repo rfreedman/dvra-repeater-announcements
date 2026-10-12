@@ -101,9 +101,12 @@ def format_hhmm(hour: int, minute: int) -> str:
     return f"{hour:02d}:{minute:02d}"
 
 
+SLOT_MINUTES = (0, 30)
+
+
 def is_slot_stamp(value: str) -> bool:
     _hour, minute = parse_hhmm(value)
-    return minute in (0, 30)
+    return minute in SLOT_MINUTES
 
 
 def normalize_slots(values: list[str], *, required: bool) -> list[str]:

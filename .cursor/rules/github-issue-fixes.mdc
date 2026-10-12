@@ -1,0 +1,14 @@
+---
+description: When fixing work tracked as a GitHub issue, leave the issue open for the user to verify and close.
+alwaysApply: true
+---
+
+# GitHub issue fixes
+
+When implementing a fix for a numbered GitHub issue (e.g. from the tech-debt backlog):
+
+- **Do not** run `gh issue close` or mark the issue complete in comments unless the user explicitly asks you to close it.
+- **Do** implement the fix, run tests, and briefly tell the user which issue was addressed and how to verify.
+- The user closes the issue after they test on their machine or the NUC.
+
+Optional: add a finding row to `docs/code-review-findings.md` when the fix matches a documented review item.
