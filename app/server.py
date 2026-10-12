@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from starlette.middleware.sessions import SessionMiddleware
 
 from app import __version__, config
@@ -34,13 +34,25 @@ from app.config import (
     DEFAULT_BUSY_RETRY_SECONDS,
     DEFAULT_SENTENCE_PAUSE,
     DEFAULT_SPEED,
+    MAX_BUSY_GIVE_UP_SECONDS,
+    MAX_BUSY_RETRY_SECONDS,
+    MAX_SENTENCE_PAUSE,
+    MAX_SPEECH_SPEED,
     MAX_TEXT_CHARS,
+    MIN_SPEECH_SPEED,
     STATIC_DIR,
     TIMEZONE,
     session_secret,
 )
 from app.engines.base import VoiceError
-from app.models import Announcement, Schedule, ScheduleKind, Settings, StoreDocument
+from app.models import (
+    Announcement,
+    Schedule,
+    ScheduleKind,
+    Settings,
+    StoreDocument,
+    normalize_announcement_text,
+)
 from app.registry import get_registry
 from app.schedule_logic import (
     clock_for_day,
@@ -119,8 +131,15 @@ registry = get_registry()
 class SpeakRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=MAX_TEXT_CHARS)
     voice: str | None = None
-    speed: float = Field(default=DEFAULT_SPEED, gt=0.25, le=2.0)
-    sentence_pause: float = Field(default=DEFAULT_SENTENCE_PAUSE, ge=0.0, le=2.0)
+    speed: float = Field(default=DEFAULT_SPEED, gt=MIN_SPEECH_SPEED, le=MAX_SPEECH_SPEED)
+    sentence_pause: float = Field(
+        default=DEFAULT_SENTENCE_PAUSE, ge=0.0, le=MAX_SENTENCE_PAUSE
+    )
+
+    @field_validator("text")
+    @classmethod
+    def text_present(cls, value: str) -> str:
+        return normalize_announcement_text(value)
 
 
 class PrepareRequest(BaseModel):
@@ -155,10 +174,21 @@ class AnnouncementIn(BaseModel):
     name: str
     text: str = Field(..., min_length=1, max_length=MAX_TEXT_CHARS)
     voice: str | None = None
-    speed: float = Field(default=DEFAULT_SPEED, gt=0.25, le=2.0)
-    sentence_pause: float = Field(default=DEFAULT_SENTENCE_PAUSE, ge=0.0, le=2.0)
-    busy_retry_seconds: float = Field(default=DEFAULT_BUSY_RETRY_SECONDS, gt=0, le=120)
-    busy_give_up_seconds: float = Field(default=DEFAULT_BUSY_GIVE_UP_SECONDS, gt=0, le=600)
+    speed: float = Field(default=DEFAULT_SPEED, gt=MIN_SPEECH_SPEED, le=MAX_SPEECH_SPEED)
+    sentence_pause: float = Field(
+        default=DEFAULT_SENTENCE_PAUSE, ge=0.0, le=MAX_SENTENCE_PAUSE
+    )
+    busy_retry_seconds: float = Field(
+        default=DEFAULT_BUSY_RETRY_SECONDS, gt=0, le=MAX_BUSY_RETRY_SECONDS
+    )
+    busy_give_up_seconds: float = Field(
+        default=DEFAULT_BUSY_GIVE_UP_SECONDS, gt=0, le=MAX_BUSY_GIVE_UP_SECONDS
+    )
+
+    @field_validator("text")
+    @classmethod
+    def text_present(cls, value: str) -> str:
+        return normalize_announcement_text(value)
 
 
 class SettingsIn(BaseModel):

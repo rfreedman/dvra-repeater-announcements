@@ -64,6 +64,12 @@ PORT = int(os.environ.get("TTS_PORT", "8000"))
 MAX_TEXT_CHARS = int(os.environ.get("TTS_MAX_TEXT_CHARS", "5000"))
 DEFAULT_SPEED = float(os.environ.get("TTS_SPEED", "1.0"))
 DEFAULT_SENTENCE_PAUSE = float(os.environ.get("TTS_SENTENCE_PAUSE", "0.25"))
+# Bounds for speed / pause / busy retry (Announcement model and /api/speak, /api/announcements).
+MIN_SPEECH_SPEED = 0.25
+MAX_SPEECH_SPEED = 2.0
+MAX_SENTENCE_PAUSE = 2.0
+MAX_BUSY_RETRY_SECONDS = 120
+MAX_BUSY_GIVE_UP_SECONDS = 600
 
 DATA_DIR = Path(os.environ.get("TTS_DATA_DIR", ROOT_DIR / "data")).expanduser()
 ANNOUNCEMENTS_PATH = DATA_DIR / "announcements.json"

@@ -117,6 +117,7 @@ APScheduler with a shifted/frozen clock before fixing; the new tests in
 | FastAPI title "TTS Stream" | Renamed "DVRA Repeater Announcements". |
 | No login rate limiting | `LoginRateLimiter` in `app/auth.py`: 5 failures per client+username in 5 min → `429` with `Retry-After` (`test_repeated_failed_logins_are_rate_limited`). In memory; resets on restart. |
 | Small items | Unused `Engine.blurb` removed; `RunningOnKeyRadio` moved out of `handle_fire` to module level; redundant `locked()` check before releasing the playback lock removed; unused imports cleaned in app, scripts, and tests. |
+| `Announcement` model lacked API validation bounds (GitHub #1) | Shared limits in `app/config.py` (`MIN_SPEECH_SPEED`, `MAX_*`); `Announcement` uses matching `Field` constraints and `normalize_announcement_text()`; `SpeakRequest` / `AnnouncementIn` use the same constants. Invalid rows fail on load via `StoreDocument`. Tests: `tests/test_announcement_validation.py`. |
 
 ## Known limitations left as-is
 

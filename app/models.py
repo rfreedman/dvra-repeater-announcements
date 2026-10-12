@@ -13,6 +13,12 @@ from app.config import (
     DEFAULT_SENTENCE_PAUSE,
     DEFAULT_SLOT_HALF_WINDOW_MINUTES,
     DEFAULT_SPEED,
+    MAX_BUSY_GIVE_UP_SECONDS,
+    MAX_BUSY_RETRY_SECONDS,
+    MAX_SENTENCE_PAUSE,
+    MAX_SPEECH_SPEED,
+    MAX_TEXT_CHARS,
+    MIN_SPEECH_SPEED,
     TIMEZONE,
 )
 
@@ -120,17 +126,30 @@ def new_id() -> str:
     return uuid.uuid4().hex[:12]
 
 
+def normalize_announcement_text(value: str) -> str:
+    text = value.strip()
+    if not text:
+        raise ValueError("Text is required")
+    return text
+
+
 class Announcement(BaseModel):
     """Spoken text. Schedules point here; the text has no timing of its own."""
 
     id: str = Field(default_factory=new_id)
     name: str
-    text: str
+    text: str = Field(..., min_length=1, max_length=MAX_TEXT_CHARS)
     voice: str | None = None
-    speed: float = DEFAULT_SPEED
-    sentence_pause: float = DEFAULT_SENTENCE_PAUSE
-    busy_retry_seconds: float = DEFAULT_BUSY_RETRY_SECONDS
-    busy_give_up_seconds: float = DEFAULT_BUSY_GIVE_UP_SECONDS
+    speed: float = Field(default=DEFAULT_SPEED, gt=MIN_SPEECH_SPEED, le=MAX_SPEECH_SPEED)
+    sentence_pause: float = Field(
+        default=DEFAULT_SENTENCE_PAUSE, ge=0.0, le=MAX_SENTENCE_PAUSE
+    )
+    busy_retry_seconds: float = Field(
+        default=DEFAULT_BUSY_RETRY_SECONDS, gt=0, le=MAX_BUSY_RETRY_SECONDS
+    )
+    busy_give_up_seconds: float = Field(
+        default=DEFAULT_BUSY_GIVE_UP_SECONDS, gt=0, le=MAX_BUSY_GIVE_UP_SECONDS
+    )
 
     @field_validator("name")
     @classmethod
@@ -139,6 +158,11 @@ class Announcement(BaseModel):
         if not name:
             raise ValueError("Name is required")
         return name
+
+    @field_validator("text")
+    @classmethod
+    def text_present(cls, value: str) -> str:
+        return normalize_announcement_text(value)
 
 
 class Schedule(BaseModel):
