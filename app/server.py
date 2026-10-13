@@ -77,7 +77,15 @@ from app.scheduler import (
     stop_scheduler,
     sync_jobs,
 )
-from app.sse_hub import format_sse, subscribe, subscribe_stats, unsubscribe, unsubscribe_stats
+from app.sse_hub import (
+    format_sse,
+    shutdown_sse_streams,
+    sse_shutting_down,
+    subscribe,
+    subscribe_stats,
+    unsubscribe,
+    unsubscribe_stats,
+)
 from app.stats_sse import stats_broadcast_loop
 from app.radio import active_radio_mode_label
 from app.startup import StartupError, fail_startup, init_radio_at_startup
@@ -115,12 +123,14 @@ async def lifespan(_app: FastAPI):
     import app.sse_hub as sse_hub
 
     sse_hub.set_event_loop(asyncio.get_running_loop())
+    sse_hub.clear_shutdown_state()
     stats_stop = asyncio.Event()
     stats_task = asyncio.create_task(stats_broadcast_loop(stats_stop))
     try:
         yield
     finally:
         stats_stop.set()
+        shutdown_sse_streams()
         await stats_task
     stop_scheduler()
 
@@ -569,11 +579,13 @@ async def _home_live_event_stream(request: Request) -> AsyncIterator[str]:
     try:
         yield format_sse("snapshot", build_home_live_status())
         while True:
-            if await request.is_disconnected():
+            if sse_shutting_down() or await request.is_disconnected():
                 break
             try:
                 payload = await asyncio.wait_for(queue.get(), timeout=30.0)
             except asyncio.TimeoutError:
+                if sse_shutting_down():
+                    break
                 yield ": ping\n\n"
                 continue
             if payload is None:
@@ -601,11 +613,13 @@ async def _system_stats_event_stream(request: Request) -> AsyncIterator[str]:
     try:
         yield format_sse("snapshot", await asyncio.to_thread(read_system_stats))
         while True:
-            if await request.is_disconnected():
+            if sse_shutting_down() or await request.is_disconnected():
                 break
             try:
                 payload = await asyncio.wait_for(queue.get(), timeout=30.0)
             except asyncio.TimeoutError:
+                if sse_shutting_down():
+                    break
                 yield ": ping\n\n"
                 continue
             if payload is None:

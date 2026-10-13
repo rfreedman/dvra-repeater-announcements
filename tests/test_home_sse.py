@@ -8,10 +8,12 @@ import json
 from app.home_live import build_home_live_status, notify_home_data_changed, notify_home_live_status
 from app.scheduler import _clear_running, _set_running
 from app.sse_hub import (
+    clear_shutdown_state,
     format_sse,
     publish_home_data_changed,
     publish_home_live_status,
     set_event_loop,
+    shutdown_sse_streams,
     subscribe,
     unsubscribe,
 )
@@ -144,3 +146,21 @@ def test_notify_home_live_status_no_subscribers():
 
 def test_notify_home_data_changed_no_subscribers():
     notify_home_data_changed()
+
+
+def test_shutdown_sse_streams_unblocks_subscribers():
+    async def run() -> None:
+        loop = asyncio.get_running_loop()
+        set_event_loop(loop)
+        clear_shutdown_state()
+        queue = subscribe()
+        try:
+            shutdown_sse_streams()
+            await asyncio.sleep(0)
+            payload = await asyncio.wait_for(queue.get(), timeout=2.0)
+            assert payload is None
+        finally:
+            unsubscribe(queue)
+            clear_shutdown_state()
+
+    asyncio.run(run())

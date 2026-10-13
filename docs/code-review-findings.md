@@ -121,6 +121,7 @@ APScheduler with a shifted/frozen clock before fixing; the new tests in
 | Defer/nudge magic numbers in `fire.py` / `scheduler.py` (GitHub #3) | Named module constants with comments; README “Defer timing” table documents defaults (not env vars). Tests: `tests/test_defer_timing_constants.py` plus existing `test_defer_retry_delay`, `test_manual_nudge_clear`. |
 | Duplicated atomic JSON writes in stores (GitHub #4) | `write_json_atomic()` in `app/store.py`; `AnnouncementStore` and `UserStore` `_write` call it. Test: `tests/test_write_json_atomic.py`. |
 | Second operator stuck on “Waiting…” after Trigger now finished (GitHub #27) | SSE `publish_home_live_status` dropped the idle/clear snapshot when it fell inside the 50 ms debounce after COS throttled updates; throttled COS stops publishing once pending/running is empty. **Fix:** `force=True` on terminal notifies (`_clear_running`, manual trigger `finally`, transmit/drop). Test: `test_force_publish_bypasses_min_interval`. |
+| Deploy SIGTERM hung on “Waiting for connections to close” (GitHub #27 SSE) | Open `/api/events/home` and `/api/events/stats` tabs never call `request.is_disconnected()` on server shutdown, so uvicorn waited until deploy’s 30 s stop timeout. **Fix:** lifespan `finally` calls `shutdown_sse_streams()` (enqueue `None` on every subscriber + `sse_shutting_down()` checks in stream loops). Test: `test_shutdown_sse_streams_unblocks_subscribers`. |
 
 ## Known limitations left as-is
 

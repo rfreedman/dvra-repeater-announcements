@@ -18,6 +18,7 @@ _loop: asyncio.AbstractEventLoop | None = None
 _subscribers: set[asyncio.Queue[SseHomeMessage | None]] = set()
 _stats_subscribers: set[asyncio.Queue[SseHomeMessage | None]] = set()
 _subscribers_lock = threading.Lock()
+_shutting_down = False
 _publish_lock = threading.Lock()
 _last_publish_mono = 0.0
 MIN_PUBLISH_INTERVAL_SECONDS = 0.05
@@ -32,6 +33,32 @@ class SseHomeMessage:
 def set_event_loop(loop: asyncio.AbstractEventLoop) -> None:
     global _loop
     _loop = loop
+
+
+def clear_shutdown_state() -> None:
+    global _shutting_down
+    _shutting_down = False
+
+
+def sse_shutting_down() -> bool:
+    return _shutting_down
+
+
+def shutdown_sse_streams() -> None:
+    """Unblock all SSE stream handlers so uvicorn can exit (open browser tabs)."""
+    global _shutting_down
+    _shutting_down = True
+    with _subscribers_lock:
+        targets = list(_subscribers) + list(_stats_subscribers)
+    loop = _loop
+    for queue in targets:
+        if loop is not None:
+            try:
+                loop.call_soon_threadsafe(_close_queue, queue)
+            except RuntimeError:
+                _close_queue(queue)
+        else:
+            _close_queue(queue)
 
 
 def subscribe() -> asyncio.Queue[SseHomeMessage | None]:
@@ -130,6 +157,21 @@ def publish_stats_event(data: dict[str, Any]) -> None:
             loop.call_soon_threadsafe(_enqueue, queue, message)
         except RuntimeError:
             log.debug("Stats SSE publish skipped: event loop not running", exc_info=True)
+
+
+def _close_queue(queue: asyncio.Queue[SseHomeMessage | None]) -> None:
+    try:
+        queue.put_nowait(None)
+    except asyncio.QueueFull:
+        try:
+            while True:
+                queue.get_nowait()
+        except asyncio.QueueEmpty:
+            pass
+        try:
+            queue.put_nowait(None)
+        except asyncio.QueueFull:
+            pass
 
 
 def _enqueue(queue: asyncio.Queue[SseHomeMessage | None], message: SseHomeMessage) -> None:
