@@ -77,7 +77,8 @@ from app.scheduler import (
     stop_scheduler,
     sync_jobs,
 )
-from app.sse_hub import format_sse, subscribe, unsubscribe
+from app.sse_hub import format_sse, subscribe, subscribe_stats, unsubscribe, unsubscribe_stats
+from app.stats_sse import stats_broadcast_loop
 from app.radio import active_radio_mode_label
 from app.startup import StartupError, fail_startup, init_radio_at_startup
 from app.store import get_store
@@ -114,7 +115,13 @@ async def lifespan(_app: FastAPI):
     import app.sse_hub as sse_hub
 
     sse_hub.set_event_loop(asyncio.get_running_loop())
-    yield
+    stats_stop = asyncio.Event()
+    stats_task = asyncio.create_task(stats_broadcast_loop(stats_stop))
+    try:
+        yield
+    finally:
+        stats_stop.set()
+        await stats_task
     stop_scheduler()
 
 
@@ -580,6 +587,38 @@ async def _home_live_event_stream(request: Request) -> AsyncIterator[str]:
 async def home_live_events(request: Request, _user: AuthUser) -> StreamingResponse:
     return StreamingResponse(
         _home_live_event_stream(request),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-store",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+async def _system_stats_event_stream(request: Request) -> AsyncIterator[str]:
+    queue = subscribe_stats()
+    try:
+        yield format_sse("snapshot", await asyncio.to_thread(read_system_stats))
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                payload = await asyncio.wait_for(queue.get(), timeout=30.0)
+            except asyncio.TimeoutError:
+                yield ": ping\n\n"
+                continue
+            if payload is None:
+                break
+            yield format_sse(payload.event, payload.data)
+    finally:
+        unsubscribe_stats(queue)
+
+
+@app.get("/api/events/stats")
+async def system_stats_events(request: Request, _user: AuthUser) -> StreamingResponse:
+    return StreamingResponse(
+        _system_stats_event_stream(request),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-store",

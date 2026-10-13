@@ -85,6 +85,9 @@ let countdownTimer = null;
 let homeSseWanted = false;
 let homeSseAbort = null;
 let homeSseConnected = false;
+let statsSseWanted = false;
+let statsSseAbort = null;
+let statsSseConnected = false;
 let upcoming = null;
 let clockSkewMs = 0;
 let homeBusy = false;
@@ -1261,6 +1264,68 @@ async function refreshSystemStats() {
   }
 }
 
+async function streamSystemStatsEvents(signal) {
+  const res = await fetch("/api/events/stats", {
+    headers: BACKGROUND_HEADERS,
+    credentials: "same-origin",
+    signal,
+  });
+  if (!res.ok) throw new Error("Could not open system stats event stream");
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  statsSseConnected = true;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let splitAt = buffer.indexOf("\n\n");
+      while (splitAt >= 0) {
+        const block = buffer.slice(0, splitAt);
+        buffer = buffer.slice(splitAt + 2);
+        const parsed = parseSseBlock(block);
+        if (!parsed) continue;
+        if (parsed.event === "snapshot" || parsed.event === "stats") {
+          renderSystemStats(parsed.data);
+        }
+        splitAt = buffer.indexOf("\n\n");
+      }
+    }
+  } finally {
+    statsSseConnected = false;
+    reader.releaseLock();
+  }
+}
+
+async function runStatsSseLoop() {
+  let backoffMs = 1000;
+  while (statsSseWanted) {
+    const controller = new AbortController();
+    statsSseAbort = controller;
+    try {
+      await streamSystemStatsEvents(controller.signal);
+      backoffMs = 1000;
+    } catch (err) {
+      if (!statsSseWanted || err?.name === "AbortError") break;
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
+      backoffMs = Math.min(backoffMs * 2, 30000);
+    } finally {
+      if (statsSseAbort === controller) statsSseAbort = null;
+    }
+  }
+  statsSseConnected = false;
+}
+
+function stopStatsSse() {
+  statsSseWanted = false;
+  if (statsSseAbort) {
+    statsSseAbort.abort();
+    statsSseAbort = null;
+  }
+  statsSseConnected = false;
+}
+
 function renderSystemStats(payload) {
   const chip = document.getElementById("system-stats");
   const tempEl = document.getElementById("system-stats-temp");
@@ -1334,11 +1399,19 @@ function stopHomePolling() {
 }
 
 function startStatsPolling() {
-  if (!statsTimer) statsTimer = setInterval(() => refreshSystemStats().catch(() => {}), 15000);
-  refreshSystemStats().catch(() => {});
+  if (!statsTimer) {
+    statsTimer = setInterval(() => {
+      if (!statsSseConnected) refreshSystemStats().catch(() => {});
+    }, 15000);
+  }
+  if (!statsSseWanted) {
+    statsSseWanted = true;
+    runStatsSseLoop().catch(() => {});
+  }
 }
 
 function stopStatsPolling() {
+  stopStatsSse();
   if (statsTimer) {
     clearInterval(statsTimer);
     statsTimer = null;

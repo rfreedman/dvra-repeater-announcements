@@ -1,4 +1,4 @@
-"""In-process SSE fan-out for home live status."""
+"""In-process SSE fan-out for home live status and system stats."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ log = logging.getLogger("app.sse_hub")
 
 _loop: asyncio.AbstractEventLoop | None = None
 _subscribers: set[asyncio.Queue[SseHomeMessage | None]] = set()
+_stats_subscribers: set[asyncio.Queue[SseHomeMessage | None]] = set()
 _subscribers_lock = threading.Lock()
 _publish_lock = threading.Lock()
 _last_publish_mono = 0.0
@@ -45,9 +46,26 @@ def unsubscribe(queue: asyncio.Queue[SseHomeMessage | None]) -> None:
         _subscribers.discard(queue)
 
 
+def subscribe_stats() -> asyncio.Queue[SseHomeMessage | None]:
+    queue: asyncio.Queue[SseHomeMessage | None] = asyncio.Queue(maxsize=8)
+    with _subscribers_lock:
+        _stats_subscribers.add(queue)
+    return queue
+
+
+def unsubscribe_stats(queue: asyncio.Queue[SseHomeMessage | None]) -> None:
+    with _subscribers_lock:
+        _stats_subscribers.discard(queue)
+
+
 def _has_subscribers() -> bool:
     with _subscribers_lock:
         return bool(_subscribers)
+
+
+def has_stats_subscribers() -> bool:
+    with _subscribers_lock:
+        return bool(_stats_subscribers)
 
 
 def publish_sse_event(event: str, data: dict[str, Any], *, force: bool = False) -> None:
@@ -95,6 +113,23 @@ def publish_home_live_status(*, allow_throttle: bool = False, force: bool = Fals
 
 def publish_home_data_changed() -> None:
     publish_sse_event("data_changed", {}, force=True)
+
+
+def publish_stats_event(data: dict[str, Any]) -> None:
+    if not has_stats_subscribers():
+        return
+    loop = _loop
+    if loop is None:
+        log.debug("Stats SSE publish skipped: event loop not registered")
+        return
+    message = SseHomeMessage(event="stats", data=data)
+    with _subscribers_lock:
+        targets = list(_stats_subscribers)
+    for queue in targets:
+        try:
+            loop.call_soon_threadsafe(_enqueue, queue, message)
+        except RuntimeError:
+            log.debug("Stats SSE publish skipped: event loop not running", exc_info=True)
 
 
 def _enqueue(queue: asyncio.Queue[SseHomeMessage | None], message: SseHomeMessage) -> None:
