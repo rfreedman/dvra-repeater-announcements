@@ -455,11 +455,22 @@ function showScreen(id) {
   }
 }
 
-function onBootScreen() {
-  return !authReady || document.getElementById("view-boot")?.classList.contains("active");
+function isBootScreenActive() {
+  return document.getElementById("view-boot")?.classList.contains("active");
 }
 
-function showBoot(message = "Starting, please wait…") {
+async function fetchServerReady() {
+  try {
+    const res = await nativeFetch("/api/ready", { cache: "no-store", credentials: "same-origin" });
+    if (!res.ok) return false;
+    const body = await res.json();
+    return Boolean(body.ready);
+  } catch {
+    return false;
+  }
+}
+
+function showBoot(message = "Starting server, please wait…") {
   const panel = document.querySelector(".boot-panel");
   const msg = document.getElementById("boot-message");
   const err = document.getElementById("boot-error");
@@ -1841,13 +1852,11 @@ function routeKey(hash = location.hash) {
 
 async function route() {
   await boot;
-  const deferScreen = onBootScreen();
-  if (deferScreen) {
+  const serverStarting = !(await fetchServerReady());
+  if (serverStarting) {
     showBoot();
     await yieldToPaint();
     await waitForServerReady();
-    if (deferScreen) showBoot("Loading schedules and voices…");
-    await yieldToPaint();
   }
   try {
     const auth = await refreshAuth();
@@ -1909,9 +1918,8 @@ async function route() {
       editorKey = "users";
       clearEditorGuard();
       resetUserForm();
-      if (!deferScreen) showScreen("view-users");
+      showScreen("view-users");
       await refreshUsers();
-      if (deferScreen) showScreen("view-users");
       return;
     }
     if (parts[0] === "help") {
@@ -1927,14 +1935,13 @@ async function route() {
         return;
       }
       stopHomePolling();
-      if (!deferScreen) showScreen("view-announcement");
+      showScreen("view-announcement");
       await ensureVoices();
       if (parts[1] === "new") blankAnnouncement();
       else await loadAnnouncement(parts[1]);
       applyEditorReadOnly();
       editorKey = nextKey;
       markEditorClean();
-      if (deferScreen) showScreen("view-announcement");
       return;
     }
     if (parts[0] === "schedules") {
@@ -1943,7 +1950,7 @@ async function route() {
         return;
       }
       stopHomePolling();
-      if (!deferScreen) showScreen("view-schedule");
+      showScreen("view-schedule");
       if (!announcements.length) {
         const lib = await fetch("/api/announcements");
         announcements = lib.ok ? (await lib.json()).announcements || [] : [];
@@ -1963,23 +1970,16 @@ async function route() {
       applyEditorReadOnly();
       editorKey = nextKey;
       markEditorClean();
-      if (deferScreen) showScreen("view-schedule");
       return;
     }
     editorKey = "home";
     clearEditorGuard();
-    if (!deferScreen) {
-      showScreen("view-home");
-      startHomePolling();
-    }
+    showScreen("view-home");
+    startHomePolling();
     await Promise.all([refreshHome(), ensureVoices()]);
-    if (deferScreen) {
-      showScreen("view-home");
-      startHomePolling();
-    }
   } catch (err) {
     const message = err?.message || "Something went wrong";
-    if (onBootScreen() || deferScreen) showBootError(message);
+    if (isBootScreenActive() || serverStarting) showBootError(message);
     else window.alert(message);
   }
 }
@@ -2097,7 +2097,7 @@ document.getElementById("boot-retry").addEventListener("click", () => {
 window.addEventListener("hashchange", () => {
   if (ignoreHashChange) return;
   route().catch((err) => {
-    if (!onBootScreen()) window.alert(err.message);
+    if (!isBootScreenActive()) window.alert(err.message);
   });
 });
 window.addEventListener("beforeunload", (event) => {
