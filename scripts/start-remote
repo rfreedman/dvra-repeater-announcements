@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Start the app on the NUC (detached; survives logoff there). No git pull.
+# Usage: scripts/start-remote [host]   (env: DEPLOY_HOST, DEPLOY_PATH)
+set -euo pipefail
+
+HOST="${1:-${DEPLOY_HOST:-repeater-nuc}}"
+REMOTE_PATH="${DEPLOY_PATH:-/home/rfreedman/projects/dvra-repeater-announcements}"
+
+echo "Starting app on $HOST:$REMOTE_PATH"
+ssh "$HOST" bash -s -- "$REMOTE_PATH" <<'REMOTE'
+set -euo pipefail
+cd "$1"
+# Non-interactive ssh skips ~/.bashrc, where the uv installer adds itself; serve.sh needs uv to sync.
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+pattern='python -m app serve'
+start_timeout=180
+out=data/logs/serve.out
+
+if ! command -v uv >/dev/null 2>&1; then
+  echo "uv not found on the NUC (serve.sh needs it to sync dependencies)." >&2
+  exit 1
+fi
+
+pids="$(pgrep -u "$USER" -f "$pattern" || true)"
+if [[ -n "$pids" ]]; then
+  echo "App already running (pid $pids)." >&2
+  echo "Stop it on the NUC with: pkill -TERM -f '$pattern'" >&2
+  exit 1
+fi
+
+mkdir -p "$(dirname "$out")"
+setsid nohup ./serve.sh >"$out" 2>&1 </dev/null &
+pid=$!
+echo "Starting app (pid $pid, log: $1/$out)"
+serve_lines=0
+
+for ((i = 0; i < start_timeout; i++)); do
+  if [[ -f "$out" ]]; then
+    total="$(wc -l <"$out" | tr -d ' ')"
+    if (( total > serve_lines )); then
+      tail -n +"$((serve_lines + 1))" "$out"
+      serve_lines=$total
+    fi
+  fi
+  if grep -q 'Startup complete' "$out" 2>/dev/null; then
+    line="$(grep -m 1 'Startup complete' "$out")"
+    if [[ "$line" == *"radio mode: stub"* ]]; then
+      echo "WARNING: radio mode is stub; set TTS_RADIO_BACKEND=dra in .env for on-air playback." >&2
+    fi
+    exit 0
+  fi
+  if ! kill -0 "$pid" 2>/dev/null; then
+    echo "App exited during startup. Last output:" >&2
+    tail -n 40 "$out" >&2
+    exit 1
+  fi
+  sleep 1
+done
+echo "No 'Startup complete' after ${start_timeout}s. Last output:" >&2
+tail -n 40 "$out" >&2
+exit 1
+REMOTE

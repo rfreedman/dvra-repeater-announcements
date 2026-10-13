@@ -455,6 +455,40 @@ function showScreen(id) {
   }
 }
 
+function onBootScreen() {
+  return !authReady || document.getElementById("view-boot")?.classList.contains("active");
+}
+
+function showBoot(message = "Starting, please wait…") {
+  const panel = document.querySelector(".boot-panel");
+  const msg = document.getElementById("boot-message");
+  const err = document.getElementById("boot-error");
+  const retryWrap = document.getElementById("boot-retry-wrap");
+  if (msg) msg.textContent = message;
+  if (err) {
+    err.hidden = true;
+    err.textContent = "";
+  }
+  if (retryWrap) retryWrap.classList.add("hidden");
+  panel?.classList.remove("has-error");
+  showScreen("view-boot");
+}
+
+function showBootError(message) {
+  const panel = document.querySelector(".boot-panel");
+  const msg = document.getElementById("boot-message");
+  const err = document.getElementById("boot-error");
+  const retryWrap = document.getElementById("boot-retry-wrap");
+  if (msg) msg.textContent = "Could not load the app";
+  if (err) {
+    err.hidden = false;
+    err.textContent = message;
+  }
+  if (retryWrap) retryWrap.classList.remove("hidden");
+  panel?.classList.add("has-error");
+  showScreen("view-boot");
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -1784,119 +1818,141 @@ function routeKey(hash = location.hash) {
 
 async function route() {
   await boot;
-  const auth = await refreshAuth();
-  authReady = true;
-  if (auth.needsSetup) {
-    stopHomePolling();
-    stopStatsPolling();
-    showScreen("view-setup");
-    editorKey = "setup";
-    clearEditorGuard();
-    if (location.hash !== "#/setup") {
+  const deferScreen = onBootScreen();
+  if (deferScreen) showBoot();
+  try {
+    const auth = await refreshAuth();
+    authReady = true;
+    if (auth.needsSetup) {
+      stopHomePolling();
+      stopStatsPolling();
+      showScreen("view-setup");
+      editorKey = "setup";
+      clearEditorGuard();
+      if (location.hash !== "#/setup") {
+        ignoreHashChange = true;
+        history.replaceState(null, "", "#/setup");
+        ignoreHashChange = false;
+      }
+      return;
+    }
+    if (!auth.authenticated) {
+      stopHomePolling();
+      stopStatsPolling();
+      showScreen("view-login");
+      editorKey = "login";
+      clearEditorGuard();
+      if (location.hash !== "#/login") {
+        ignoreHashChange = true;
+        history.replaceState(null, "", "#/login");
+        ignoreHashChange = false;
+      }
+      return;
+    }
+    startStatsPolling();
+    const nextKey = routeKey();
+    if (nextKey !== editorKey && isEditorDirty() && !confirmDiscardEdits()) {
       ignoreHashChange = true;
-      history.replaceState(null, "", "#/setup");
+      history.replaceState(null, "", editorKey === "home" ? "#/" : location.hash);
       ignoreHashChange = false;
+      if (editorKey === "home") showScreen("view-home");
+      else if (editorKey === "help") showScreen("view-help");
+      else if (editorKey === "users") showScreen("view-users");
+      else if (editorKey.startsWith("ann")) showScreen("view-announcement");
+      else if (editorKey.startsWith("sched")) showScreen("view-schedule");
+      return;
     }
-    return;
-  }
-  if (!auth.authenticated) {
-    stopHomePolling();
-    stopStatsPolling();
-    showScreen("view-login");
-    editorKey = "login";
-    clearEditorGuard();
-    if (location.hash !== "#/login") {
-      ignoreHashChange = true;
-      history.replaceState(null, "", "#/login");
-      ignoreHashChange = false;
-    }
-    return;
-  }
-  startStatsPolling();
-  const nextKey = routeKey();
-  if (nextKey !== editorKey && isEditorDirty() && !confirmDiscardEdits()) {
-    ignoreHashChange = true;
-    history.replaceState(null, "", editorKey === "home" ? "#/" : location.hash);
-    ignoreHashChange = false;
-    return;
-  }
-  const raw = (location.hash.replace(/^#/, "") || "/").split("?")[0];
-  const parts = raw.split("/").filter(Boolean);
-  const params = new URLSearchParams((location.hash.split("?")[1] || "").replace(/#/g, ""));
-  showError("announcement-error", "");
-  showError("schedule-error", "");
-  if (parts[0] === "login" || parts[0] === "setup") {
-    goToHash("#/");
-    return;
-  }
-  if (parts[0] === "users") {
-    if (!isAdmin()) {
+    const raw = (location.hash.replace(/^#/, "") || "/").split("?")[0];
+    const parts = raw.split("/").filter(Boolean);
+    const params = new URLSearchParams((location.hash.split("?")[1] || "").replace(/#/g, ""));
+    showError("announcement-error", "");
+    showError("schedule-error", "");
+    if (parts[0] === "login" || parts[0] === "setup") {
       goToHash("#/");
       return;
     }
-    stopHomePolling();
-    showScreen("view-users");
-    editorKey = "users";
-    clearEditorGuard();
-    resetUserForm();
-    await refreshUsers();
-    return;
-  }
-  if (parts[0] === "help") {
-    stopHomePolling();
-    showScreen("view-help");
-    editorKey = "help";
-    clearEditorGuard();
-    return;
-  }
-  if (parts[0] === "announcements") {
-    if (parts[1] === "new" && readOnly) {
-      goToHash("#/");
+    if (parts[0] === "users") {
+      if (!isAdmin()) {
+        goToHash("#/");
+        return;
+      }
+      stopHomePolling();
+      editorKey = "users";
+      clearEditorGuard();
+      resetUserForm();
+      if (!deferScreen) showScreen("view-users");
+      await refreshUsers();
+      if (deferScreen) showScreen("view-users");
       return;
     }
-    stopHomePolling();
-    showScreen("view-announcement");
-    await ensureVoices().catch(() => {});
-    if (parts[1] === "new") blankAnnouncement();
-    else await loadAnnouncement(parts[1]);
-    applyEditorReadOnly();
-    editorKey = nextKey;
-    markEditorClean();
-    return;
-  }
-  if (parts[0] === "schedules") {
-    if (parts[1] === "new" && readOnly) {
-      goToHash("#/");
+    if (parts[0] === "help") {
+      stopHomePolling();
+      showScreen("view-help");
+      editorKey = "help";
+      clearEditorGuard();
       return;
     }
-    stopHomePolling();
-    showScreen("view-schedule");
-    if (!announcements.length) {
-      const lib = await fetch("/api/announcements");
-      announcements = lib.ok ? (await lib.json()).announcements || [] : [];
+    if (parts[0] === "announcements") {
+      if (parts[1] === "new" && readOnly) {
+        goToHash("#/");
+        return;
+      }
+      stopHomePolling();
+      if (!deferScreen) showScreen("view-announcement");
+      await ensureVoices();
+      if (parts[1] === "new") blankAnnouncement();
+      else await loadAnnouncement(parts[1]);
+      applyEditorReadOnly();
+      editorKey = nextKey;
+      markEditorClean();
+      if (deferScreen) showScreen("view-announcement");
+      return;
     }
-    if (parts[1] === "new") {
-      editingScheduleId = null;
-      document.getElementById("schedule-title").textContent = "New schedule";
-      const template = TEMPLATES[params.get("template") || "baseline"] || TEMPLATES.baseline;
-      fillScheduleForm(template);
-    } else {
-      editingScheduleId = parts[1];
-      document.getElementById("schedule-title").textContent = readOnly ? "View schedule" : "Edit schedule";
-      const res = await fetch(`/api/schedules/${parts[1]}`);
-      if (!res.ok) throw new Error("Schedule not found");
-      fillScheduleForm(await res.json());
+    if (parts[0] === "schedules") {
+      if (parts[1] === "new" && readOnly) {
+        goToHash("#/");
+        return;
+      }
+      stopHomePolling();
+      if (!deferScreen) showScreen("view-schedule");
+      if (!announcements.length) {
+        const lib = await fetch("/api/announcements");
+        announcements = lib.ok ? (await lib.json()).announcements || [] : [];
+      }
+      if (parts[1] === "new") {
+        editingScheduleId = null;
+        document.getElementById("schedule-title").textContent = "New schedule";
+        const template = TEMPLATES[params.get("template") || "baseline"] || TEMPLATES.baseline;
+        fillScheduleForm(template);
+      } else {
+        editingScheduleId = parts[1];
+        document.getElementById("schedule-title").textContent = readOnly ? "View schedule" : "Edit schedule";
+        const res = await fetch(`/api/schedules/${parts[1]}`);
+        if (!res.ok) throw new Error("Schedule not found");
+        fillScheduleForm(await res.json());
+      }
+      applyEditorReadOnly();
+      editorKey = nextKey;
+      markEditorClean();
+      if (deferScreen) showScreen("view-schedule");
+      return;
     }
-    applyEditorReadOnly();
-    editorKey = nextKey;
-    markEditorClean();
-    return;
+    editorKey = "home";
+    clearEditorGuard();
+    if (!deferScreen) {
+      showScreen("view-home");
+      startHomePolling();
+    }
+    await Promise.all([refreshHome(), ensureVoices()]);
+    if (deferScreen) {
+      showScreen("view-home");
+      startHomePolling();
+    }
+  } catch (err) {
+    const message = err?.message || "Something went wrong";
+    if (onBootScreen() || deferScreen) showBootError(message);
+    else window.alert(message);
   }
-  editorKey = "home";
-  clearEditorGuard();
-  showScreen("view-home");
-  startHomePolling();
-  await refreshHome();
 }
 
 document.getElementById("new-announcement").addEventListener("click", () => {
@@ -2006,9 +2062,14 @@ document.getElementById("baseline-randomize").addEventListener("change", async (
   refreshHome();
 });
 
+document.getElementById("boot-retry").addEventListener("click", () => {
+  route().catch(() => {});
+});
 window.addEventListener("hashchange", () => {
   if (ignoreHashChange) return;
-  route().catch((err) => window.alert(err.message));
+  route().catch((err) => {
+    if (!onBootScreen()) window.alert(err.message);
+  });
 });
 window.addEventListener("beforeunload", (event) => {
   if (!isEditorDirty()) return;
@@ -2020,4 +2081,4 @@ boot = loadDefaultScript();
 updateCount();
 updateDeliveryLabels();
 updateAuthChrome();
-route().catch((err) => window.alert(err.message));
+route().catch(() => {});

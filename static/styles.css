@@ -657,6 +657,32 @@ button:disabled {
   display: block;
 }
 
+.boot-panel {
+  text-align: center;
+  max-width: 28rem;
+  margin: 2rem auto 0;
+}
+
+.boot-spinner {
+  width: 2rem;
+  height: 2rem;
+  margin: 1.25rem auto 0;
+  border: 2px solid var(--line);
+  border-top-color: var(--copper);
+  border-radius: 50%;
+  animation: boot-spin 0.75s linear infinite;
+}
+
+.boot-panel.has-error .boot-spinner {
+  display: none;
+}
+
+@keyframes boot-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .toolbar {
   display: flex;
   align-items: center;

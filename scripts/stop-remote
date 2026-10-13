@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Stop the app on the NUC (SIGTERM only; no SIGKILL — PTT safety).
+# Usage: scripts/stop-remote [host]   (env: DEPLOY_HOST, DEPLOY_PATH)
+set -euo pipefail
+
+HOST="${1:-${DEPLOY_HOST:-repeater-nuc}}"
+REMOTE_PATH="${DEPLOY_PATH:-/home/rfreedman/projects/dvra-repeater-announcements}"
+
+echo "Stopping app on $HOST ($REMOTE_PATH)"
+ssh "$HOST" bash -s -- "$REMOTE_PATH" <<'REMOTE'
+set -euo pipefail
+cd "$1"
+pattern='python -m app serve'
+stop_timeout=30
+
+pids="$(pgrep -u "$USER" -f "$pattern" || true)"
+if [[ -z "$pids" ]]; then
+  echo "App was not running"
+  exit 0
+fi
+
+echo "Stopping app (pid $pids)"
+kill -TERM $pids
+for ((i = 0; i < stop_timeout; i++)); do
+  pgrep -u "$USER" -f "$pattern" >/dev/null || break
+  sleep 1
+done
+if pgrep -u "$USER" -f "$pattern" >/dev/null; then
+  echo "App still running after ${stop_timeout}s (pid $(pgrep -u "$USER" -f "$pattern" | tr '\n' ' '))." >&2
+  echo "Not sending SIGKILL (can leave PTT keyed). Check the NUC and stop it manually." >&2
+  exit 1
+fi
+echo "App stopped"
+REMOTE

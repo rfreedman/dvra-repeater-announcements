@@ -1,5 +1,23 @@
 # Scripts
 
+## `start-remote`
+
+Run from the **dev machine**: SSH to the NUC and start `./serve.sh` with `setsid`/`nohup` (survives logoff on the NUC). Does not stop a running app or pull git. Log on the NUC: `data/logs/serve.out`. Same host/path env as deploy (`DEPLOY_HOST`, `DEPLOY_PATH`).
+
+```bash
+scripts/start-remote                 # default host repeater-nuc
+scripts/start-remote other-host      # or DEPLOY_HOST=other-host
+```
+
+## `stop-remote`
+
+Run from the **dev machine**: SSH to the NUC and stop `python -m app serve` with SIGTERM (same 30 s wait as deploy; never SIGKILL). Exits 0 if the app was not running.
+
+```bash
+scripts/stop-remote
+scripts/stop-remote other-host
+```
+
 ## `deploy.sh`
 
 Run from the dev machine: stops the app on the NUC, runs `git pull` there, and restarts `./serve.sh` in the background. The host defaults to `repeater-nuc`; override it with `DEPLOY_HOST` or the first argument. Needs uv on the NUC. Details: [README — Deploying (NUC)](../README.md#deploying-nuc).
