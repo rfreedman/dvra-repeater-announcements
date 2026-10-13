@@ -263,7 +263,7 @@ wheels = [
 
 [[package]]
 name = "dvra-repeater-announcements"
-version = "0.2.20"
+version = "0.2.21"
 source = { editable = "." }
 dependencies = [
     { name = "apscheduler" },

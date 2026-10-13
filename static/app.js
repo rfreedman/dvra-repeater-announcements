@@ -474,6 +474,29 @@ function showBoot(message = "Starting, please wait…") {
   showScreen("view-boot");
 }
 
+function yieldToPaint() {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
+  });
+}
+
+async function waitForServerReady() {
+  const msg = document.getElementById("boot-message");
+  while (true) {
+    try {
+      const res = await nativeFetch("/api/ready", { cache: "no-store", credentials: "same-origin" });
+      if (res.ok) {
+        const body = await res.json();
+        if (body.ready) return;
+      }
+    } catch {
+      /* connection refused or reset while uvicorn binds */
+    }
+    if (msg) msg.textContent = "Starting server, please wait…";
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+}
+
 function showBootError(message) {
   const panel = document.querySelector(".boot-panel");
   const msg = document.getElementById("boot-message");
@@ -1819,7 +1842,13 @@ function routeKey(hash = location.hash) {
 async function route() {
   await boot;
   const deferScreen = onBootScreen();
-  if (deferScreen) showBoot();
+  if (deferScreen) {
+    showBoot();
+    await yieldToPaint();
+    await waitForServerReady();
+    if (deferScreen) showBoot("Loading schedules and voices…");
+    await yieldToPaint();
+  }
   try {
     const auth = await refreshAuth();
     authReady = true;

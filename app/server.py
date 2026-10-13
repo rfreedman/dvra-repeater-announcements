@@ -11,7 +11,7 @@ from typing import Annotated
 from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from starlette.middleware.sessions import SessionMiddleware
@@ -90,6 +90,7 @@ from app.stats_sse import stats_broadcast_loop
 from app.uvicorn_shutdown import register_stats_broadcast_stop
 from app.radio import active_radio_mode_label
 from app.startup import StartupError, fail_startup, init_radio_at_startup
+from app.startup_gate import clear_startup_ready, is_startup_ready, mark_startup_ready
 from app.store import get_store
 from app.system_status import read_system_stats
 from app.users import Role, User, get_user_store
@@ -101,10 +102,13 @@ AdminUser = Annotated[User, Depends(require_admin)]
 AuthUser = Annotated[User, Depends(require_user)]
 
 
-@asynccontextmanager
-async def lifespan(_app: FastAPI):
-    started = time.perf_counter()
-    log.info("Starting up")
+def _sync_startup_for_tests() -> bool:
+    import os
+
+    return os.environ.get("TTS_SKIP_DOTENV", "").strip() == "1"
+
+
+async def _complete_startup(started: float, stats_stop: asyncio.Event) -> asyncio.Task[None] | None:
     try:
         get_store().document()
         get_user_store().count()
@@ -121,20 +125,49 @@ async def lifespan(_app: FastAPI):
         time.perf_counter() - started,
         active_radio_mode_label(),
     )
+    mark_startup_ready()
+    return asyncio.create_task(stats_broadcast_loop(stats_stop))
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
     import app.sse_hub as sse_hub
 
     sse_hub.set_event_loop(asyncio.get_running_loop())
     sse_hub.clear_shutdown_state()
+    clear_startup_ready()
     stats_stop = asyncio.Event()
     register_stats_broadcast_stop(stats_stop)
-    stats_task = asyncio.create_task(stats_broadcast_loop(stats_stop))
+    stats_task: asyncio.Task[None] | None = None
+    startup_bg: asyncio.Task[asyncio.Task[None] | None] | None = None
+
+    started = time.perf_counter()
+    log.info("Starting up")
+    if _sync_startup_for_tests():
+        stats_task = await _complete_startup(started, stats_stop)
+    else:
+        startup_bg = asyncio.create_task(_complete_startup(started, stats_stop))
+
     try:
         yield
     finally:
         stats_stop.set()
         shutdown_sse_streams()
-        await stats_task
-    stop_scheduler()
+        if stats_task is not None:
+            await stats_task
+        elif startup_bg is not None:
+            if startup_bg.done():
+                if startup_bg.exception() is None:
+                    nested = startup_bg.result()
+                    if nested is not None:
+                        await nested
+            else:
+                startup_bg.cancel()
+                try:
+                    await startup_bg
+                except asyncio.CancelledError:
+                    pass
+        stop_scheduler()
 
 
 app = FastAPI(title="DVRA Repeater Announcements", version=__version__, lifespan=lifespan)
@@ -146,6 +179,20 @@ app.add_middleware(
     same_site="lax",
     https_only=False,
 )
+
+
+@app.middleware("http")
+async def startup_gate_middleware(request: Request, call_next):
+    path = request.url.path
+    if path == "/api/ready" or not path.startswith("/api/"):
+        return await call_next(request)
+    if not is_startup_ready():
+        return JSONResponse(
+            content={"detail": "starting"},
+            status_code=503,
+            headers={"Retry-After": "2"},
+        )
+    return await call_next(request)
 registry = get_registry()
 
 
@@ -322,6 +369,11 @@ def health() -> dict[str, str]:
 @app.get("/api/system/stats")
 def system_stats(_user: AuthUser) -> dict[str, object]:
     return read_system_stats()
+
+
+@app.get("/api/ready")
+def startup_ready() -> dict[str, bool]:
+    return {"ready": is_startup_ready()}
 
 
 @app.get("/api/auth/status")
