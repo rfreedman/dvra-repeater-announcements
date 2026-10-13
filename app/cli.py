@@ -119,13 +119,16 @@ def _cmd_serve(args: argparse.Namespace) -> int:
     import uvicorn
 
     from app.logging_setup import serve_log_config
+    from app.uvicorn_shutdown import install_uvicorn_sse_shutdown_hook
 
+    install_uvicorn_sse_shutdown_hook()
     uvicorn.run(
         "app.server:app",
         host=args.host,
         port=args.port,
         reload=False,
         log_config=serve_log_config(),
+        timeout_graceful_shutdown=25,
     )
     return 0
 

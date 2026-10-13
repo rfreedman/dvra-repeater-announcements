@@ -50,11 +50,18 @@ def shutdown_sse_streams() -> None:
     _shutting_down = True
     with _subscribers_lock:
         targets = list(_subscribers) + list(_stats_subscribers)
-    loop = _loop
+    on_registered_loop = False
+    try:
+        running = asyncio.get_running_loop()
+        on_registered_loop = running is _loop
+    except RuntimeError:
+        pass
     for queue in targets:
-        if loop is not None:
+        if on_registered_loop:
+            _close_queue(queue)
+        elif _loop is not None:
             try:
-                loop.call_soon_threadsafe(_close_queue, queue)
+                _loop.call_soon_threadsafe(_close_queue, queue)
             except RuntimeError:
                 _close_queue(queue)
         else:

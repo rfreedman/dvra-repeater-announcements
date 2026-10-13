@@ -87,6 +87,7 @@ from app.sse_hub import (
     unsubscribe_stats,
 )
 from app.stats_sse import stats_broadcast_loop
+from app.uvicorn_shutdown import register_stats_broadcast_stop
 from app.radio import active_radio_mode_label
 from app.startup import StartupError, fail_startup, init_radio_at_startup
 from app.store import get_store
@@ -125,6 +126,7 @@ async def lifespan(_app: FastAPI):
     sse_hub.set_event_loop(asyncio.get_running_loop())
     sse_hub.clear_shutdown_state()
     stats_stop = asyncio.Event()
+    register_stats_broadcast_stop(stats_stop)
     stats_task = asyncio.create_task(stats_broadcast_loop(stats_stop))
     try:
         yield
