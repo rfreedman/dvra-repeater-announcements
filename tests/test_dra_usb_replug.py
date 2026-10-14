@@ -99,6 +99,38 @@ def test_usb_replug_after_unplug_restores_presence(monkeypatch):
     assert radio._hid_adapters[0].path == b"new"
 
 
+def test_usb_reconnect_same_hid_path_still_unmutes(monkeypatch):
+    monkeypatch.setattr("app.dra_alsa_mixer.sys.platform", "linux")
+    monkeypatch.setattr("app.dra_radio.sys.platform", "linux")
+    alsa_watch.last_unmuted_signature = (1,)
+    monkeypatch.setattr("app.dra_alsa_mixer.cm119_alsa_card_signature", lambda limit: (1,))
+    unmuted: list[list[int]] = []
+    radio = DraRadio(
+        hid_adapters=[Cm119HidAdapter(b"same", "dra-hid-1")],
+        audio_indices=[0],
+        usb_channel="left",
+        cos_line="vol_dn",
+        cos_active_high=False,
+    )
+    state = {"entries": []}
+    monkeypatch.setattr(radio, "_enumerate_hid_entries", lambda: list(state["entries"]))
+    monkeypatch.setattr(radio, "sync_audio_output_indices_if_changed", lambda: False)
+    monkeypatch.setattr("app.config.dra_alsa_unmute_enabled", lambda: True)
+    monkeypatch.setattr(
+        "app.dra_alsa_mixer.cm119_alsa_cards_for_radio",
+        lambda _radio: [1],
+    )
+    monkeypatch.setattr(
+        "app.dra_alsa_mixer.try_unmute_cm119_cards",
+        lambda cards, level: unmuted.append(cards) or True,
+    )
+    assert radio.note_usb_hid_presence() is False
+    state["entries"] = [{"path": b"same"}]
+    apply_cm119_replug_recovery(radio)
+    assert unmuted == [[1]]
+    assert radio.usb_hid_reconnected_pending is False
+
+
 def test_stale_hid_path_env_falls_back_to_live_cm119(monkeypatch):
     import app.dra_radio as dra_radio_mod
 

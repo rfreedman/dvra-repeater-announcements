@@ -61,6 +61,7 @@ class DraRadio:
         self._cos_devices: list[object | None] = [None] * len(hid_adapters)
         self._last_cos_raw_hex: str | None = None
         self._usb_hid_absent = False
+        self._usb_hid_reconnected_pending = False
 
     @property
     def usb_hid_present(self) -> bool:
@@ -241,6 +242,36 @@ class DraRadio:
         if self._usb_hid_absent:
             log.info("DRA CM119 HID available again")
             self._usb_hid_absent = False
+            self._usb_hid_reconnected_pending = True
+        return True
+
+    def clear_usb_hid_reconnected_pending(self) -> None:
+        self._usb_hid_reconnected_pending = False
+
+    @property
+    def usb_hid_reconnected_pending(self) -> bool:
+        return self._usb_hid_reconnected_pending
+
+    def sync_audio_output_indices_if_changed(self) -> bool:
+        """Refresh PortAudio output indices after USB replug (hw index often changes)."""
+        try:
+            new_indices = resolve_dra_audio_indices(device_specs=DRA_AUDIO_DEVICE_SPECS)
+        except RuntimeError:
+            log.debug("DRA PortAudio re-resolve failed after USB replug", exc_info=True)
+            return False
+        if new_indices == self._audio_indices:
+            return False
+        with self._lock:
+            if self._ptt_keyed:
+                log.warning("USB replug PortAudio refresh skipped while PTT is keyed")
+                return False
+            old = list(self._audio_indices)
+            self._audio_indices = new_indices
+        log.info(
+            "DRA USB replug: PortAudio output indices updated %s → %s",
+            old,
+            new_indices,
+        )
         return True
 
     def sync_hid_adapters_if_replugged(self) -> bool:

@@ -183,14 +183,18 @@ def apply_cm119_replug_recovery(radio: object) -> None:
         return
     if not radio.note_usb_hid_presence():
         return
+    reconnected = radio.usb_hid_reconnected_pending
     limit = max(len(radio.audio_device_indices), radio.hid_count)
     hid_replug = radio.sync_hid_adapters_if_replugged()
+    audio_resync = radio.sync_audio_output_indices_if_changed()
     signature = alsa_watch.pending_replug_signature(limit=limit)
-    if not hid_replug and signature is None:
+    if not hid_replug and signature is None and not reconnected and not audio_resync:
         return
     if not hid_replug:
         radio.reset_hid_after_usb_replug()
-    need_unmute = dra_alsa_unmute_enabled() and (signature is not None or hid_replug)
+    need_unmute = dra_alsa_unmute_enabled() and (
+        signature is not None or hid_replug or reconnected or audio_resync
+    )
     if need_unmute:
         cards = (
             list(signature)
@@ -204,10 +208,16 @@ def apply_cm119_replug_recovery(radio: object) -> None:
         )
         if noted:
             alsa_watch.note_unmuted_signature(noted)
+    radio.clear_usb_hid_reconnected_pending()
     if signature is not None:
         log.info("CM119 USB replug recovery: card(s) %s", ", ".join(map(str, signature)))
-    elif hid_replug:
-        log.info("CM119 USB replug recovery: HID paths refreshed (ALSA signature unchanged)")
+    elif reconnected or hid_replug or audio_resync:
+        log.info(
+            "CM119 USB replug recovery: HID/audio restored (reconnected=%s hid=%s audio=%s)",
+            reconnected,
+            hid_replug,
+            audio_resync,
+        )
 
 
 def maybe_sync_cm119_alsa_unmute(radio: object) -> None:
