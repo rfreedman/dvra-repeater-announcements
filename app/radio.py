@@ -82,6 +82,11 @@ def transmit(
     if channel_blocks_transmit(radio, clear_seconds=clear_seconds):
         raise ChannelBusyError("channel busy immediately before PTT")
 
+    if play_on_dra is not None:
+        from app.dra_alsa_mixer import prepare_dra_for_transmit
+
+        prepare_dra_for_transmit(radio)
+
     radio.set_ptt(True)
     try:
         if play_on_dra is not None:

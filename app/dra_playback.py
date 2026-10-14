@@ -71,6 +71,23 @@ def _is_alsa_hw_portaudio_name(name: str) -> bool:
     return "(hw:" in name
 
 
+def _prefer_cm119_hw_devices(
+    hw_dra: list[tuple[int, dict]],
+) -> list[tuple[int, dict]]:
+    """Drop non-CM119 ``(hw:…)`` entries when /proc lists CM119 cards (avoids stale indices)."""
+    from app.dra_alsa_mixer import alsa_card_from_portaudio_device, cm119_alsa_card_signature
+
+    cards = set(cm119_alsa_card_signature(limit=max(len(hw_dra), 1)))
+    if not cards:
+        return hw_dra
+    matched = [
+        (index, dev)
+        for index, dev in hw_dra
+        if alsa_card_from_portaudio_device(index) in cards
+    ]
+    return matched if matched else hw_dra
+
+
 def auto_select_dra_outputs(
     devices: list[tuple[int, dict]] | None = None,
 ) -> list[tuple[int, dict]]:
@@ -84,7 +101,7 @@ def auto_select_dra_outputs(
     all_dra = devices if devices is not None else list_dra_output_devices()
     hw = [(index, dev) for index, dev in all_dra if _is_alsa_hw_portaudio_name(dev["name"])]
     if hw:
-        return hw
+        return _prefer_cm119_hw_devices(hw)
     return all_dra
 
 
@@ -145,6 +162,13 @@ def mono_to_channel(mono: np.ndarray, channel: str) -> np.ndarray:
 
 def _output_channels(channel: str) -> int:
     return 1 if channel == "mono" else 2
+
+
+def portaudio_index_is_dra_output(device_index: int) -> bool:
+    try:
+        return is_dra_audio_name(portaudio_output_device_name(device_index))
+    except Exception:
+        return False
 
 
 def portaudio_output_device_name(device_index: int) -> str:

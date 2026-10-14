@@ -195,6 +195,8 @@ def apply_cm119_replug_recovery(radio: object) -> None:
         return
     if not radio._runtime_usb_hid_tracking_enabled():
         return
+    if radio.ptt_keyed:
+        return
     if not radio.note_usb_hid_presence():
         return
     reconnected = radio.usb_hid_reconnected_pending
@@ -233,22 +235,28 @@ def apply_cm119_replug_recovery(radio: object) -> None:
         )
 
 
-def finalize_dra_transmit_audio_path(radio: object) -> None:
-    """Right before USB playback: fresh PortAudio list, indices, and Speaker unmute."""
+def prepare_dra_for_transmit(radio: object) -> None:
+    """Before PTT: PortAudio re-scan, DRA output indices, Speaker unmute."""
     from app.config import DRA_ALSA_SPEAKER_LEVEL, dra_alsa_unmute_enabled
     from app.dra_radio import DraRadio
 
     if not isinstance(radio, DraRadio) or not radio._runtime_usb_hid_tracking_enabled():
         return
+    if radio.ptt_keyed:
+        return
+    reconnected = radio.usb_hid_reconnected_pending
+    apply_cm119_replug_recovery(radio)
     if not radio.note_usb_hid_presence():
         return
-    radio.sync_audio_output_indices_if_changed(after_usb_event=True)
-    if not dra_alsa_unmute_enabled():
-        return
-    limit = max(len(radio.audio_device_indices), radio.hid_count)
-    cards = cm119_alsa_cards_to_unmute(radio, limit=limit, signature=None)
-    if cards:
-        try_unmute_cm119_cards(cards, level=DRA_ALSA_SPEAKER_LEVEL)
+    pa_rescan = reconnected or not radio.audio_output_indices_look_valid()
+    radio.sync_audio_output_indices_if_changed(after_usb_event=pa_rescan)
+    if not radio.audio_output_indices_look_valid():
+        radio.sync_audio_output_indices_if_changed(after_usb_event=True)
+    if dra_alsa_unmute_enabled():
+        limit = max(len(radio.audio_device_indices), radio.hid_count)
+        cards = cm119_alsa_cards_to_unmute(radio, limit=limit, signature=None)
+        if cards:
+            try_unmute_cm119_cards(cards, level=DRA_ALSA_SPEAKER_LEVEL)
     from app.dra_playback import portaudio_output_device_name
 
     for index in radio.audio_device_indices:
@@ -257,6 +265,10 @@ def finalize_dra_transmit_audio_path(radio: object) -> None:
         except Exception:
             name = "?"
         log.info("DRA transmit audio → PortAudio[%s] %s", index, name)
+
+
+def finalize_dra_transmit_audio_path(radio: object) -> None:
+    prepare_dra_for_transmit(radio)
 
 
 def maybe_sync_cm119_alsa_unmute(radio: object) -> None:

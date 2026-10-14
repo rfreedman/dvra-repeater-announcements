@@ -66,6 +66,12 @@ class DraRadio:
         self._last_cos_raw_hex: str | None = None
         self._usb_hid_absent = False
         self._usb_hid_reconnected_pending = False
+        self._pending_audio_indices: list[int] | None = None
+
+    @property
+    def ptt_keyed(self) -> bool:
+        with self._lock:
+            return self._ptt_keyed
 
     @property
     def usb_hid_present(self) -> bool:
@@ -275,16 +281,41 @@ class DraRadio:
             return False
         with self._lock:
             if self._ptt_keyed:
-                log.warning("USB replug PortAudio refresh skipped while PTT is keyed")
+                self._pending_audio_indices = list(new_indices)
+                log.debug(
+                    "Deferred PortAudio index update %s → %s until PTT unkey",
+                    self._audio_indices,
+                    new_indices,
+                )
                 return False
             old = list(self._audio_indices)
             self._audio_indices = new_indices
+            self._pending_audio_indices = None
         log.info(
             "DRA USB replug: PortAudio output indices updated %s → %s",
             old,
             new_indices,
         )
         return True
+
+    def _apply_pending_audio_indices_unlocked(self) -> None:
+        pending = self._pending_audio_indices
+        if not pending or pending == self._audio_indices:
+            self._pending_audio_indices = None
+            return
+        old = list(self._audio_indices)
+        self._audio_indices = pending
+        self._pending_audio_indices = None
+        log.info(
+            "DRA USB replug: applied deferred PortAudio indices %s → %s",
+            old,
+            self._audio_indices,
+        )
+
+    def audio_output_indices_look_valid(self) -> bool:
+        from app.dra_playback import portaudio_index_is_dra_output
+
+        return all(portaudio_index_is_dra_output(index) for index in self._audio_indices)
 
     def sync_hid_adapters_if_replugged(self) -> bool:
         """Refresh CM119 HID paths after USB replug (ALSA card number may be unchanged)."""
@@ -571,6 +602,7 @@ class DraRadio:
                         log.warning("PTT unkey failed on one adapter", exc_info=True)
                 self._ptt_devices = []
                 self._ptt_keyed = False
+                self._apply_pending_audio_indices_unlocked()
                 return
             if self._ptt_keyed:
                 return
@@ -603,10 +635,6 @@ class DraRadio:
         lead_seconds: float,
     ) -> None:
         """Stream Piper PCM on all DRA outputs (lead silence on USB, not host sleep)."""
-        from app.dra_alsa_mixer import apply_cm119_replug_recovery, finalize_dra_transmit_audio_path
-
-        apply_cm119_replug_recovery(self)
-        finalize_dra_transmit_audio_path(self)
         play_pcm_chunks_to_dra_devices(
             chunks,
             device_indices=self._audio_indices,

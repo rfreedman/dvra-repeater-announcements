@@ -20,9 +20,10 @@ def _poll_loop() -> None:
             radio = get_radio()
             from app.scheduler import nudge_manual_defer_jobs_if_clear_ready
 
-            from app.dra_alsa_mixer import apply_cm119_replug_recovery
+            if not getattr(radio, "ptt_keyed", False):
+                from app.dra_alsa_mixer import apply_cm119_replug_recovery
 
-            apply_cm119_replug_recovery(radio)
+                apply_cm119_replug_recovery(radio)
             warm = getattr(radio, "warm_open_hid", None)
             if warm is not None:
                 warm()
