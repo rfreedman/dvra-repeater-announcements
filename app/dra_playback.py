@@ -100,8 +100,9 @@ def auto_select_dra_outputs(
     """DRA-like outputs for auto pairing (no ``TTS_DRA_AUDIO_DEVICES``).
 
     On a Linux NUC with PipeWire, the same CM119 often appears as both an ALSA
-    ``(hw:…)`` device and an ``alsa_output.usb-…`` sink. Prefer the PipeWire
-    sink for playback (``TTS_DRA_PREFER_ALSA_HW=1`` forces ``(hw:…)``). When no
+    ``(hw:…)`` device and an ``alsa_output.usb-…`` sink. Default ``(hw:…)`` —
+    the PipeWire sink can hang ``sd.play()`` / PortAudio. Set
+    ``TTS_DRA_PREFER_ALSA_HW=0`` to prefer ``alsa_output.usb-…``. When no
     ``(hw:…)`` names exist (typical macOS), return every DRA-like output.
     """
     from app.config import dra_prefer_alsa_hw
@@ -231,8 +232,25 @@ def resample_pcm_int16_mono(pcm_int16: bytes, *, from_rate: int, to_rate: int) -
 WRITE_BLOCK_SECONDS = 0.05
 
 
+def _output_stream_dtype(device_index: int) -> str:
+    """Linux ALSA ``(hw:…)``: int16 PCM avoids silent float32 on some CM119 + PA builds."""
+    if not sys.platform.startswith("linux"):
+        return "float32"
+    try:
+        name = portaudio_output_device_name(device_index)
+    except Exception:
+        return "float32"
+    return "int16" if _is_alsa_hw_portaudio_name(name) else "float32"
+
+
 def _write_mono_to_stream(stream, mono_f32: np.ndarray, *, channel: str) -> None:
     out = mono_to_channel(mono_f32, channel)
+    dtype = getattr(stream, "dtype", "float32")
+    if dtype == "int16":
+        if out.ndim == 1:
+            out = (np.clip(out, -1.0, 1.0) * 32767.0).astype(np.int16).reshape(-1, 1)
+        else:
+            out = (np.clip(out, -1.0, 1.0) * 32767.0).astype(np.int16)
     if out.ndim == 1:
         stream.write(out.reshape(-1, 1))
     else:
@@ -260,6 +278,7 @@ class DraUsbPlayback:
         self.channel = channel
         self.samplerate = samplerate
         self._channels = _output_channels(channel)
+        self._dtype = _output_stream_dtype(device_index)
         self._stream: sd.OutputStream | None = None
 
     def __enter__(self):
@@ -269,7 +288,7 @@ class DraUsbPlayback:
             device=self.device_index,
             samplerate=self.samplerate,
             channels=self._channels,
-            dtype="float32",
+            dtype=self._dtype,
         )
         self._stream.start()
         return self

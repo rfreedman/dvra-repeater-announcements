@@ -156,11 +156,11 @@ def dra_prefer_alsa_hw() -> bool:
     """When both exist, choose PortAudio ``(hw:…)`` vs PipeWire ``alsa_output.usb-…``."""
     raw = os.environ.get("TTS_DRA_PREFER_ALSA_HW")
     if raw is None:
-        # Linux + PipeWire: direct hw often keeps COMM OK up but sends no audible DATA IN.
-        import sys
-
-        return not sys.platform.startswith("linux")
+        # Default hw: PipeWire sink playback can block forever in PortAudio/sounddevice.
+        return True
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 DEFAULT_BUSY_RETRY_SECONDS = float(os.environ.get("TTS_BUSY_RETRY_SECONDS", "5"))
 DEFAULT_BUSY_GIVE_UP_SECONDS = float(os.environ.get("TTS_BUSY_GIVE_UP_SECONDS", "45"))
 SCHEDULER_MAX_WAIT_SECONDS = float(os.environ.get("TTS_SCHEDULER_MAX_WAIT_SECONDS", "5"))

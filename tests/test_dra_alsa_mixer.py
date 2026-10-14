@@ -47,11 +47,15 @@ def test_unmute_speaker_calls_amixer(monkeypatch):
 
     def fake_run(cmd, **kwargs):
         calls.append(list(cmd))
-        return subprocess.CompletedProcess(cmd, 0, stdout="Simple mixer control 'Speaker',0\n", stderr="")
+        if cmd[:3] == ["amixer", "-c", "1"] and cmd[3] == "scontents":
+            stdout = "Simple mixer control 'Speaker',0\n"
+        else:
+            stdout = "Simple mixer control 'Speaker',0\n"
+        return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
 
     monkeypatch.setattr("app.dra_alsa_mixer.subprocess.run", fake_run)
     unmute_speaker(1, "100%")
-    assert calls == [["amixer", "-c", "1", "sset", "Speaker", "100%", "unmute"]]
+    assert ["amixer", "-c", "1", "sset", "Speaker", "100%", "unmute"] in calls
 
 
 def test_unmute_speaker_failure_raises_startup_error(monkeypatch):

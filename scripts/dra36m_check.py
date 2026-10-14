@@ -504,7 +504,6 @@ def cmd_ptt(args) -> int:
 
 def cmd_tone(args) -> int:
     import numpy as np
-    import sounddevice as sd
 
     idx, audio = find_dra_audio_device()
     if idx is None:
@@ -520,9 +519,13 @@ def cmd_tone(args) -> int:
     freq = args.frequency
     t = np.linspace(0, duration, int(sr * duration), endpoint=False)
     mono = (args.level * np.sin(2 * np.pi * freq * t)).astype(np.float32)
-    samples = mono_to_channel(mono, args.channel)
-    print(f"Playing {freq} Hz on device {idx} ({audio['name']}), channel={args.channel}")
-    sd.play(samples, samplerate=sr, device=idx, blocking=True)
+    peak = float(np.max(np.abs(mono)))
+    print(
+        f"Playing {freq} Hz on device {idx} ({audio['name']}), "
+        f"channel={args.channel}, peak={peak:.4f}"
+    )
+    with DraUsbPlayback(idx, args.channel, sr) as out:
+        out.write_mono_f32(mono)
     return 0
 
 
@@ -555,12 +558,10 @@ def cmd_smoke(args) -> int:
         f"PTT + tone (channel={args.channel}, lead={lead}s, peak={peak:.4f}). "
         "Low power / dummy load."
     )
-    import sounddevice as sd
-
-    samples = mono_to_channel(program, args.channel)
     set_gpio3_ptt(dev, True)
     try:
-        sd.play(samples, samplerate=sr, device=idx, blocking=True)
+        with DraUsbPlayback(idx, args.channel, sr) as out:
+            out.write_mono_f32(program)
     finally:
         set_gpio3_ptt(dev, False)
     raw = read_hid_input(dev)

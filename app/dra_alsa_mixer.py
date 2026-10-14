@@ -72,13 +72,40 @@ def alsa_cards_for_dra_outputs(device_indices: list[int]) -> list[int]:
     )
 
 
-def _amixer_unmute_speaker(card: int, level: str) -> subprocess.CompletedProcess[str]:
+_MIXER_CONTROL_RE = re.compile(r"Simple mixer control '([^']+)'", re.MULTILINE)
+_SKIP_MIXER_KEYWORDS = ("mic", "capture", "record", "input")
+
+
+def _playback_mixer_controls(card: int) -> list[str]:
+    try:
+        proc = subprocess.run(
+            ["amixer", "-c", str(card), "scontents"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return ["Speaker"]
+    names = _MIXER_CONTROL_RE.findall(proc.stdout or "")
+    playback = [
+        name
+        for name in names
+        if not any(key in name.lower() for key in _SKIP_MIXER_KEYWORDS)
+    ]
+    return playback or ["Speaker"]
+
+
+def _amixer_sset(card: int, control: str, level: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["amixer", "-c", str(card), "sset", "Speaker", level, "unmute"],
+        ["amixer", "-c", str(card), "sset", control, level, "unmute"],
         check=True,
         capture_output=True,
         text=True,
     )
+
+
+def _amixer_unmute_speaker(card: int, level: str) -> subprocess.CompletedProcess[str]:
+    return _amixer_sset(card, "Speaker", level)
 
 
 def unmute_speaker(card: int, level: str) -> None:
@@ -105,36 +132,46 @@ def unmute_speaker(card: int, level: str) -> None:
 
 
 def try_unmute_speaker(card: int, level: str) -> bool:
-    try:
-        result = _amixer_unmute_speaker(card, level)
-    except FileNotFoundError:
-        log.warning(
-            "amixer not found; cannot unmute CM119 Speaker on card %s (docs/NUC-notes.md)",
-            card,
-            exc_info=True,
-        )
-        return False
-    except subprocess.CalledProcessError:
-        log.warning(
-            "Could not unmute ALSA Speaker on card %s (amixer sset Speaker %s unmute failed)",
-            card,
-            level,
-            exc_info=True,
-        )
-        return False
-    else:
+    return try_unmute_playback_controls(card, level)
+
+
+def try_unmute_playback_controls(card: int, level: str) -> bool:
+    controls = _playback_mixer_controls(card)
+    ok = True
+    for control in controls:
+        try:
+            result = _amixer_sset(card, control, level)
+        except FileNotFoundError:
+            log.warning(
+                "amixer not found; cannot unmute CM119 on card %s (docs/NUC-notes.md)",
+                card,
+                exc_info=True,
+            )
+            return False
+        except subprocess.CalledProcessError:
+            log.warning(
+                "Could not unmute ALSA %r on card %s (amixer sset %s %s unmute failed)",
+                control,
+                card,
+                control,
+                level,
+                exc_info=True,
+            )
+            ok = False
+            continue
         log.info(
-            "Unmuted ALSA Speaker on card %s (%s)",
+            "Unmuted ALSA %s on card %s (%s)",
+            control,
             card,
             (result.stdout or "").strip().split("\n")[0][:120],
         )
-        return True
+    return ok
 
 
 def try_unmute_cm119_cards(cards: list[int], *, level: str) -> bool:
     if not cards:
         return False
-    return all(try_unmute_speaker(card, level) for card in cards)
+    return all(try_unmute_playback_controls(card, level) for card in cards)
 
 
 class Cm119AlsaWatch:
