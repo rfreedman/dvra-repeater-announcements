@@ -363,6 +363,13 @@ def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
             log.warning("Fire aborted; %s; DRA USB lost during playback", label)
             fire_trace("Fire aborted (USB loss) label=%s slot=%s", label, ctx.slot_key)
             return "dropped"
+        except BrokenPipeError:
+            log.warning(
+                "Fire aborted; %s; DRA aplay pipe closed (USB unplugged during playback?)",
+                label,
+            )
+            fire_trace("Fire aborted (USB loss) label=%s slot=%s", label, ctx.slot_key)
+            return "dropped"
         except ChannelBusyError:
             outcome = _defer_or_drop_on_busy(
                 deps, ctx, announcement, label, phase="at PTT key"

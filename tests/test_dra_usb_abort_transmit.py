@@ -138,6 +138,50 @@ def test_usb_absent_during_ptt_signals_abort(monkeypatch):
     assert radio._transmit_abort.is_set()
 
 
+def test_aplay_broken_pipe_with_register_proc_is_transmit_abort(monkeypatch):
+    monkeypatch.setattr(
+        "app.dra_playback._alsa_playback_devices_for_portaudio_index",
+        lambda _i: ["hw:1,0"],
+    )
+
+    class BrokenStdin:
+        def write(self, _pcm: bytes) -> None:
+            raise BrokenPipeError(32, "Broken pipe")
+
+        def close(self) -> None:
+            pass
+
+    class FakeProc:
+        stdin = BrokenStdin()
+        stderr = None
+
+        def poll(self):
+            return 1
+
+        def kill(self) -> None:
+            pass
+
+        def wait(self, timeout=None):
+            pass
+
+    monkeypatch.setattr(
+        "app.dra_playback.subprocess.Popen",
+        lambda *args, **kwargs: FakeProc(),
+    )
+    registered: list[object] = []
+
+    from app.dra_playback import _play_s16_stereo_via_aplay
+
+    with pytest.raises(TransmitAbortError):
+        _play_s16_stereo_via_aplay(
+            b"\x00\x00" * 4,
+            sample_rate=48000,
+            alsa_device="hw:1,0",
+            register_proc=registered.append,
+        )
+    assert len(registered) == 1
+
+
 def test_handle_fire_runtime_error_dropped_when_usb_absent(monkeypatch):
     from tests.test_fire import _announcement, _ctx, _deps
 

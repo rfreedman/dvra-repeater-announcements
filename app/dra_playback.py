@@ -364,8 +364,24 @@ def _play_s16_stereo_via_aplay(
         register_proc(proc)
     try:
         assert proc.stdin is not None
-        proc.stdin.write(pcm)
-        proc.stdin.close()
+        try:
+            proc.stdin.write(pcm)
+            proc.stdin.close()
+        except BrokenPipeError as exc:
+            proc.stdin = None
+            try:
+                proc.kill()
+                proc.wait(timeout=2.0)
+            except (OSError, subprocess.TimeoutExpired):
+                try:
+                    proc.kill()
+                except OSError:
+                    pass
+            if register_proc is not None or (
+                should_abort is not None and should_abort()
+            ):
+                raise TransmitAbortError("DRA USB playback aborted") from exc
+            raise RuntimeError(f"aplay to {alsa_device} failed: broken pipe") from exc
         proc.stdin = None
         while proc.poll() is None:
             if should_abort is not None and should_abort():
