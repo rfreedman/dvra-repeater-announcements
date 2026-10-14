@@ -238,18 +238,19 @@ def apply_cm119_replug_recovery(radio: object) -> None:
 def sync_cm119_speaker_unmute(radio: object) -> None:
     """Best-effort CM119 Speaker unmute (always before transmit on Linux DRA)."""
     from app.config import DRA_ALSA_SPEAKER_LEVEL, dra_alsa_unmute_enabled
-    from app.dra_radio import DraRadio
+    from app.dra_radio import dra_radio_from
 
-    if not sys.platform.startswith("linux") or not isinstance(radio, DraRadio):
+    dra = dra_radio_from(radio)
+    if not sys.platform.startswith("linux") or dra is None:
         return
     if not dra_alsa_unmute_enabled():
         return
-    limit = max(len(radio.audio_device_indices), radio.hid_count)
-    cards = cm119_alsa_cards_to_unmute(radio, limit=limit, signature=None)
+    limit = max(len(dra.audio_device_indices), dra.hid_count)
+    cards = cm119_alsa_cards_to_unmute(dra, limit=limit, signature=None)
     if not cards:
         log.warning(
             "CM119 Speaker unmute skipped: no ALSA cards (PortAudio indices=%s)",
-            radio.audio_device_indices,
+            dra.audio_device_indices,
         )
         return
     if not try_unmute_cm119_cards(cards, level=DRA_ALSA_SPEAKER_LEVEL):
@@ -258,24 +259,25 @@ def sync_cm119_speaker_unmute(radio: object) -> None:
 
 def prepare_dra_for_transmit(radio: object) -> None:
     """Before PTT: PortAudio re-scan and DRA output indices (USB hotplug path)."""
-    from app.dra_radio import DraRadio
+    from app.dra_radio import dra_radio_from
 
-    if not isinstance(radio, DraRadio) or not radio._runtime_usb_hid_tracking_enabled():
+    dra = dra_radio_from(radio)
+    if dra is None or not dra._runtime_usb_hid_tracking_enabled():
         return
-    if radio.ptt_keyed:
+    if dra.ptt_keyed:
         return
-    reconnected = radio.usb_hid_reconnected_pending
-    apply_cm119_replug_recovery(radio)
-    if not radio.note_usb_hid_presence():
+    reconnected = dra.usb_hid_reconnected_pending
+    apply_cm119_replug_recovery(dra)
+    if not dra.note_usb_hid_presence():
         return
-    pa_rescan = reconnected or not radio.audio_output_indices_look_valid()
-    radio.sync_audio_output_indices_if_changed(after_usb_event=pa_rescan)
-    if not radio.audio_output_indices_look_valid():
-        radio.sync_audio_output_indices_if_changed(after_usb_event=True)
-    sync_cm119_speaker_unmute(radio)
+    pa_rescan = reconnected or not dra.audio_output_indices_look_valid()
+    dra.sync_audio_output_indices_if_changed(after_usb_event=pa_rescan)
+    if not dra.audio_output_indices_look_valid():
+        dra.sync_audio_output_indices_if_changed(after_usb_event=True)
+    sync_cm119_speaker_unmute(dra)
     from app.dra_playback import portaudio_output_device_name
 
-    for index in radio.audio_device_indices:
+    for index in dra.audio_device_indices:
         try:
             name = portaudio_output_device_name(index)
         except Exception:

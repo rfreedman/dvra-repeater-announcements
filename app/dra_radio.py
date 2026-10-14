@@ -36,6 +36,12 @@ from app.radio import ChannelBusyError
 log = logging.getLogger("app.dra_radio")
 
 
+def dra_radio_from(radio: object) -> DraRadio | None:
+    """Unwrap ``_RunningOnKeyRadio`` (and similar) for DRA-only helpers."""
+    candidate = getattr(radio, "_inner", radio)
+    return candidate if isinstance(candidate, DraRadio) else None
+
+
 class DraRadio:
     """One or two DRA-36M units: OR busy, parallel PTT, mirrored USB audio."""
 
