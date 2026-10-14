@@ -179,6 +179,10 @@ def apply_cm119_replug_recovery(radio: object) -> None:
 
     if not isinstance(radio, DraRadio):
         return
+    if not radio._runtime_usb_hid_tracking_enabled():
+        return
+    if not radio.note_usb_hid_presence():
+        return
     limit = max(len(radio.audio_device_indices), radio.hid_count)
     hid_replug = radio.sync_hid_adapters_if_replugged()
     signature = alsa_watch.pending_replug_signature(limit=limit)

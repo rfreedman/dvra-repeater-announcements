@@ -124,6 +124,7 @@ def test_apply_replug_recovery_resets_hid_and_unmutes(monkeypatch):
     from app.dra_radio import DraRadio
 
     monkeypatch.setattr("app.dra_alsa_mixer.sys.platform", "linux")
+    monkeypatch.setattr("app.dra_radio.sys.platform", "linux")
     alsa_watch.last_unmuted_signature = (1,)
     monkeypatch.setattr("app.dra_alsa_mixer.cm119_alsa_card_signature", lambda limit: (2,))
     unmuted: list[list[int]] = []
@@ -135,6 +136,7 @@ def test_apply_replug_recovery_resets_hid_and_unmutes(monkeypatch):
         cos_line="vol_dn",
         cos_active_high=False,
     )
+    monkeypatch.setattr(radio, "_enumerate_hid_entries", lambda: [{"path": b"old"}])
     monkeypatch.setattr(radio, "sync_hid_adapters_if_replugged", lambda: False)
     monkeypatch.setattr(radio, "reset_hid_after_usb_replug", lambda: reset.append(True))
     monkeypatch.setattr("app.config.dra_alsa_unmute_enabled", lambda: True)

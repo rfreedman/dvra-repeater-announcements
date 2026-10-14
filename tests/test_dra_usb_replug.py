@@ -61,6 +61,44 @@ def test_apply_replug_recovery_hid_only_unmutes_speaker(monkeypatch):
     assert unmuted == [[1]]
 
 
+def test_usb_unplug_skips_warm_open_without_traceback(monkeypatch):
+    import app.dra_radio as dra_radio_mod
+
+    monkeypatch.setattr("app.dra_radio.sys.platform", "linux")
+    radio = DraRadio(
+        hid_adapters=[Cm119HidAdapter(b"path", "dra-hid-1")],
+        audio_indices=[0],
+        usb_channel="left",
+        cos_line="vol_dn",
+        cos_active_high=False,
+    )
+    monkeypatch.setattr(dra_radio_mod, "ensure_hid_module", lambda: (_ for _ in ()).throw(AssertionError("should not open HID")))
+    monkeypatch.setattr(radio, "_enumerate_hid_entries", lambda: [])
+    radio.warm_open_hid()
+    assert radio.usb_hid_present is False
+    radio.warm_open_hid()
+    assert radio.usb_hid_present is False
+
+
+def test_usb_replug_after_unplug_restores_presence(monkeypatch):
+    monkeypatch.setattr("app.dra_radio.sys.platform", "linux")
+    radio = DraRadio(
+        hid_adapters=[Cm119HidAdapter(b"old", "dra-hid-1")],
+        audio_indices=[0],
+        usb_channel="left",
+        cos_line="vol_dn",
+        cos_active_high=False,
+    )
+    state = {"entries": []}
+
+    monkeypatch.setattr(radio, "_enumerate_hid_entries", lambda: list(state["entries"]))
+    assert radio.note_usb_hid_presence() is False
+    state["entries"] = [{"path": b"new"}]
+    assert radio.sync_hid_adapters_if_replugged() is True
+    assert radio.usb_hid_present is True
+    assert radio._hid_adapters[0].path == b"new"
+
+
 def test_stale_hid_path_env_falls_back_to_live_cm119(monkeypatch):
     import app.dra_radio as dra_radio_mod
 

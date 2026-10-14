@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 import threading
 import time
 from collections.abc import Callable, Iterable
@@ -59,6 +60,17 @@ class DraRadio:
         self._last_cos_busy: bool | None = None
         self._cos_devices: list[object | None] = [None] * len(hid_adapters)
         self._last_cos_raw_hex: str | None = None
+        self._usb_hid_absent = False
+
+    @property
+    def usb_hid_present(self) -> bool:
+        return not self._usb_hid_absent
+
+    def _runtime_usb_hid_tracking_enabled(self) -> bool:
+        """Linux NUC hot-unplug/replug; off for tests with fake adapters and non-Linux dev."""
+        if not sys.platform.startswith("linux"):
+            return False
+        return all(isinstance(adapter, Cm119HidAdapter) for adapter in self._hid_adapters)
 
     @property
     def hid_count(self) -> int:
@@ -197,16 +209,51 @@ class DraRadio:
             return []
         return entries
 
+    def _enter_usb_hid_absent_state(self) -> None:
+        with self._lock:
+            newly_absent = not self._usb_hid_absent
+            if self._ptt_keyed:
+                log.warning("DRA USB unplugged while PTT keyed; closing COS handles")
+            self._close_cos_devices_locked()
+            if not self._ptt_keyed:
+                self._ptt_devices = []
+            self._idle_since_mono = None
+            self._last_cos_busy = None
+            self._usb_hid_absent = True
+        if newly_absent:
+            log.warning(
+                "DRA CM119 HID not found (USB unplugged?) — COS/PTT idle until reconnect"
+            )
+
+    def note_usb_hid_presence(self) -> bool:
+        """True when enough CM119 HID interfaces exist for this radio configuration."""
+        if not self._runtime_usb_hid_tracking_enabled():
+            return True
+        try:
+            entries = self._enumerate_hid_entries()
+        except OSError:
+            log.debug("CM119 HID enumerate failed", exc_info=True)
+            entries = []
+        count = len(self._hid_adapters)
+        if not entries or len(entries) < count:
+            self._enter_usb_hid_absent_state()
+            return False
+        if self._usb_hid_absent:
+            log.info("DRA CM119 HID available again")
+            self._usb_hid_absent = False
+        return True
+
     def sync_hid_adapters_if_replugged(self) -> bool:
         """Refresh CM119 HID paths after USB replug (ALSA card number may be unchanged)."""
+        if not self.note_usb_hid_presence():
+            return False
         try:
             entries = self._enumerate_hid_entries()
         except OSError:
             log.debug("CM119 HID enumerate failed during replug check", exc_info=True)
             return False
         count = len(self._hid_adapters)
-        if not entries or len(entries) < count:
-            return False
+        assert entries and len(entries) >= count
         entries = entries[:count]
         new_paths = tuple(entry["path"] for entry in entries)
         old_paths = tuple(adapter.path for adapter in self._hid_adapters)
@@ -276,12 +323,14 @@ class DraRadio:
 
     def warm_open_hid(self) -> None:
         """Open CM119 HID once and keep it (avoids macOS open/close races with PTT)."""
+        if not self.note_usb_hid_presence():
+            return
         hid = ensure_hid_module()
         for index, adapter in enumerate(self._hid_adapters):
             try:
                 with self._lock:
                     self._ensure_adapter_hid_locked(hid, index, adapter)
-            except OSError:
+            except OSError as err:
                 if self.sync_hid_adapters_if_replugged():
                     try:
                         with self._lock:
@@ -293,7 +342,13 @@ class DraRadio:
                         continue
                     except OSError:
                         pass
-                log.warning("COS/PTT HID warm-open failed on %s", adapter.label, exc_info=True)
+                if not self.note_usb_hid_presence():
+                    return
+                log.warning(
+                    "COS/PTT HID warm-open failed on %s: %s",
+                    adapter.label,
+                    err,
+                )
 
     def _sample_one_cos_locked(self, hid, adapter: Cm119HidAdapter, index: int) -> bool | None:
         if self._ptt_keyed:
@@ -381,6 +436,8 @@ class DraRadio:
         from app.dra_alsa_mixer import apply_cm119_replug_recovery
 
         apply_cm119_replug_recovery(self)
+        if self._runtime_usb_hid_tracking_enabled() and self._usb_hid_absent:
+            return True
         hid = ensure_hid_module()
         with self._lock:
             return self._sample_channel_busy_locked(hid)
