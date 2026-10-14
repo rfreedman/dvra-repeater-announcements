@@ -10,6 +10,37 @@ from app.scheduler import (
 from tests.test_api import _seed_baseline
 
 
+def test_usb_loss_drop_notice_detail():
+    clear_manual_trigger_drop_notice()
+    record_manual_trigger_drop(
+        "sched-usb",
+        announcement_name="Station ID",
+        reason="usb_loss",
+    )
+    notice = peek_manual_trigger_drop_notice()
+    assert notice is not None
+    assert "unplugged" in str(notice["detail"]).lower()
+    clear_manual_trigger_drop_notice()
+
+
+def test_manual_trigger_usb_drop_maps_notice(monkeypatch, radio, store):
+    from app.fire import FIRE_OUTCOME_DROPPED_USB
+
+    _announcement, schedule = _seed_baseline(store)
+    clear_manual_trigger_drop_notice()
+    monkeypatch.setattr(
+        "app.scheduler.handle_fire",
+        lambda *_a, **_k: FIRE_OUTCOME_DROPPED_USB,
+    )
+    result = run_manual_trigger(schedule.id)
+    assert result == "dropped"
+    notice = peek_manual_trigger_drop_notice()
+    assert notice is not None
+    assert notice["reason"] == "usb_loss"
+    assert "unplugged" in str(notice["detail"]).lower()
+    clear_manual_trigger_drop_notice()
+
+
 def test_record_and_peek_manual_drop_notice():
     clear_manual_trigger_drop_notice()
     assert peek_manual_trigger_drop_notice() is None

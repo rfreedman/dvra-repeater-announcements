@@ -80,7 +80,7 @@ def test_usb_unplug_skips_warm_open_without_traceback(monkeypatch):
     assert radio.usb_hid_present is False
 
 
-def test_usb_replug_after_unplug_restores_presence(monkeypatch):
+def test_usb_replug_after_unplug_restores_presence(monkeypatch, caplog):
     monkeypatch.setattr("app.dra_radio.sys.platform", "linux")
     radio = DraRadio(
         hid_adapters=[Cm119HidAdapter(b"old", "dra-hid-1")],
@@ -94,6 +94,9 @@ def test_usb_replug_after_unplug_restores_presence(monkeypatch):
     monkeypatch.setattr(radio, "_enumerate_hid_entries", lambda: list(state["entries"]))
     assert radio.note_usb_hid_presence() is False
     state["entries"] = [{"path": b"new"}]
+    with caplog.at_level("INFO"):
+        assert radio.note_usb_hid_presence() is True
+    assert any("connected again" in r.message for r in caplog.records)
     assert radio.sync_hid_adapters_if_replugged() is True
     assert radio.usb_hid_present is True
     assert radio._hid_adapters[0].path == b"new"

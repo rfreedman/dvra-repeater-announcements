@@ -21,6 +21,9 @@ from app.radio import ChannelBusyError, Radio, TransmitAbortError, channel_block
 
 log = logging.getLogger("app.fire")
 
+# Distinct from ``dropped`` (busy/give-up) so manual-trigger UI can show USB loss.
+FIRE_OUTCOME_DROPPED_USB = "dropped_usb"
+
 # Defer retry delays (seconds). See defer_retry_delay() and README “Defer timing”.
 # Non-blocking manual clear wait: scheduler re-checks soon without blocking the HTTP thread.
 DEFER_CLEAR_NONBLOCKING_MAX_SECONDS = 0.5
@@ -362,14 +365,14 @@ def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
         except TransmitAbortError:
             log.warning("Fire aborted; %s; DRA USB lost during playback", label)
             fire_trace("Fire aborted (USB loss) label=%s slot=%s", label, ctx.slot_key)
-            return "dropped"
+            return FIRE_OUTCOME_DROPPED_USB
         except BrokenPipeError:
             log.warning(
                 "Fire aborted; %s; DRA aplay pipe closed (USB unplugged during playback?)",
                 label,
             )
             fire_trace("Fire aborted (USB loss) label=%s slot=%s", label, ctx.slot_key)
-            return "dropped"
+            return FIRE_OUTCOME_DROPPED_USB
         except ChannelBusyError:
             outcome = _defer_or_drop_on_busy(
                 deps, ctx, announcement, label, phase="at PTT key"
@@ -419,7 +422,7 @@ def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
                     exc,
                 )
                 fire_trace("Fire aborted (USB loss) label=%s slot=%s", label, ctx.slot_key)
-                return "dropped"
+                return FIRE_OUTCOME_DROPPED_USB
             raise
         if deps.update_schedule:
             deps.mark_last_run(announcement.id, schedule.id, deps.now)

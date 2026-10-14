@@ -332,7 +332,9 @@ class DraRadio:
             self._enter_usb_hid_absent_state()
             return False
         if self._usb_hid_absent:
-            log.info("DRA CM119 HID available again")
+            log.info(
+                "DRA CM119 HID connected again (USB replugged) — COS/PTT recovery starting"
+            )
             self._usb_hid_absent = False
             self._usb_hid_reconnected_pending = True
         return True

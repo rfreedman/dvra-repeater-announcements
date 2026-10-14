@@ -739,12 +739,14 @@ def _run_manual_trigger_body(
         log.info("Manual trigger deferred; retry job %s scheduled", jid)
         return result
     drop_reason: str | None = None
-    if result == "dropped":
-        log.info("Manual trigger dropped for schedule %s", schedule_id)
-        from app.dra_radio import dra_usb_transmit_lost
+    from app.fire import FIRE_OUTCOME_DROPPED_USB
 
-        if dra_usb_transmit_lost(get_radio()):
-            drop_reason = "usb_loss"
+    if result == FIRE_OUTCOME_DROPPED_USB:
+        log.info("Manual trigger dropped for schedule %s (DRA USB unplugged)", schedule_id)
+        drop_reason = "usb_loss"
+        result = "dropped"
+    elif result == "dropped":
+        log.info("Manual trigger dropped for schedule %s", schedule_id)
     return _finish_manual_trigger(
         schedule_id,
         announcement,

@@ -22,12 +22,13 @@ def _poll_loop() -> None:
 
             dra = dra_radio_from(radio)
             if dra is not None and not dra.usb_hid_present:
-                from app.home_live import notify_home_live_status_throttled
+                if not dra.note_usb_hid_presence():
+                    from app.home_live import notify_home_live_status_throttled
 
-                notify_home_live_status_throttled()
-                if _stop.wait(poll):
-                    break
-                continue
+                    notify_home_live_status_throttled()
+                    if _stop.wait(poll):
+                        break
+                    continue
 
             from app.scheduler import nudge_manual_defer_jobs_if_clear_ready
 
