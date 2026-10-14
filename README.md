@@ -46,6 +46,15 @@ scripts/deploy.sh other-host      # or DEPLOY_HOST=other-host; DEPLOY_PATH overr
 
 The script refuses to run with uncommitted or unpushed local changes. On the NUC it checks that uv is present, that the clone is clean, and that `origin/main` fast-forwards, all before touching the app. If `origin/main` has new commits, its `pyproject.toml` version must be greater than the one the NUC is running (bump with `uv version --bump patch`, commit, push); otherwise the deploy stops and leaves the app running. A redeploy with no new commits just restarts the app. Then it stops the running `python -m app serve` with SIGTERM, pulls, and starts `./serve.sh` in the background, which syncs dependencies. It waits for `Startup complete` in the log and warns if the radio mode is `stub`. Background output goes to `data/logs/serve.out` on the NUC. If the app does not stop within 30 s, the deploy aborts without updating; it never SIGKILLs the app, because that can leave PTT keyed.
 
+#### Process restart and in-memory state
+
+Deploy and any manual restart start a **new process**. Nothing below is written to disk:
+
+- **Busy retries** — APScheduler `defer:` jobs and in-flight manual-trigger retries are dropped. A slot whose fire time has already passed is **not** played late after restart (see startup behavior below).
+- **Login rate limit** — Failed sign-in counters (`429` after five failures per username from the same client within five minutes) reset. Legitimate sessions in cookies may still work until they expire.
+
+After an outage or restart, use **Trigger now** or wait for the next slot if something did not air; check logs for deferred fires that will not run until you trigger again.
+
 To install the locked versions by hand, without test packages:
 
 ```bash
@@ -99,7 +108,7 @@ Write the spoken text under **New announcement**. Timing lives on **schedules**,
 - A **baseline** fills every hour and half-hour unless something else claims the slot. Several baselines take turns.
 - An **overlay** (weekly net, monthly net, event countdown, once, silence, or emergency) replaces the baseline for the slots it matches. You can slide an overlay a few minutes early or late inside the slot window; it still occupies that slot. Example: the 15:30 slot at −5 minutes fires at 15:25, and 15:30 stays silent.
 
-Scheduled playback uses the configured **radio backend** (`TTS_RADIO_BACKEND`: **stub** by default, or **dra** for DRA-36M PTT/COS/USB audio on the NUC). The Speak button is preview only (default output, no PTT). See [final hardware](docs/final-hardware/README.md) and configuration below.
+Scheduled playback uses the configured **radio backend** (`TTS_RADIO_BACKEND`: **stub** by default, or **dra** for DRA-36M PTT/COS/USB audio on the NUC). The Speak button is preview only (default output, no PTT). See [final hardware](docs/final-hardware/README.md), [radio backend protocol](docs/radio-backend.md), and configuration below.
 
 Insert a timed silence in the script with `[pause:SECONDS]` (optional trailing `s`). The tag is not spoken. Duration is capped at 10 seconds; invalid tags such as `[pause]` are left as ordinary text.
 
@@ -184,7 +193,7 @@ After voices preload and the scheduler starts, a successful startup logs a line 
 Startup complete in 12.3s (radio mode: stub)
 ```
 
-If the server restarts after a slot's fire time has passed, that slot is skipped rather than played late. Busy retries (`TTS_BUSY_RETRY_SECONDS` / give-up) only exist while the process is running.
+If the server restarts after a slot's fire time has passed, that slot is skipped rather than played late. Busy retries and defer jobs only exist while the process is running — see [Process restart and in-memory state](#process-restart-and-in-memory-state) under Deploying.
 
 `radio mode` is **`stub`** or **`dra`**, derived from the radio instance registered during startup (`StubRadio` vs `DraRadio`), not from re-reading `.env` at log time. On the NUC you should see **`dra`** when `TTS_RADIO_BACKEND=dra` and HID/audio init succeeded; dev machines without hardware typically show **`stub`**. DRA misconfiguration still fails before this line (process exits with an error on stderr). The same message is written to the console and to `TTS_LOG_DIR`/`announcements.log` (see below).
 
@@ -357,11 +366,11 @@ Streams 16-bit little-endian mono PCM. Format headers:
 
 Audio is produced one Piper sentence at a time and sent as it is ready.
 
-`GET /api/voices` lists voices and the server defaults for new announcements (speed, sentence pause, busy retry / give-up). `POST /api/prepare` downloads/loads a model without speaking. Most `/api/*` routes require a login session cookie. Five failed sign-ins for the same username from the same address within 5 minutes return `429` until the window passes. Requests carrying an `X-Background-Poll` header (any value; only its presence is checked) are authenticated but do not reset the idle timer. User management is under `/api/users` (Admin only). Auth helpers: `/api/auth/status`, `/api/auth/setup`, `/api/auth/login`, `/api/auth/logout`, `/api/auth/me`.
+`GET /api/voices` lists voices and the server defaults for new announcements (speed, sentence pause, busy retry / give-up). `POST /api/prepare` downloads/loads a model without speaking. Most `/api/*` routes require a login session cookie. Five failed sign-ins for the same username from the same address within 5 minutes return `429` until the window passes; that limit is **in-memory** and clears on process restart (see [Process restart and in-memory state](#process-restart-and-in-memory-state)). Requests carrying an `X-Background-Poll` header (any value; only its presence is checked) are authenticated but do not reset the idle timer. User management is under `/api/users` (Admin only). Auth helpers: `/api/auth/status`, `/api/auth/setup`, `/api/auth/login`, `/api/auth/logout`, `/api/auth/me`.
 
 `GET /api/system/stats` returns `{"celsius", "thermal_state", "cpu_percent", "memory_percent"}` (authenticated). The UI uses `GET /api/events/stats` (SSE): an initial `snapshot` event, then `stats` events about every 15s from a single server broadcast (one sample shared across tabs). If the stream drops, the client falls back to REST polling every 15s. CPU% uses `psutil.cpu_percent(interval=None)` (average since the previous sample); memory uses psutil. Temperature is °C from Linux thermal sysfs, or macOS `ProcessInfo.thermalState` (`nominal` / `fair` / `serious` / `critical`) when Celsius is unavailable.
 
-`GET /api/schedules` returns upcoming fire, today’s slot clock, warnings, settings, and schedule rows. Announcements are `GET/POST /api/announcements` and `PUT/DELETE /api/announcements/{id}`. Schedules are `GET/POST /api/schedules` and `PUT/PATCH/DELETE /api/schedules/{id}`. `PUT /api/settings` updates baseline shuffle and the slot window.
+`GET /api/schedules` returns upcoming fire, today’s slot clock, warnings, settings, and schedule rows. **Earlier today** on that clock is simulated from the current baseline rotation (not a play log); see [Today’s schedule grid vs what played](docs/how-to-schedule.md#todays-schedule-grid-vs-what-played). Announcements are `GET/POST /api/announcements` and `PUT/DELETE /api/announcements/{id}`. Schedules are `GET/POST /api/schedules` and `PUT/PATCH/DELETE /api/schedules/{id}`. `PUT /api/settings` updates baseline shuffle and the slot window.
 
 ```bash
 uv run pytest -q

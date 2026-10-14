@@ -2,6 +2,8 @@
 
 Tracked on GitHub as issues [#1–#26](https://github.com/rfreedman/dvra-repeater-announcements/issues). Re-create missing issues with [`scripts/create-tech-debt-issues.sh`](../scripts/create-tech-debt-issues.sh) (skips existing titles; requires `gh auth login`).
 
+Closed documentation-only items: [#19](https://github.com/rfreedman/dvra-repeater-announcements/issues/19) ( [`docs/radio-backend.md`](radio-backend.md) ), [#21](https://github.com/rfreedman/dvra-repeater-announcements/issues/21), [#23](https://github.com/rfreedman/dvra-repeater-announcements/issues/23).
+
 | # | Title | Labels |
 | --- | --- | --- |
 | [#1](https://github.com/rfreedman/dvra-repeater-announcements/issues/1) | Align Announcement model with API validation bounds | tech-debt |
@@ -22,11 +24,8 @@ Tracked on GitHub as issues [#1–#26](https://github.com/rfreedman/dvra-repeate
 | [#16](https://github.com/rfreedman/dvra-repeater-announcements/issues/16) | Add /api/meta for calendar labels and overlay priority defaults | enhancement, frontend |
 | [#17](https://github.com/rfreedman/dvra-repeater-announcements/issues/17) | deploy.sh: configurable stop and startup wait timeouts | enhancement |
 | [#18](https://github.com/rfreedman/dvra-repeater-announcements/issues/18) | Narrow broad except Exception on HTTP handlers where practical | tech-debt |
-| [#19](https://github.com/rfreedman/dvra-repeater-announcements/issues/19) | Document informal Radio protocol extensions | documentation |
 | [#20](https://github.com/rfreedman/dvra-repeater-announcements/issues/20) | Style: blank line after radio_backend in config.py | tech-debt |
-| [#21](https://github.com/rfreedman/dvra-repeater-announcements/issues/21) | UI clock for earlier today may not match what actually aired | enhancement, documentation |
 | [#22](https://github.com/rfreedman/dvra-repeater-announcements/issues/22) | Editing overlay offset into the past leaves stale scheduled job time | enhancement |
-| [#23](https://github.com/rfreedman/dvra-repeater-announcements/issues/23) | Document in-memory busy retries and login limiter reset on restart | documentation |
 | [#24](https://github.com/rfreedman/dvra-repeater-announcements/issues/24) | COS: decode queued HID reports to catch sub-poll kerchunks (Linux) | enhancement |
 | [#25](https://github.com/rfreedman/dvra-repeater-announcements/issues/25) | Browser or E2E tests for manual trigger polling and countdown UI | testing, frontend |
 | [#26](https://github.com/rfreedman/dvra-repeater-announcements/issues/26) | Bench-verify interleaved dual-DRA playback on two physical radios | testing |

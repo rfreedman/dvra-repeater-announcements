@@ -2,6 +2,8 @@
 
 Operational lessons from **Xubuntu on the Intel NUC** + **DRA-36M** bench checkout (2026-10). For jumpers, checkout order, and `dra36m_check.py` commands, see [`final-hardware/`](final-hardware/README.md).
 
+After **deploy or restart**, busy-retry / defer state and login lockout counters are in-memory only — see [README — Process restart and in-memory state](../README.md#process-restart-and-in-memory-state).
+
 ---
 
 ## Permissions (CM119 USB + HID)

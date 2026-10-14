@@ -139,6 +139,6 @@ APScheduler with a shifted/frozen clock before fixing; the new tests in
 
 ## Known limitations left as-is
 
-- Slot jobs are re-resolved at fire time, but the UI clock for *earlier today* is simulated from the current rotation index, so past baseline rows can show a different name than what actually played.
+- Slot jobs are re-resolved at fire time, but the UI clock for *earlier today* is simulated from the current rotation index, so past baseline rows can show a different name than what actually played. Operator docs: [how-to-schedule.md — Today's schedule grid vs what played](how-to-schedule.md#todays-schedule-grid-vs-what-played).
 - If an overlay's offset is edited so its fire time moves into the past, an already-scheduled job still fires at the old time.
-- Busy retries and the login limiter are in memory; a restart clears them.
+- Busy retries and the login limiter are in memory; a restart clears them. Operator docs: [README — Process restart and in-memory state](../README.md#process-restart-and-in-memory-state).

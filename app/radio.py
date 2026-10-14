@@ -1,3 +1,8 @@
+"""Radio backend protocol (stub vs DRA).
+
+Required: ``channel_busy``, ``set_ptt``. Optional methods used by scheduler, fire,
+and COS poll are documented in ``docs/radio-backend.md``.
+"""
 from __future__ import annotations
 
 import logging

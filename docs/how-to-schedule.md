@@ -56,6 +56,20 @@ countdown 20. A Sunday 21:00 net therefore beats a week-long meeting promo on
 that one slot. Two overlays of the same priority on the same slot cannot both be
 saved.
 
+## Today's schedule grid vs what played
+
+The home **schedule clock** shows what the app would fire **now** if each slot ran
+today, using the current baseline rotation and shuffle setting. It is **not** a log
+of what already went on-air.
+
+Earlier today, baseline rows can show a **different announcement name** than what
+actually transmitted if you edited schedules, changed baseline order, shuffled, or
+restarted the server after those slots. Overlays and fires always **re-resolve** at
+fire time; the grid for past slots is only a simulation for planning.
+
+For what really aired, use station records or logs (`data/logs/announcements.log` on
+the NUC), not the UI clock alone.
+
 ## Suggested first setup
 
 1. Create a station-ID announcement and a baseline schedule that uses it.
