@@ -26,6 +26,10 @@ def init_radio_at_startup() -> None:
     from app.radio import create_radio_from_config, set_radio
 
     try:
+        if sys.platform.startswith("linux") and radio_backend() in ("dra", "cm119"):
+            from app.dra_playback import refresh_portaudio_device_list
+
+            refresh_portaudio_device_list()
         radio = create_radio_from_config()
         set_radio(radio)
         if (
@@ -37,6 +41,9 @@ def init_radio_at_startup() -> None:
             from app.dra_radio import DraRadio
 
             if isinstance(radio, DraRadio):
+                sync_audio = getattr(radio, "sync_audio_output_indices_if_changed", None)
+                if sync_audio is not None:
+                    sync_audio(after_usb_event=True)
                 ensure_cm119_speakers_unmuted(
                     radio.audio_device_indices,
                     level=DRA_ALSA_SPEAKER_LEVEL,

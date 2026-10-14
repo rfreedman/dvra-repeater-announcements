@@ -123,7 +123,14 @@ def resolve_dra_audio_indices(
         )
 
     if not device_specs:
-        return [index for index, _dev in auto_select_dra_outputs(all_dra)]
+        selected = auto_select_dra_outputs(all_dra)
+        for index, dev in selected:
+            name = str(dev["name"])
+            if not is_dra_audio_name(name):
+                raise RuntimeError(
+                    f"Resolved PortAudio device [{index}] is not a DRA output: {name!r}"
+                )
+        return [index for index, _dev in selected]
 
     indices: list[int] = []
     for spec in device_specs:

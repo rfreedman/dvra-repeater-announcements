@@ -235,9 +235,29 @@ def apply_cm119_replug_recovery(radio: object) -> None:
         )
 
 
-def prepare_dra_for_transmit(radio: object) -> None:
-    """Before PTT: PortAudio re-scan, DRA output indices, Speaker unmute."""
+def sync_cm119_speaker_unmute(radio: object) -> None:
+    """Best-effort CM119 Speaker unmute (always before transmit on Linux DRA)."""
     from app.config import DRA_ALSA_SPEAKER_LEVEL, dra_alsa_unmute_enabled
+    from app.dra_radio import DraRadio
+
+    if not sys.platform.startswith("linux") or not isinstance(radio, DraRadio):
+        return
+    if not dra_alsa_unmute_enabled():
+        return
+    limit = max(len(radio.audio_device_indices), radio.hid_count)
+    cards = cm119_alsa_cards_to_unmute(radio, limit=limit, signature=None)
+    if not cards:
+        log.warning(
+            "CM119 Speaker unmute skipped: no ALSA cards (PortAudio indices=%s)",
+            radio.audio_device_indices,
+        )
+        return
+    if not try_unmute_cm119_cards(cards, level=DRA_ALSA_SPEAKER_LEVEL):
+        log.warning("CM119 Speaker unmute failed on card(s) %s", cards)
+
+
+def prepare_dra_for_transmit(radio: object) -> None:
+    """Before PTT: PortAudio re-scan and DRA output indices (USB hotplug path)."""
     from app.dra_radio import DraRadio
 
     if not isinstance(radio, DraRadio) or not radio._runtime_usb_hid_tracking_enabled():
@@ -252,11 +272,7 @@ def prepare_dra_for_transmit(radio: object) -> None:
     radio.sync_audio_output_indices_if_changed(after_usb_event=pa_rescan)
     if not radio.audio_output_indices_look_valid():
         radio.sync_audio_output_indices_if_changed(after_usb_event=True)
-    if dra_alsa_unmute_enabled():
-        limit = max(len(radio.audio_device_indices), radio.hid_count)
-        cards = cm119_alsa_cards_to_unmute(radio, limit=limit, signature=None)
-        if cards:
-            try_unmute_cm119_cards(cards, level=DRA_ALSA_SPEAKER_LEVEL)
+    sync_cm119_speaker_unmute(radio)
     from app.dra_playback import portaudio_output_device_name
 
     for index in radio.audio_device_indices:

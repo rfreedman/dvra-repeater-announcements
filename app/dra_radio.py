@@ -316,6 +316,14 @@ class DraRadio:
                     new_indices,
                 )
                 return False
+            from app.dra_playback import portaudio_index_is_dra_output
+
+            if not all(portaudio_index_is_dra_output(index) for index in new_indices):
+                log.warning(
+                    "DRA USB replug: refusing PortAudio indices %s (not DRA outputs)",
+                    new_indices,
+                )
+                return False
             old = list(self._audio_indices)
             self._audio_indices = new_indices
             self._pending_audio_indices = None
