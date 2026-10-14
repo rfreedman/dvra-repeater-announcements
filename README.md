@@ -280,6 +280,8 @@ python -m app users delete bob
 | `TTS_DRA_FINAL_CHECK_SECONDS` | `1.0` | After the clear hold, keep reading COS this long before PTT; any busy read cancels (catches a key-up as the UI countdown ends). Only applies when `TTS_DRA_CLEAR_SECONDS` > 0 |
 | `TTS_DRA_COS_TRACK` | `true` | Background COS polls while the scheduler runs (idle before Trigger now counts toward clear) |
 | `TTS_DRA_HID_PATH` | *(auto)* | Hex HID path to pin **one** CM119 (Mac dev or **single** DRA on the NUC). **Omit when two DRAs are on the NUC** — each radio needs its own CM119 HID |
+| `TTS_DRA_ALSA_UNMUTE` | `true` | Linux **dra** only: run `amixer` to unmute CM119 **Speaker** at startup (see [NUC notes](docs/NUC-notes.md)). Set `false` to skip |
+| `TTS_DRA_ALSA_SPEAKER_LEVEL` | `100%` | ALSA **Speaker** level passed to `amixer sset` when unmuting |
 | `TTS_BUSY_RETRY_SECONDS` | `5` | Retry interval while the channel is busy; also the value pre-filled for a **new announcement** in the UI |
 | `TTS_BUSY_GIVE_UP_SECONDS` | `45` | Drop this fire if still busy after this long; also pre-filled for a new announcement |
 | `TTS_SCHEDULER_MAX_WAIT_SECONDS` | `5` | How long the scheduler may sleep before checking the clock again |

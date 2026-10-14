@@ -27,7 +27,9 @@ amixer -c 1 sset Speaker 100% unmute
 
 Re-run `python scripts/dra36m_check.py smoke -c left --seconds 2 --lead 0.6` to confirm tone on DATA IN. Adjust **R16** on the DRA (JU3=L) for deviation, not only software volume.
 
-Consider persisting unmute (boot script, `@reboot` cron, or a udev RUN rule) if the card resets to muted after replug.
+With `TTS_RADIO_BACKEND=dra`, the app **unmutes Speaker at startup** on each CM119 ALSA card it uses (see `TTS_DRA_ALSA_UNMUTE`, `TTS_DRA_ALSA_SPEAKER_LEVEL`). Startup fails if `amixer` cannot unmute — fix permissions or install `alsa-utils`.
+
+Consider persisting unmute (boot script, `@reboot` cron, or a udev RUN rule) if the card resets to muted after replug without restarting the app.
 
 ---
 

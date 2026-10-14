@@ -140,6 +140,16 @@ def _dra_hid_path_bytes() -> bytes | None:
 
 
 DRA_HID_PATH_BYTES = _dra_hid_path_bytes()
+
+
+def dra_alsa_unmute_enabled() -> bool:
+    raw = os.environ.get("TTS_DRA_ALSA_UNMUTE")
+    if raw is None:
+        return True
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+DRA_ALSA_SPEAKER_LEVEL = os.environ.get("TTS_DRA_ALSA_SPEAKER_LEVEL", "100%").strip() or "100%"
 DEFAULT_BUSY_RETRY_SECONDS = float(os.environ.get("TTS_BUSY_RETRY_SECONDS", "5"))
 DEFAULT_BUSY_GIVE_UP_SECONDS = float(os.environ.get("TTS_BUSY_GIVE_UP_SECONDS", "45"))
 SCHEDULER_MAX_WAIT_SECONDS = float(os.environ.get("TTS_SCHEDULER_MAX_WAIT_SECONDS", "5"))

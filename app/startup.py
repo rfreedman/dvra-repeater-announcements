@@ -20,11 +20,27 @@ def _message_for_os_error(exc: OSError) -> str:
 
 def init_radio_at_startup() -> None:
     """Eager DRA/stub radio init so misconfiguration fails before serving traffic."""
+    import sys
+
+    from app.config import DRA_ALSA_SPEAKER_LEVEL, dra_alsa_unmute_enabled, radio_backend
     from app.radio import create_radio_from_config, set_radio
 
     try:
         radio = create_radio_from_config()
         set_radio(radio)
+        if (
+            sys.platform.startswith("linux")
+            and radio_backend() in ("dra", "cm119")
+            and dra_alsa_unmute_enabled()
+        ):
+            from app.dra_alsa_mixer import ensure_cm119_speakers_unmuted
+            from app.dra_radio import DraRadio
+
+            if isinstance(radio, DraRadio):
+                ensure_cm119_speakers_unmuted(
+                    radio.audio_device_indices,
+                    level=DRA_ALSA_SPEAKER_LEVEL,
+                )
         warm = getattr(radio, "warm_open_hid", None)
         if warm is not None:
             warm()
