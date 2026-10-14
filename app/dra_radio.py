@@ -162,6 +162,69 @@ class DraRadio:
                 pass
             self._cos_devices[index] = None
 
+    def _drop_cos_device_locked(self, index: int) -> None:
+        dev = self._cos_devices[index]
+        if dev is None:
+            return
+        try:
+            dev.close()
+        except OSError:
+            pass
+        self._cos_devices[index] = None
+
+    def _enumerate_hid_entries(self) -> list[dict]:
+        hid = ensure_hid_module()
+        entries = list_cm119_hid_entries(hid)
+        if DRA_HID_PATH_BYTES is not None:
+            entries = [e for e in entries if e.get("path") == DRA_HID_PATH_BYTES]
+        return entries
+
+    def sync_hid_adapters_if_replugged(self) -> bool:
+        """Refresh CM119 HID paths after USB replug (ALSA card number may be unchanged)."""
+        try:
+            entries = self._enumerate_hid_entries()
+        except OSError:
+            log.debug("CM119 HID enumerate failed during replug check", exc_info=True)
+            return False
+        count = len(self._hid_adapters)
+        if not entries or len(entries) < count:
+            return False
+        entries = entries[:count]
+        new_paths = tuple(entry["path"] for entry in entries)
+        old_paths = tuple(adapter.path for adapter in self._hid_adapters)
+        if new_paths == old_paths:
+            return False
+        with self._lock:
+            if self._ptt_keyed:
+                log.warning("USB replug HID path update skipped while PTT is keyed")
+                return False
+            self._hid_adapters = [
+                Cm119HidAdapter(path=entries[i]["path"], label=self._hid_adapters[i].label)
+                for i in range(count)
+            ]
+            self._close_cos_devices_locked()
+            self._ptt_devices = []
+            self._idle_since_mono = None
+            self._last_cos_busy = None
+        log.info(
+            "DRA USB replug: CM119 HID paths updated (%s → %s)",
+            ", ".join(p.hex() for p in old_paths),
+            ", ".join(p.hex() for p in new_paths),
+        )
+        return True
+
+    def reset_hid_after_usb_replug(self) -> None:
+        """Drop cached HID handles and idle credit after USB disconnect/reconnect."""
+        with self._lock:
+            if self._ptt_keyed:
+                log.warning("USB replug HID reset skipped while PTT is keyed")
+                return
+            self._close_cos_devices_locked()
+            self._ptt_devices = []
+            self._idle_since_mono = None
+            self._last_cos_busy = None
+            log.info("DRA USB replug: closed cached CM119 HID handles and cleared COS idle credit")
+
     def _open_hid_path(self, hid, path: bytes):
         """Open CM119 HID; macOS often needs a brief pause after a prior close on the same path."""
         last: OSError | None = None
@@ -231,8 +294,18 @@ class DraRadio:
         sample = read_hid_sample(dev)
         raw = sample.raw
         if raw is None:
-            log.debug("COS no HID report on %s", adapter.label)
-            return None
+            log.debug("COS no HID report on %s; reopening HID handle", adapter.label)
+            self._drop_cos_device_locked(index)
+            try:
+                dev = self._ensure_adapter_hid_locked(hid, index, adapter)
+            except OSError:
+                log.debug("COS HID reopen failed on %s", adapter.label, exc_info=True)
+                return None
+            sample = read_hid_sample(dev)
+            raw = sample.raw
+            if raw is None:
+                log.debug("COS no HID report on %s after reopen", adapter.label)
+                return None
         self._last_cos_raw_hex = raw.hex()
         busy = cos_line_busy(
             raw,
@@ -276,6 +349,9 @@ class DraRadio:
 
     def refresh_cos(self) -> bool:
         """Read COS once and update idle tracking (background poll)."""
+        from app.dra_alsa_mixer import apply_cm119_replug_recovery
+
+        apply_cm119_replug_recovery(self)
         hid = ensure_hid_module()
         with self._lock:
             return self._sample_channel_busy_locked(hid)
@@ -313,6 +389,9 @@ class DraRadio:
         fail_fast_on_busy: bool = False,
     ) -> bool:
         """Wait for ``clear_seconds`` of continuous COS idle before PTT (voice-gate style)."""
+        from app.dra_alsa_mixer import apply_cm119_replug_recovery
+
+        apply_cm119_replug_recovery(self)
         if clear_seconds <= 0:
             return not self.channel_busy()
         poll = max(0.05, poll_seconds)
@@ -395,14 +474,9 @@ class DraRadio:
         lead_seconds: float,
     ) -> None:
         """Stream Piper PCM on all DRA outputs (lead silence on USB, not host sleep)."""
-        from app.config import DRA_ALSA_SPEAKER_LEVEL, dra_alsa_unmute_enabled
-        from app.dra_alsa_mixer import alsa_watch
+        from app.dra_alsa_mixer import apply_cm119_replug_recovery
 
-        if dra_alsa_unmute_enabled():
-            alsa_watch.sync_unmute_if_needed(
-                limit=len(self._audio_indices),
-                level=DRA_ALSA_SPEAKER_LEVEL,
-            )
+        apply_cm119_replug_recovery(self)
         play_pcm_chunks_to_dra_devices(
             chunks,
             device_indices=self._audio_indices,

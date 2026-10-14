@@ -18,18 +18,17 @@ def _poll_loop() -> None:
     while not _stop.is_set():
         try:
             radio = get_radio()
-            from app.scheduler import any_manual_trigger_inflight, nudge_manual_defer_jobs_if_clear_ready
+            from app.scheduler import nudge_manual_defer_jobs_if_clear_ready
 
-            if not any_manual_trigger_inflight():
-                warm = getattr(radio, "warm_open_hid", None)
-                if warm is not None:
-                    warm()
-                from app.dra_alsa_mixer import maybe_sync_cm119_alsa_unmute
+            from app.dra_alsa_mixer import apply_cm119_replug_recovery
 
-                maybe_sync_cm119_alsa_unmute(radio)
-                refresh = getattr(radio, "refresh_cos", None)
-                if refresh is not None:
-                    refresh()
+            apply_cm119_replug_recovery(radio)
+            warm = getattr(radio, "warm_open_hid", None)
+            if warm is not None:
+                warm()
+            refresh = getattr(radio, "refresh_cos", None)
+            if refresh is not None:
+                refresh()
             nudge_manual_defer_jobs_if_clear_ready()
             from app.home_live import notify_home_live_status_throttled
 

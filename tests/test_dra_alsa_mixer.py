@@ -11,6 +11,7 @@ from app.dra_alsa_mixer import (
     alsa_card_from_portaudio_device,
     alsa_cards_for_dra_outputs,
     alsa_watch,
+    apply_cm119_replug_recovery,
     ensure_cm119_speakers_unmuted,
     try_unmute_speaker,
     unmute_speaker,
@@ -115,26 +116,36 @@ def test_alsa_watch_skips_when_signature_unchanged(monkeypatch):
     watch = Cm119AlsaWatch()
     watch.note_unmuted_signature((1, 2))
     monkeypatch.setattr("app.dra_alsa_mixer.cm119_alsa_card_signature", lambda limit: (1, 2))
-    called = False
-
-    def boom(*args, **kwargs):
-        nonlocal called
-        called = True
-        return True
-
-    monkeypatch.setattr("app.dra_alsa_mixer.try_unmute_cm119_cards", boom)
-    assert watch.sync_unmute_if_needed(limit=2, level="100%") is False
-    assert called is False
+    assert watch.pending_replug_signature(limit=2) is None
 
 
-def test_alsa_watch_unmutes_when_signature_changes(monkeypatch):
+def test_apply_replug_recovery_resets_hid_and_unmutes(monkeypatch):
+    from app.cm119 import Cm119HidAdapter
+    from app.dra_radio import DraRadio
+
     monkeypatch.setattr("app.dra_alsa_mixer.sys.platform", "linux")
-    watch = Cm119AlsaWatch()
-    watch.note_unmuted_signature((1,))
+    alsa_watch.last_unmuted_signature = (1,)
     monkeypatch.setattr("app.dra_alsa_mixer.cm119_alsa_card_signature", lambda limit: (2,))
-    monkeypatch.setattr("app.dra_alsa_mixer.try_unmute_cm119_cards", lambda cards, level: True)
-    assert watch.sync_unmute_if_needed(limit=1, level="100%") is True
-    assert watch.last_unmuted_signature == (2,)
+    unmuted: list[list[int]] = []
+    reset: list[bool] = []
+    radio = DraRadio(
+        hid_adapters=[Cm119HidAdapter(b"old", "dra-hid-1")],
+        audio_indices=[4],
+        usb_channel="left",
+        cos_line="vol_dn",
+        cos_active_high=False,
+    )
+    monkeypatch.setattr(radio, "sync_hid_adapters_if_replugged", lambda: False)
+    monkeypatch.setattr(radio, "reset_hid_after_usb_replug", lambda: reset.append(True))
+    monkeypatch.setattr("app.config.dra_alsa_unmute_enabled", lambda: True)
+    monkeypatch.setattr(
+        "app.dra_alsa_mixer.try_unmute_cm119_cards",
+        lambda cards, level: unmuted.append(cards) or True,
+    )
+    apply_cm119_replug_recovery(radio)
+    assert reset == [True]
+    assert unmuted == [[2]]
+    assert alsa_watch.last_unmuted_signature == (2,)
 
 
 def test_ensure_cm119_notes_signature_for_watch(monkeypatch):
