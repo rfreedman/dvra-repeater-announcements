@@ -276,10 +276,6 @@ class DraUsbPlayback:
 
     def __exit__(self, *_exc) -> None:
         if self._stream is not None:
-            try:
-                self._stream.wait()
-            except Exception:
-                log.debug("PortAudio wait before stream close failed", exc_info=True)
             self._stream.stop()
             self._stream.close()
             self._stream = None
@@ -287,7 +283,9 @@ class DraUsbPlayback:
     def write_mono_f32(self, mono: np.ndarray) -> None:
         if self._stream is None or mono.size == 0:
             return
-        _write_mono_to_stream(self._stream, mono, channel=self.channel)
+        block = max(1, int(round(WRITE_BLOCK_SECONDS * self.samplerate)))
+        for start in range(0, mono.size, block):
+            _write_mono_to_stream(self._stream, mono[start : start + block], channel=self.channel)
 
 
 def write_programs_interleaved(
@@ -333,8 +331,11 @@ def play_pcm_chunks_to_dra_devices(
 
     with _portaudio_lock:
         from app.dra_alsa_mixer import sync_cm119_speaker_unmute_for_indices
+        from app.dra_pulse_mixer import sync_pulse_sink_unmute_for_portaudio_index
 
         sync_cm119_speaker_unmute_for_indices(device_indices)
+        for index in device_indices:
+            sync_pulse_sink_unmute_for_portaudio_index(index)
 
         samplerates = [dra_device_samplerate(index) for index in device_indices]
         programs = [

@@ -509,6 +509,12 @@ def cmd_tone(args) -> int:
     idx, audio = find_dra_audio_device()
     if idx is None:
         raise SystemExit("DRA audio device not found")
+    if sys.platform.startswith("linux"):
+        from app.dra_alsa_mixer import sync_cm119_speaker_unmute_for_indices
+        from app.dra_pulse_mixer import sync_pulse_sink_unmute_for_portaudio_index
+
+        sync_cm119_speaker_unmute_for_indices([idx])
+        sync_pulse_sink_unmute_for_portaudio_index(idx)
     sr = int(audio["default_samplerate"])
     duration = args.seconds
     freq = args.frequency
@@ -529,8 +535,10 @@ def cmd_smoke(args) -> int:
         raise SystemExit("DRA audio device not found")
     if sys.platform.startswith("linux"):
         from app.dra_alsa_mixer import sync_cm119_speaker_unmute_for_indices
+        from app.dra_pulse_mixer import sync_pulse_sink_unmute_for_portaudio_index
 
         sync_cm119_speaker_unmute_for_indices([idx])
+        sync_pulse_sink_unmute_for_portaudio_index(idx)
     dev = _open_cm119_hid(hid)
     lead = args.lead
     sr = int(audio["default_samplerate"])
@@ -539,16 +547,20 @@ def cmd_smoke(args) -> int:
     t = np.linspace(0, duration, int(sr * duration), endpoint=False)
     mono = (args.level * np.sin(2 * np.pi * freq * t)).astype(np.float32)
     lead_frames = np.zeros(int(max(0.0, lead) * sr), dtype=np.float32)
+    program = np.concatenate([lead_frames, mono])
+    peak = float(np.max(np.abs(program)))
 
     print(
         f"Smoke test: PortAudio[{idx}] {audio['name']}; "
-        f"PTT + tone (channel={args.channel}, lead={lead}s silence then tone). "
+        f"PTT + tone (channel={args.channel}, lead={lead}s, peak={peak:.4f}). "
         "Low power / dummy load."
     )
+    import sounddevice as sd
+
+    samples = mono_to_channel(program, args.channel)
     set_gpio3_ptt(dev, True)
     try:
-        with DraUsbPlayback(idx, args.channel, sr) as out:
-            out.write_mono_f32(np.concatenate([lead_frames, mono]))
+        sd.play(samples, samplerate=sr, device=idx, blocking=True)
     finally:
         set_gpio3_ptt(dev, False)
     raw = read_hid_input(dev)
