@@ -308,24 +308,45 @@ def play_pcm_chunks_to_dra_devices(
     """Play the same announcement on one or two DRA USB outputs at the same time."""
     buffered = [chunk for chunk in materialize_chunks(chunks) if chunk.pcm_int16]
     if not buffered:
+        log.warning("DRA playback skipped: no PCM samples in chunks")
         return
 
-    streams: list[DraUsbPlayback] = []
-    try:
-        for index in device_indices:
-            playback = DraUsbPlayback(index, channel, dra_device_samplerate(index))
-            playback.__enter__()
-            if register_stream is not None:
-                register_stream(playback)
-            streams.append(playback)
+    with _portaudio_lock:
+        from app.dra_alsa_mixer import sync_cm119_speaker_unmute_for_indices
+
+        sync_cm119_speaker_unmute_for_indices(device_indices)
+
+        samplerates = [dra_device_samplerate(index) for index in device_indices]
         programs = [
-            mono_program_f32(buffered, samplerate=stream.samplerate, lead_silence=lead_silence)
-            for stream in streams
+            mono_program_f32(buffered, samplerate=sr, lead_silence=lead_silence)
+            for sr in samplerates
         ]
-        write_programs_interleaved(streams, programs, should_abort=should_abort)
-    finally:
-        for playback in streams:
-            playback.__exit__()
+        peak = max(float(np.max(np.abs(program))) for program in programs if program.size)
+        frames = max(len(program) for program in programs)
+        log.info(
+            "DRA PCM program: %s frames, peak=%.4f, channel=%s, devices=%s",
+            frames,
+            peak,
+            channel,
+            device_indices,
+        )
+        if peak < 0.001:
+            log.warning(
+                "DRA PCM peak near zero — on-air may be silent (check cache/TTS or announcement text)"
+            )
+
+        streams: list[DraUsbPlayback] = []
+        try:
+            for index, sr in zip(device_indices, samplerates):
+                playback = DraUsbPlayback(index, channel, sr)
+                playback.__enter__()
+                if register_stream is not None:
+                    register_stream(playback)
+                streams.append(playback)
+            write_programs_interleaved(streams, programs, should_abort=should_abort)
+        finally:
+            for playback in streams:
+                playback.__exit__()
 
 
 def play_pcm_chunks_to_single_dra(

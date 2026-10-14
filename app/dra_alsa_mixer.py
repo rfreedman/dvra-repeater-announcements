@@ -189,9 +189,10 @@ def cm119_alsa_cards_for_radio(radio: object) -> list[int]:
 def apply_cm119_replug_recovery(radio: object) -> None:
     """After USB replug: drop stale HID handles, unmute Speaker, refresh signature."""
     from app.config import DRA_ALSA_SPEAKER_LEVEL, dra_alsa_unmute_enabled
-    from app.dra_radio import DraRadio
+    from app.dra_radio import dra_radio_from
 
-    if not isinstance(radio, DraRadio):
+    radio = dra_radio_from(radio)
+    if radio is None:
         return
     if not radio._runtime_usb_hid_tracking_enabled():
         return
@@ -233,6 +234,27 @@ def apply_cm119_replug_recovery(radio: object) -> None:
             hid_replug,
             audio_resync,
         )
+
+
+def sync_cm119_speaker_unmute_for_indices(device_indices: list[int]) -> None:
+    """Best-effort Speaker unmute from PortAudio output indices (playback path)."""
+    from app.config import DRA_ALSA_SPEAKER_LEVEL, dra_alsa_unmute_enabled
+
+    if not sys.platform.startswith("linux") or not dra_alsa_unmute_enabled():
+        return
+    if not device_indices:
+        return
+    try:
+        cards = alsa_cards_for_dra_outputs(device_indices)
+    except StartupError:
+        log.warning(
+            "CM119 Speaker unmute skipped: could not map PortAudio indices %s to ALSA cards",
+            device_indices,
+            exc_info=True,
+        )
+        return
+    if not try_unmute_cm119_cards(cards, level=DRA_ALSA_SPEAKER_LEVEL):
+        log.warning("CM119 Speaker unmute failed on card(s) %s", cards)
 
 
 def sync_cm119_speaker_unmute(radio: object) -> None:
