@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import subprocess
 import sys
 import threading
 from collections.abc import Callable, Iterable
@@ -232,21 +233,15 @@ def resample_pcm_int16_mono(pcm_int16: bytes, *, from_rate: int, to_rate: int) -
 WRITE_BLOCK_SECONDS = 0.05
 
 
-def _output_stream_dtype(device_index: int) -> str:
-    """Linux ALSA ``(hw:…)``: int16 PCM avoids silent float32 on some CM119 + PA builds."""
-    if not sys.platform.startswith("linux"):
-        return "float32"
-    try:
-        name = portaudio_output_device_name(device_index)
-    except Exception:
-        return "float32"
-    return "int16" if _is_alsa_hw_portaudio_name(name) else "float32"
-
-
-def _write_mono_to_stream(stream, mono_f32: np.ndarray, *, channel: str) -> None:
+def _write_mono_to_stream(
+    stream,
+    mono_f32: np.ndarray,
+    *,
+    channel: str,
+    stream_dtype: str = "float32",
+) -> None:
     out = mono_to_channel(mono_f32, channel)
-    dtype = getattr(stream, "dtype", "float32")
-    if dtype == "int16":
+    if np.dtype(stream_dtype).name == "int16":
         if out.ndim == 1:
             out = (np.clip(out, -1.0, 1.0) * 32767.0).astype(np.int16).reshape(-1, 1)
         else:
@@ -255,6 +250,99 @@ def _write_mono_to_stream(stream, mono_f32: np.ndarray, *, channel: str) -> None
         stream.write(out.reshape(-1, 1))
     else:
         stream.write(out)
+
+
+def _alsa_plughw_for_portaudio_index(device_index: int) -> str:
+    from app.dra_alsa_mixer import alsa_card_from_portaudio_device
+
+    card = alsa_card_from_portaudio_device(device_index)
+    if card is None:
+        raise RuntimeError(
+            f"Could not map PortAudio index {device_index} to ALSA plughw "
+            "(expected device name with (hw:N,0))"
+        )
+    return f"plughw:{card},0"
+
+
+def _mono_f32_to_interleaved_s16(mono_f32: np.ndarray, channel: str) -> bytes:
+    stereo = mono_to_channel(mono_f32.astype(np.float32), channel)
+    if stereo.ndim == 1:
+        stereo = stereo.reshape(-1, 1)
+    return (np.clip(stereo, -1.0, 1.0) * 32767.0).astype(np.int16).tobytes()
+
+
+def _play_s16_stereo_via_aplay(
+    pcm: bytes,
+    *,
+    sample_rate: int,
+    alsa_device: str,
+) -> None:
+    if not pcm:
+        return
+    try:
+        subprocess.run(
+            [
+                "aplay",
+                "-q",
+                "-D",
+                alsa_device,
+                "-t",
+                "raw",
+                "-f",
+                "S16_LE",
+                "-r",
+                str(sample_rate),
+                "-c",
+                "2",
+            ],
+            input=pcm,
+            check=True,
+            capture_output=True,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            "aplay not found; install alsa-utils on the NUC (docs/NUC-notes.md)"
+        ) from exc
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or b"").decode("utf-8", errors="replace").strip()
+        raise RuntimeError(f"aplay to {alsa_device} failed: {detail}") from exc
+
+
+def _linux_use_aplay() -> bool:
+    from app.config import dra_linux_playback_backend
+
+    return sys.platform.startswith("linux") and dra_linux_playback_backend() == "aplay"
+
+
+def play_mono_f32_to_dra_device(
+    mono_f32: np.ndarray,
+    *,
+    device_index: int,
+    channel: str,
+    samplerate: int,
+) -> None:
+    """Play one float32 mono program on a DRA (bench + shared Linux aplay path)."""
+    if mono_f32.size == 0:
+        return
+    if _linux_use_aplay():
+        from app.dra_alsa_mixer import sync_cm119_speaker_unmute_for_indices
+
+        sync_cm119_speaker_unmute_for_indices([device_index])
+        alsa_dev = _alsa_plughw_for_portaudio_index(device_index)
+        peak = float(np.max(np.abs(mono_f32)))
+        log.info(
+            "DRA aplay → %s (%s Hz, channel=%s, peak=%.4f, PortAudio[%s])",
+            alsa_dev,
+            samplerate,
+            channel,
+            peak,
+            device_index,
+        )
+        pcm = _mono_f32_to_interleaved_s16(mono_f32, channel)
+        _play_s16_stereo_via_aplay(pcm, sample_rate=samplerate, alsa_device=alsa_dev)
+        return
+    with DraUsbPlayback(device_index, channel, samplerate) as playback:
+        playback.write_mono_f32(mono_f32)
 
 
 def mono_program_f32(chunks: Iterable[PcmChunk], *, samplerate: int, lead_silence: float) -> np.ndarray:
@@ -278,7 +366,7 @@ class DraUsbPlayback:
         self.channel = channel
         self.samplerate = samplerate
         self._channels = _output_channels(channel)
-        self._dtype = _output_stream_dtype(device_index)
+        self._dtype = "float32"
         self._stream: sd.OutputStream | None = None
 
     def __enter__(self):
@@ -304,7 +392,12 @@ class DraUsbPlayback:
             return
         block = max(1, int(round(WRITE_BLOCK_SECONDS * self.samplerate)))
         for start in range(0, mono.size, block):
-            _write_mono_to_stream(self._stream, mono[start : start + block], channel=self.channel)
+            _write_mono_to_stream(
+                self._stream,
+                mono[start : start + block],
+                channel=self.channel,
+                stream_dtype=self._dtype,
+            )
 
 
 def write_programs_interleaved(
@@ -374,6 +467,47 @@ def play_pcm_chunks_to_dra_devices(
             log.warning(
                 "DRA PCM peak near zero — on-air may be silent (check cache/TTS or announcement text)"
             )
+
+        if _linux_use_aplay():
+
+            def _run_aplay(index: int, program: np.ndarray, sr: int) -> None:
+                alsa_dev = _alsa_plughw_for_portaudio_index(index)
+                log.info(
+                    "DRA aplay → %s (%s frames, %s Hz, channel=%s, PortAudio[%s])",
+                    alsa_dev,
+                    len(program),
+                    sr,
+                    channel,
+                    index,
+                )
+                pcm = _mono_f32_to_interleaved_s16(program, channel)
+                _play_s16_stereo_via_aplay(pcm, sample_rate=sr, alsa_device=alsa_dev)
+
+            if len(device_indices) == 1:
+                _run_aplay(device_indices[0], programs[0], samplerates[0])
+            else:
+                errors: list[BaseException] = []
+                threads: list[threading.Thread] = []
+
+                def _target(i: int, prog: np.ndarray, sr: int) -> None:
+                    try:
+                        _run_aplay(i, prog, sr)
+                    except BaseException as exc:  # noqa: BLE001
+                        errors.append(exc)
+
+                for index, program, sr in zip(device_indices, programs, samplerates):
+                    thread = threading.Thread(
+                        target=_target,
+                        args=(index, program, sr),
+                        name=f"dra-aplay-{index}",
+                    )
+                    threads.append(thread)
+                    thread.start()
+                for thread in threads:
+                    thread.join()
+                if errors:
+                    raise errors[0]
+            return
 
         streams: list[DraUsbPlayback] = []
         try:

@@ -508,12 +508,6 @@ def cmd_tone(args) -> int:
     idx, audio = find_dra_audio_device()
     if idx is None:
         raise SystemExit("DRA audio device not found")
-    if sys.platform.startswith("linux"):
-        from app.dra_alsa_mixer import sync_cm119_speaker_unmute_for_indices
-        from app.dra_pulse_mixer import sync_pulse_sink_unmute_for_portaudio_index
-
-        sync_cm119_speaker_unmute_for_indices([idx])
-        sync_pulse_sink_unmute_for_portaudio_index(idx)
     sr = int(audio["default_samplerate"])
     duration = args.seconds
     freq = args.frequency
@@ -524,8 +518,9 @@ def cmd_tone(args) -> int:
         f"Playing {freq} Hz on device {idx} ({audio['name']}), "
         f"channel={args.channel}, peak={peak:.4f}"
     )
-    with DraUsbPlayback(idx, args.channel, sr) as out:
-        out.write_mono_f32(mono)
+    from app.dra_playback import play_mono_f32_to_dra_device
+
+    play_mono_f32_to_dra_device(mono, device_index=idx, channel=args.channel, samplerate=sr)
     return 0
 
 
@@ -536,12 +531,6 @@ def cmd_smoke(args) -> int:
     idx, audio = find_dra_audio_device()
     if idx is None:
         raise SystemExit("DRA audio device not found")
-    if sys.platform.startswith("linux"):
-        from app.dra_alsa_mixer import sync_cm119_speaker_unmute_for_indices
-        from app.dra_pulse_mixer import sync_pulse_sink_unmute_for_portaudio_index
-
-        sync_cm119_speaker_unmute_for_indices([idx])
-        sync_pulse_sink_unmute_for_portaudio_index(idx)
     dev = _open_cm119_hid(hid)
     lead = args.lead
     sr = int(audio["default_samplerate"])
@@ -558,10 +547,13 @@ def cmd_smoke(args) -> int:
         f"PTT + tone (channel={args.channel}, lead={lead}s, peak={peak:.4f}). "
         "Low power / dummy load."
     )
+    from app.dra_playback import play_mono_f32_to_dra_device
+
     set_gpio3_ptt(dev, True)
     try:
-        with DraUsbPlayback(idx, args.channel, sr) as out:
-            out.write_mono_f32(program)
+        play_mono_f32_to_dra_device(
+            program, device_index=idx, channel=args.channel, samplerate=sr
+        )
     finally:
         set_gpio3_ptt(dev, False)
     raw = read_hid_input(dev)

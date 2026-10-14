@@ -161,6 +161,20 @@ def dra_prefer_alsa_hw() -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def dra_linux_playback_backend() -> str:
+    """Linux CM119 playback: ``aplay`` to ``plughw`` (default) or ``portaudio``."""
+    import sys
+
+    raw = os.environ.get("TTS_DRA_LINUX_PLAYBACK", "aplay").strip().lower()
+    if not sys.platform.startswith("linux"):
+        return "portaudio"
+    if raw in {"aplay", "portaudio"}:
+        return raw
+    log = __import__("logging").getLogger("app.config")
+    log.warning("Invalid TTS_DRA_LINUX_PLAYBACK=%r; using aplay", raw)
+    return "aplay"
+
+
 DEFAULT_BUSY_RETRY_SECONDS = float(os.environ.get("TTS_BUSY_RETRY_SECONDS", "5"))
 DEFAULT_BUSY_GIVE_UP_SECONDS = float(os.environ.get("TTS_BUSY_GIVE_UP_SECONDS", "45"))
 SCHEDULER_MAX_WAIT_SECONDS = float(os.environ.get("TTS_SCHEDULER_MAX_WAIT_SECONDS", "5"))

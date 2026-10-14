@@ -74,7 +74,7 @@ Dual transmit uses **two separate CM119A devices** (one per DRA-36M): two USB au
 
 - Leave **`TTS_DRA_HID_PATH` unset** — it selects a single CM119 and hides the second radio’s PTT/COS.
 - Use **fixed USB ports** on the NUC; optional **`TTS_DRA_AUDIO_DEVICES`** if device order varies.
-- With PipeWire, the same CM119 may appear as both `(hw:…)` and `alsa_output.usb-…` in PortAudio. The app defaults to **`(hw:…)`** (PipeWire sink playback can hang PortAudio). Set **`TTS_DRA_PREFER_ALSA_HW=0`** to use the Pulse sink. Unmute uses **all playback ALSA controls** on the card (not only `Speaker`).
+- With PipeWire, the same CM119 may appear as both `(hw:…)` and `alsa_output.usb-…` in PortAudio. The app defaults to **`(hw:…)`** for device pick (PipeWire sink playback can hang PortAudio). Set **`TTS_DRA_PREFER_ALSA_HW=0`** to use the Pulse sink. **Playback on Linux uses `aplay -D plughw:N,0` by default** (`TTS_DRA_LINUX_PLAYBACK=aplay`); set **`TTS_DRA_LINUX_PLAYBACK=portaudio`** to force PortAudio. Unmute uses **all playback ALSA controls** on the card (not only `Speaker`).
 - If HID count ≠ audio count, run `python scripts/dra36m_check.py probe`, confirm udev/`plugdev`, and see [Identifying two identical adapters](final-hardware/README.md#identifying-two-identical-adapters) in [`final-hardware/README.md`](final-hardware/README.md).
 
 ---
