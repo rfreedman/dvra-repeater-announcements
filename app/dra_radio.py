@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import subprocess
 import sys
 import threading
 import time
@@ -75,6 +76,7 @@ class DraRadio:
         self._pending_audio_indices: list[int] | None = None
         self._transmit_abort = threading.Event()
         self._active_playback_streams: list[object] = []
+        self._active_aplay_procs: list[subprocess.Popen[bytes]] = []
         self._play_streams_lock = threading.Lock()
 
     @property
@@ -233,6 +235,21 @@ class DraRadio:
         with self._play_streams_lock:
             self._active_playback_streams.append(stream)
 
+    def _register_aplay_proc(self, proc: subprocess.Popen[bytes]) -> None:
+        with self._play_streams_lock:
+            self._active_aplay_procs.append(proc)
+
+    def _kill_active_aplay_procs(self) -> None:
+        with self._play_streams_lock:
+            procs = list(self._active_aplay_procs)
+            self._active_aplay_procs.clear()
+        for proc in procs:
+            if proc.poll() is None:
+                try:
+                    proc.kill()
+                except OSError:
+                    log.debug("Kill aplay after USB loss", exc_info=True)
+
     def _close_active_playback_streams(self) -> None:
         with self._play_streams_lock:
             streams = list(self._active_playback_streams)
@@ -246,6 +263,7 @@ class DraRadio:
     def abort_transmit_due_to_usb_loss(self) -> None:
         """Stop USB audio when the CM119 disappears mid-fire (PTT cleared in software only)."""
         self._transmit_abort.set()
+        self._kill_active_aplay_procs()
         self._close_active_playback_streams()
         log.warning("DRA USB unplugged during transmit; aborting playback")
 
@@ -686,8 +704,10 @@ class DraRadio:
                 lead_silence=max(0.0, lead_seconds),
                 should_abort=self._transmit_abort.is_set,
                 register_stream=self._register_playback_stream,
+                register_aplay_proc=self._register_aplay_proc,
             )
         finally:
             self._transmit_abort.clear()
             with self._play_streams_lock:
                 self._active_playback_streams.clear()
+                self._active_aplay_procs.clear()

@@ -5,6 +5,7 @@ import logging
 import subprocess
 import sys
 import threading
+import time
 from collections.abc import Callable, Iterable
 
 import numpy as np
@@ -315,44 +316,82 @@ def _mono_f32_to_interleaved_s16(mono_f32: np.ndarray, channel: str) -> bytes:
     return (np.clip(stereo, -1.0, 1.0) * 32767.0).astype(np.int16).tobytes()
 
 
+_APLAY_ABORT_POLL_SECONDS = 0.05
+
+
 def _play_s16_stereo_via_aplay(
     pcm: bytes,
     *,
     sample_rate: int,
     alsa_device: str,
+    should_abort: Callable[[], bool] | None = None,
+    register_proc: Callable[[subprocess.Popen[bytes]], None] | None = None,
 ) -> None:
+    from app.radio import TransmitAbortError
+
     if not pcm:
         return
+    if should_abort is not None and should_abort():
+        raise TransmitAbortError("DRA USB playback aborted")
+
+    cmd = [
+        "aplay",
+        "-q",
+        "-D",
+        alsa_device,
+        "-t",
+        "raw",
+        "-f",
+        "S16_LE",
+        "-r",
+        str(sample_rate),
+        "-c",
+        "2",
+    ]
     try:
-        result = subprocess.run(
-            [
-                "aplay",
-                "-q",
-                "-D",
-                alsa_device,
-                "-t",
-                "raw",
-                "-f",
-                "S16_LE",
-                "-r",
-                str(sample_rate),
-                "-c",
-                "2",
-            ],
-            input=pcm,
-            check=True,
-            capture_output=True,
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
         )
     except FileNotFoundError as exc:
         raise RuntimeError(
             "aplay not found; install alsa-utils on the NUC (docs/NUC-notes.md)"
         ) from exc
-    except subprocess.CalledProcessError as exc:
-        detail = (exc.stderr or exc.stdout or b"").decode("utf-8", errors="replace").strip()
-        raise RuntimeError(f"aplay to {alsa_device} failed: {detail}") from exc
-    else:
-        if result.stderr:
-            log.debug("aplay stderr for %s: %s", alsa_device, result.stderr.decode(errors="replace"))
+
+    if register_proc is not None:
+        register_proc(proc)
+    try:
+        assert proc.stdin is not None
+        proc.stdin.write(pcm)
+        proc.stdin.close()
+        proc.stdin = None
+        while proc.poll() is None:
+            if should_abort is not None and should_abort():
+                proc.kill()
+                try:
+                    proc.wait(timeout=2.0)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+                raise TransmitAbortError("DRA USB playback aborted")
+            time.sleep(_APLAY_ABORT_POLL_SECONDS)
+        stderr = (proc.stderr.read() if proc.stderr is not None else b"").decode(
+            "utf-8", errors="replace"
+        ).strip()
+        if proc.returncode != 0:
+            if should_abort is not None and should_abort():
+                raise TransmitAbortError("DRA USB playback aborted")
+            raise RuntimeError(f"aplay to {alsa_device} failed: {stderr}")
+        if stderr:
+            log.debug("aplay stderr for %s: %s", alsa_device, stderr)
+    finally:
+        if proc.poll() is None:
+            try:
+                proc.kill()
+            except OSError:
+                pass
 
 
 def _play_s16_stereo_via_aplay_first_working(
@@ -360,15 +399,29 @@ def _play_s16_stereo_via_aplay_first_working(
     *,
     sample_rate: int,
     alsa_devices: list[str],
+    should_abort: Callable[[], bool] | None = None,
+    register_proc: Callable[[subprocess.Popen[bytes]], None] | None = None,
 ) -> str:
+    from app.radio import TransmitAbortError
+
     errors: list[str] = []
     for alsa_device in alsa_devices:
         try:
-            _play_s16_stereo_via_aplay(pcm, sample_rate=sample_rate, alsa_device=alsa_device)
+            _play_s16_stereo_via_aplay(
+                pcm,
+                sample_rate=sample_rate,
+                alsa_device=alsa_device,
+                should_abort=should_abort,
+                register_proc=register_proc,
+            )
+        except TransmitAbortError:
+            raise
         except RuntimeError as exc:
             errors.append(f"{alsa_device}: {exc}")
             continue
         return alsa_device
+    if should_abort is not None and should_abort():
+        raise TransmitAbortError("DRA USB playback aborted")
     raise RuntimeError(
         "aplay failed on all ALSA devices: " + "; ".join(errors)
     )
@@ -532,6 +585,7 @@ def play_pcm_chunks_to_dra_devices(
     lead_silence: float = 0.0,
     should_abort: Callable[[], bool] | None = None,
     register_stream: Callable[[DraUsbPlayback], None] | None = None,
+    register_aplay_proc: Callable[[subprocess.Popen[bytes]], None] | None = None,
 ) -> None:
     """Play the same announcement on one or two DRA USB outputs at the same time."""
     buffered = [chunk for chunk in materialize_chunks(chunks) if chunk.pcm_int16]
@@ -575,6 +629,8 @@ def play_pcm_chunks_to_dra_devices(
                     pcm,
                     sample_rate=sr,
                     alsa_devices=alsa_candidates,
+                    should_abort=should_abort,
+                    register_proc=register_aplay_proc,
                 )
                 log.info(
                     "DRA aplay → %s (%s frames, %s Hz, channel=%s, PortAudio[%s])",
