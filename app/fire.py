@@ -402,6 +402,18 @@ def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
                 retry_at.isoformat(),
             )
             return "deferred"
+        except Exception as exc:
+            from app.dra_radio import dra_usb_transmit_lost
+
+            if dra_usb_transmit_lost(deps.radio):
+                log.warning(
+                    "Fire aborted; %s; DRA USB lost during playback (%s)",
+                    label,
+                    exc,
+                )
+                fire_trace("Fire aborted (USB loss) label=%s slot=%s", label, ctx.slot_key)
+                return "dropped"
+            raise
         if deps.update_schedule:
             deps.mark_last_run(announcement.id, schedule.id, deps.now)
             if schedule.kind == "baseline":

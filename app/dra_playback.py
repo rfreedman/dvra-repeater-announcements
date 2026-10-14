@@ -609,7 +609,14 @@ def play_pcm_chunks_to_dra_devices(
         for index in device_indices:
             sync_pulse_sink_unmute_for_portaudio_index(index)
 
-        samplerates = [dra_device_samplerate(index) for index in device_indices]
+        from app.radio import TransmitAbortError
+
+        try:
+            samplerates = [dra_device_samplerate(index) for index in device_indices]
+        except Exception as exc:
+            if should_abort is not None and should_abort():
+                raise TransmitAbortError("DRA USB playback aborted") from exc
+            raise
         programs = [
             mono_program_f32(buffered, samplerate=sr, lead_silence=lead_silence)
             for sr in samplerates
@@ -649,15 +656,23 @@ def play_pcm_chunks_to_dra_devices(
                     index,
                 )
 
+            def _run_aplay_or_abort(index: int, program: np.ndarray, sr: int) -> None:
+                try:
+                    _run_aplay(index, program, sr)
+                except RuntimeError as exc:
+                    if should_abort is not None and should_abort():
+                        raise TransmitAbortError("DRA USB playback aborted") from exc
+                    raise
+
             if len(device_indices) == 1:
-                _run_aplay(device_indices[0], programs[0], samplerates[0])
+                _run_aplay_or_abort(device_indices[0], programs[0], samplerates[0])
             else:
                 errors: list[BaseException] = []
                 threads: list[threading.Thread] = []
 
                 def _target(i: int, prog: np.ndarray, sr: int) -> None:
                     try:
-                        _run_aplay(i, prog, sr)
+                        _run_aplay_or_abort(i, prog, sr)
                     except BaseException as exc:  # noqa: BLE001
                         errors.append(exc)
 

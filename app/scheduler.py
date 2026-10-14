@@ -74,6 +74,7 @@ MANUAL_DROP_REASONS: dict[str, str] = {
     "give_up": "The channel did not stay clear long enough before the give-up timer expired.",
     "give_up_lock": "Another announcement was still playing when the give-up timer expired.",
     "scheduler_error": "The retry could not be scheduled (scheduler error).",
+    "usb_loss": "The DRA USB interface was unplugged during the announcement.",
 }
 
 
@@ -737,9 +738,20 @@ def _run_manual_trigger_body(
             )
         log.info("Manual trigger deferred; retry job %s scheduled", jid)
         return result
+    drop_reason: str | None = None
     if result == "dropped":
         log.info("Manual trigger dropped for schedule %s", schedule_id)
-    return _finish_manual_trigger(schedule_id, announcement, schedule, result)
+        from app.dra_radio import dra_usb_transmit_lost
+
+        if dra_usb_transmit_lost(get_radio()):
+            drop_reason = "usb_loss"
+    return _finish_manual_trigger(
+        schedule_id,
+        announcement,
+        schedule,
+        result,
+        drop_reason=drop_reason,
+    )
 
 
 def sync_jobs() -> None:

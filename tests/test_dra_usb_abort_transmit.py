@@ -136,3 +136,29 @@ def test_usb_absent_during_ptt_signals_abort(monkeypatch):
     radio.note_usb_hid_presence()
     assert radio.ptt_keyed is False
     assert radio._transmit_abort.is_set()
+
+
+def test_handle_fire_runtime_error_dropped_when_usb_absent(monkeypatch):
+    from tests.test_fire import _announcement, _ctx, _deps
+
+    monkeypatch.setattr("app.dra_radio.sys.platform", "linux")
+    radio = DraRadio(
+        hid_adapters=[Cm119HidAdapter(b"path", "dra-hid-1")],
+        audio_indices=[0],
+        usb_channel="left",
+        cos_line="vol_dn",
+        cos_active_high=False,
+    )
+    radio._usb_hid_absent = True
+    monkeypatch.setattr(radio, "channel_busy", lambda: False)
+    monkeypatch.setattr(
+        "app.fire.transmit",
+        lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("aplay failed on all ALSA devices")),
+    )
+    announcement = _announcement()
+    deps, extras = _deps(announcement, radio)  # type: ignore[arg-type]
+    deps.dra_clear_seconds = 0
+    from app.fire import handle_fire
+
+    assert handle_fire(_ctx(), deps) == "dropped"
+    assert extras["played"] == []

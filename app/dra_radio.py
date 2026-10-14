@@ -43,6 +43,14 @@ def dra_radio_from(radio: object) -> DraRadio | None:
     return candidate if isinstance(candidate, DraRadio) else None
 
 
+def dra_usb_transmit_lost(radio: object) -> bool:
+    """True when CM119 USB dropped during an in-flight DRA transmit."""
+    dra = dra_radio_from(radio)
+    if dra is None:
+        return False
+    return dra._usb_hid_absent or dra._transmit_abort.is_set()
+
+
 class DraRadio:
     """One or two DRA-36M units: OR busy, parallel PTT, mirrored USB audio."""
 
@@ -729,7 +737,9 @@ class DraRadio:
                 register_stream=self._register_playback_stream,
                 register_aplay_proc=self._register_aplay_proc,
             )
-        except RuntimeError as exc:
+        except Exception as exc:
+            if isinstance(exc, TransmitAbortError):
+                raise
             if self._transmit_abort.is_set() or self._usb_hid_absent:
                 raise TransmitAbortError("DRA USB playback aborted") from exc
             raise
