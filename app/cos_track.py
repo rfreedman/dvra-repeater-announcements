@@ -18,6 +18,17 @@ def _poll_loop() -> None:
     while not _stop.is_set():
         try:
             radio = get_radio()
+            from app.dra_radio import dra_radio_from
+
+            dra = dra_radio_from(radio)
+            if dra is not None and not dra.usb_hid_present:
+                from app.home_live import notify_home_live_status_throttled
+
+                notify_home_live_status_throttled()
+                if _stop.wait(poll):
+                    break
+                continue
+
             from app.scheduler import nudge_manual_defer_jobs_if_clear_ready
 
             from app.dra_alsa_mixer import apply_cm119_replug_recovery
@@ -34,8 +45,16 @@ def _poll_loop() -> None:
             from app.home_live import notify_home_live_status_throttled
 
             notify_home_live_status_throttled()
-        except Exception:
-            log.warning("COS background poll failed", exc_info=True)
+        except Exception as exc:
+            try:
+                dra_poll = dra_radio_from(get_radio())
+                absent = dra_poll is not None and not dra_poll.usb_hid_present
+            except Exception:
+                absent = False
+            if absent:
+                log.debug("COS poll skipped after USB unplug (%s)", exc)
+            else:
+                log.warning("COS background poll failed", exc_info=True)
         if _stop.wait(poll):
             break
 

@@ -438,6 +438,8 @@ def play_dra_lead_silence(
     device_indices: list[int],
     channel: str,
     lead_seconds: float,
+    should_abort: Callable[[], bool] | None = None,
+    register_aplay_proc: Callable[[subprocess.Popen[bytes]], None] | None = None,
 ) -> None:
     """Stream USB silence with PTT off so COMM OK / heartbeat is up before keying."""
     if lead_seconds <= 0 or not device_indices:
@@ -453,6 +455,8 @@ def play_dra_lead_silence(
             device_index=index,
             channel=channel,
             samplerate=sr,
+            should_abort=should_abort,
+            register_aplay_proc=register_aplay_proc,
         )
 
 
@@ -462,6 +466,8 @@ def play_mono_f32_to_dra_device(
     device_index: int,
     channel: str,
     samplerate: int,
+    should_abort: Callable[[], bool] | None = None,
+    register_aplay_proc: Callable[[subprocess.Popen[bytes]], None] | None = None,
 ) -> None:
     """Play one float32 mono program on a DRA (bench + shared Linux aplay path)."""
     if mono_f32.size == 0:
@@ -479,6 +485,8 @@ def play_mono_f32_to_dra_device(
             pcm,
             sample_rate=samplerate,
             alsa_devices=alsa_candidates,
+            should_abort=should_abort,
+            register_proc=register_aplay_proc,
         )
         line = (
             f"DRA aplay → {used} ({samplerate} Hz, channel={channel}, "

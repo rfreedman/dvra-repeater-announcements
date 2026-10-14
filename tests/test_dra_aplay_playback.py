@@ -19,7 +19,14 @@ def test_play_mono_f32_uses_aplay_on_linux(monkeypatch):
         lambda _index: ["hw:1,0", "plughw:1,0"],
     )
 
-    def fake_first(pcm: bytes, *, sample_rate: int, alsa_devices: list[str]) -> str:
+    def fake_first(
+        pcm: bytes,
+        *,
+        sample_rate: int,
+        alsa_devices: list[str],
+        should_abort=None,
+        register_proc=None,
+    ) -> str:
         aplay_calls.append((alsa_devices[0], sample_rate))
         assert pcm
         assert sample_rate == 44100

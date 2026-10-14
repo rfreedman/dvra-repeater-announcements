@@ -94,17 +94,33 @@ def transmit(
         sync_cm119_speaker_unmute(radio)
         prepare_dra_for_transmit(radio)
         dra = dra_radio_from(radio)
-        if dra is not None and lead > 0:
-            play_dra_lead_silence(
-                device_indices=dra.audio_device_indices,
-                channel=dra._usb_channel,
-                lead_seconds=lead,
-            )
-        radio.set_ptt(True)
+        if dra is not None:
+            dra.begin_usb_transmit()
         try:
-            play_on_dra(chunks, lead_seconds=0)
+            if dra is not None and lead > 0:
+                play_dra_lead_silence(
+                    device_indices=dra.audio_device_indices,
+                    channel=dra._usb_channel,
+                    lead_seconds=lead,
+                    should_abort=dra._transmit_abort.is_set,
+                    register_aplay_proc=dra._register_aplay_proc,
+                )
+            radio.set_ptt(True)
+            try:
+                play_on_dra(chunks, lead_seconds=0)
+            finally:
+                radio.set_ptt(False)
+        except TransmitAbortError:
+            raise
+        except RuntimeError as exc:
+            if dra is not None and (
+                dra._transmit_abort.is_set() or dra._usb_hid_absent
+            ):
+                raise TransmitAbortError("DRA USB playback aborted") from exc
+            raise
         finally:
-            radio.set_ptt(False)
+            if dra is not None:
+                dra.end_usb_transmit()
         return
 
     radio.set_ptt(True)

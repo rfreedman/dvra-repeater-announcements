@@ -16,6 +16,7 @@ and add a one-line lesson here if it is a pattern worth avoiding.
 - Manual triggers never change slot jobs — don't call `sync_jobs()` from that path.
 
 ## Radio / DRA
+- USB unplug aborts **in-flight transmit** (lead + PCM), not the app — use `begin_usb_transmit`/`end_usb_transmit`, interruptible `aplay`, and `TransmitAbortError`; skip COS poll HID work while HID absent.
 - PTT: track each device as soon as it keys; on any failure unkey exactly those. A stuck PTT is the worst failure mode.
 - Multiple PortAudio streams: never write a whole buffer to one stream before the next — `write()` blocks. Interleave short blocks (`write_programs_interleaved`).
 - HTTP handlers must not sample COS or reschedule jobs; that belongs to the background COS thread.

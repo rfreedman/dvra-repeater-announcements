@@ -106,6 +106,21 @@ def test_aplay_playback_honors_should_abort(monkeypatch):
         )
 
 
+def test_usb_absent_during_usb_transmit_lead_signals_abort(monkeypatch):
+    monkeypatch.setattr("app.dra_radio.sys.platform", "linux")
+    radio = DraRadio(
+        hid_adapters=[Cm119HidAdapter(b"path", "dra-hid-1")],
+        audio_indices=[0],
+        usb_channel="left",
+        cos_line="vol_dn",
+        cos_active_high=False,
+    )
+    radio.begin_usb_transmit()
+    monkeypatch.setattr(radio, "_enumerate_hid_entries", lambda: [])
+    radio.note_usb_hid_presence()
+    assert radio._transmit_abort.is_set()
+
+
 def test_usb_absent_during_ptt_signals_abort(monkeypatch):
     monkeypatch.setattr("app.dra_radio.sys.platform", "linux")
     radio = DraRadio(

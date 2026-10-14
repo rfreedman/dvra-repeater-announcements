@@ -75,6 +75,7 @@ class DraRadio:
         self._usb_hid_reconnected_pending = False
         self._pending_audio_indices: list[int] | None = None
         self._transmit_abort = threading.Event()
+        self._usb_transmit_active = False
         self._active_playback_streams: list[object] = []
         self._active_aplay_procs: list[subprocess.Popen[bytes]] = []
         self._play_streams_lock = threading.Lock()
@@ -239,6 +240,22 @@ class DraRadio:
         with self._play_streams_lock:
             self._active_aplay_procs.append(proc)
 
+    def _playback_in_progress(self) -> bool:
+        with self._play_streams_lock:
+            return bool(self._active_aplay_procs or self._active_playback_streams)
+
+    def begin_usb_transmit(self) -> None:
+        """Covers USB lead silence + keyed PCM (``transmit()`` on DRA)."""
+        self._transmit_abort.clear()
+        self._usb_transmit_active = True
+
+    def end_usb_transmit(self) -> None:
+        self._usb_transmit_active = False
+        self._transmit_abort.clear()
+        with self._play_streams_lock:
+            self._active_playback_streams.clear()
+            self._active_aplay_procs.clear()
+
     def _kill_active_aplay_procs(self) -> None:
         with self._play_streams_lock:
             procs = list(self._active_aplay_procs)
@@ -269,11 +286,16 @@ class DraRadio:
 
     def _enter_usb_hid_absent_state(self) -> None:
         abort_playback = False
+        playback_active = self._playback_in_progress()
         with self._lock:
             newly_absent = not self._usb_hid_absent
-            abort_playback = newly_absent and self._ptt_keyed
+            abort_playback = newly_absent and (
+                self._ptt_keyed or self._usb_transmit_active or playback_active
+            )
             if self._ptt_keyed:
                 log.warning("DRA USB unplugged while PTT keyed; closing COS handles")
+            elif abort_playback and self._usb_transmit_active:
+                log.warning("DRA USB unplugged during USB audio (pre-PTT lead or playback)")
             self._close_cos_devices_locked()
             # USB is gone — do not write PTT to stale HID handles; clear software state.
             self._ptt_devices = []
@@ -695,7 +717,8 @@ class DraRadio:
         lead_seconds: float,
     ) -> None:
         """Stream Piper PCM on all DRA outputs (lead silence on USB, not host sleep)."""
-        self._transmit_abort.clear()
+        from app.radio import TransmitAbortError
+
         try:
             play_pcm_chunks_to_dra_devices(
                 chunks,
@@ -706,8 +729,7 @@ class DraRadio:
                 register_stream=self._register_playback_stream,
                 register_aplay_proc=self._register_aplay_proc,
             )
-        finally:
-            self._transmit_abort.clear()
-            with self._play_streams_lock:
-                self._active_playback_streams.clear()
-                self._active_aplay_procs.clear()
+        except RuntimeError as exc:
+            if self._transmit_abort.is_set() or self._usb_hid_absent:
+                raise TransmitAbortError("DRA USB playback aborted") from exc
+            raise

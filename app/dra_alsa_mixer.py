@@ -148,14 +148,15 @@ def try_unmute_playback_controls(card: int, level: str) -> bool:
                 exc_info=True,
             )
             return False
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as exc:
+            detail = (exc.stderr or exc.stdout or str(exc)).strip()
             log.warning(
-                "Could not unmute ALSA %r on card %s (amixer sset %s %s unmute failed)",
+                "Could not unmute ALSA %r on card %s (amixer sset %s %s unmute failed): %s",
                 control,
                 card,
                 control,
                 level,
-                exc_info=True,
+                detail[:200],
             )
             ok = False
             continue
