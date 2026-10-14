@@ -3,11 +3,14 @@ from __future__ import annotations
 
 import logging
 import sys
+import threading
 from collections.abc import Iterable
 
 import numpy as np
 
 log = logging.getLogger("app.dra_playback")
+
+_portaudio_lock = threading.RLock()
 
 from app.audio import PcmChunk, materialize_chunks
 
@@ -18,29 +21,49 @@ def is_dra_audio_name(name: str) -> bool:
     return any(marker in name for marker in _DRA_NAME_MARKERS)
 
 
+def _ensure_portaudio_initialized_unlocked() -> None:
+    import sounddevice as sd
+    from sounddevice import PortAudioError, _check, _lib
+
+    try:
+        _check(_lib.Pa_GetDeviceCount())
+    except PortAudioError:
+        sd._initialize()
+
+
 def refresh_portaudio_device_list() -> None:
     """Re-enumerate PortAudio devices after Linux USB hot-plug (list is cached at init)."""
     if not sys.platform.startswith("linux"):
         return
     import sounddevice as sd
 
-    try:
-        sd._terminate()
-        sd._initialize()
-    except Exception:
-        log.warning("PortAudio re-init after USB replug failed", exc_info=True)
+    with _portaudio_lock:
+        try:
+            sd._terminate()
+        except Exception:
+            log.debug("PortAudio terminate before replug refresh", exc_info=True)
+        try:
+            sd._initialize()
+        except Exception:
+            log.warning("PortAudio re-init after USB replug failed", exc_info=True)
+            try:
+                sd._initialize()
+            except Exception:
+                log.error("PortAudio initialize recovery failed", exc_info=True)
 
 
 def list_dra_output_devices() -> list[tuple[int, dict]]:
     import sounddevice as sd
 
-    out: list[tuple[int, dict]] = []
-    for index, dev in enumerate(sd.query_devices()):
-        if dev["max_output_channels"] < 1:
-            continue
-        if is_dra_audio_name(dev["name"]):
-            out.append((index, dev))
-    return out
+    with _portaudio_lock:
+        _ensure_portaudio_initialized_unlocked()
+        out: list[tuple[int, dict]] = []
+        for index, dev in enumerate(sd.query_devices()):
+            if dev["max_output_channels"] < 1:
+                continue
+            if is_dra_audio_name(dev["name"]):
+                out.append((index, dev))
+        return out
 
 
 def _is_alsa_hw_portaudio_name(name: str) -> bool:
@@ -92,7 +115,9 @@ def resolve_dra_audio_indices(
             continue
         if spec.isdigit():
             idx = int(spec)
-            dev = sd.query_devices(idx)
+            with _portaudio_lock:
+                _ensure_portaudio_initialized_unlocked()
+                dev = sd.query_devices(idx)
             if dev["max_output_channels"] < 1:
                 raise RuntimeError(f"TTS_DRA_AUDIO_DEVICES index {idx} has no output channels")
             indices.append(idx)
@@ -122,11 +147,21 @@ def _output_channels(channel: str) -> int:
     return 1 if channel == "mono" else 2
 
 
+def portaudio_output_device_name(device_index: int) -> str:
+    import sounddevice as sd
+
+    with _portaudio_lock:
+        _ensure_portaudio_initialized_unlocked()
+        return str(sd.query_devices(device_index)["name"])
+
+
 def dra_device_samplerate(device_index: int) -> int:
     """PortAudio default rate for a DRA USB device (CM119 is typically 44100 Hz)."""
     import sounddevice as sd
 
-    return int(sd.query_devices(device_index)["default_samplerate"])
+    with _portaudio_lock:
+        _ensure_portaudio_initialized_unlocked()
+        return int(sd.query_devices(device_index)["default_samplerate"])
 
 
 def resample_pcm_int16_mono(pcm_int16: bytes, *, from_rate: int, to_rate: int) -> bytes:

@@ -200,13 +200,11 @@ def apply_cm119_replug_recovery(radio: object) -> None:
     reconnected = radio.usb_hid_reconnected_pending
     limit = max(len(radio.audio_device_indices), radio.hid_count)
     hid_replug = radio.sync_hid_adapters_if_replugged()
-    usb_recovery = reconnected or hid_replug
     signature = alsa_watch.pending_replug_signature(limit=limit)
-    if usb_recovery or signature is not None:
-        usb_recovery = True
-    audio_resync = radio.sync_audio_output_indices_if_changed(
-        after_usb_event=usb_recovery,
-    )
+    pa_rescan = reconnected or hid_replug
+    audio_resync = radio.sync_audio_output_indices_if_changed(after_usb_event=pa_rescan)
+    if signature is not None and not audio_resync:
+        audio_resync = radio.sync_audio_output_indices_if_changed(after_usb_event=False)
     if not hid_replug and signature is None and not reconnected and not audio_resync:
         return
     if not hid_replug:
@@ -251,11 +249,11 @@ def finalize_dra_transmit_audio_path(radio: object) -> None:
     cards = cm119_alsa_cards_to_unmute(radio, limit=limit, signature=None)
     if cards:
         try_unmute_cm119_cards(cards, level=DRA_ALSA_SPEAKER_LEVEL)
-    import sounddevice as sd
+    from app.dra_playback import portaudio_output_device_name
 
     for index in radio.audio_device_indices:
         try:
-            name = str(sd.query_devices(index)["name"])
+            name = portaudio_output_device_name(index)
         except Exception:
             name = "?"
         log.info("DRA transmit audio → PortAudio[%s] %s", index, name)
