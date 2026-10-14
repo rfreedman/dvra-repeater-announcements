@@ -114,7 +114,11 @@ def test_usb_reconnect_same_hid_path_still_unmutes(monkeypatch):
     )
     state = {"entries": []}
     monkeypatch.setattr(radio, "_enumerate_hid_entries", lambda: list(state["entries"]))
-    monkeypatch.setattr(radio, "sync_audio_output_indices_if_changed", lambda: False)
+    monkeypatch.setattr(
+        radio,
+        "sync_audio_output_indices_if_changed",
+        lambda **kwargs: False,
+    )
     monkeypatch.setattr("app.config.dra_alsa_unmute_enabled", lambda: True)
     monkeypatch.setattr(
         "app.dra_alsa_mixer.cm119_alsa_cards_for_radio",

@@ -26,7 +26,11 @@ from app.config import (
     DRA_HID_PATH_BYTES,
     DRA_USB_CHANNEL,
 )
-from app.dra_playback import play_pcm_chunks_to_dra_devices, resolve_dra_audio_indices
+from app.dra_playback import (
+    play_pcm_chunks_to_dra_devices,
+    refresh_portaudio_device_list,
+    resolve_dra_audio_indices,
+)
 from app.radio import ChannelBusyError
 
 log = logging.getLogger("app.dra_radio")
@@ -252,14 +256,22 @@ class DraRadio:
     def usb_hid_reconnected_pending(self) -> bool:
         return self._usb_hid_reconnected_pending
 
-    def sync_audio_output_indices_if_changed(self) -> bool:
+    def sync_audio_output_indices_if_changed(self, *, after_usb_event: bool = False) -> bool:
         """Refresh PortAudio output indices after USB replug (hw index often changes)."""
+        if after_usb_event:
+            refresh_portaudio_device_list()
         try:
             new_indices = resolve_dra_audio_indices(device_specs=DRA_AUDIO_DEVICE_SPECS)
         except RuntimeError:
             log.debug("DRA PortAudio re-resolve failed after USB replug", exc_info=True)
             return False
         if new_indices == self._audio_indices:
+            if after_usb_event:
+                log.info(
+                    "DRA USB replug: PortAudio re-scanned; output indices unchanged %s",
+                    new_indices,
+                )
+                return True
             return False
         with self._lock:
             if self._ptt_keyed:
@@ -591,9 +603,10 @@ class DraRadio:
         lead_seconds: float,
     ) -> None:
         """Stream Piper PCM on all DRA outputs (lead silence on USB, not host sleep)."""
-        from app.dra_alsa_mixer import apply_cm119_replug_recovery
+        from app.dra_alsa_mixer import apply_cm119_replug_recovery, finalize_dra_transmit_audio_path
 
         apply_cm119_replug_recovery(self)
+        finalize_dra_transmit_audio_path(self)
         play_pcm_chunks_to_dra_devices(
             chunks,
             device_indices=self._audio_indices,

@@ -160,6 +160,20 @@ class Cm119AlsaWatch:
 alsa_watch = Cm119AlsaWatch()
 
 
+def cm119_alsa_cards_to_unmute(
+    radio: object,
+    *,
+    limit: int,
+    signature: tuple[int, ...] | None = None,
+) -> list[int]:
+    if signature is not None:
+        return list(signature)
+    cards = list(cm119_alsa_card_signature(limit=limit))
+    if cards:
+        return cards
+    return cm119_alsa_cards_for_radio(radio)
+
+
 def cm119_alsa_cards_for_radio(radio: object) -> list[int]:
     from app.dra_radio import DraRadio
 
@@ -186,8 +200,13 @@ def apply_cm119_replug_recovery(radio: object) -> None:
     reconnected = radio.usb_hid_reconnected_pending
     limit = max(len(radio.audio_device_indices), radio.hid_count)
     hid_replug = radio.sync_hid_adapters_if_replugged()
-    audio_resync = radio.sync_audio_output_indices_if_changed()
+    usb_recovery = reconnected or hid_replug
     signature = alsa_watch.pending_replug_signature(limit=limit)
+    if usb_recovery or signature is not None:
+        usb_recovery = True
+    audio_resync = radio.sync_audio_output_indices_if_changed(
+        after_usb_event=usb_recovery,
+    )
     if not hid_replug and signature is None and not reconnected and not audio_resync:
         return
     if not hid_replug:
@@ -196,11 +215,7 @@ def apply_cm119_replug_recovery(radio: object) -> None:
         signature is not None or hid_replug or reconnected or audio_resync
     )
     if need_unmute:
-        cards = (
-            list(signature)
-            if signature is not None
-            else cm119_alsa_cards_for_radio(radio)
-        )
+        cards = cm119_alsa_cards_to_unmute(radio, limit=limit, signature=signature)
         if cards and not try_unmute_cm119_cards(cards, level=DRA_ALSA_SPEAKER_LEVEL):
             return
         noted = signature if signature is not None else tuple(
@@ -218,6 +233,32 @@ def apply_cm119_replug_recovery(radio: object) -> None:
             hid_replug,
             audio_resync,
         )
+
+
+def finalize_dra_transmit_audio_path(radio: object) -> None:
+    """Right before USB playback: fresh PortAudio list, indices, and Speaker unmute."""
+    from app.config import DRA_ALSA_SPEAKER_LEVEL, dra_alsa_unmute_enabled
+    from app.dra_radio import DraRadio
+
+    if not isinstance(radio, DraRadio) or not radio._runtime_usb_hid_tracking_enabled():
+        return
+    if not radio.note_usb_hid_presence():
+        return
+    radio.sync_audio_output_indices_if_changed(after_usb_event=True)
+    if not dra_alsa_unmute_enabled():
+        return
+    limit = max(len(radio.audio_device_indices), radio.hid_count)
+    cards = cm119_alsa_cards_to_unmute(radio, limit=limit, signature=None)
+    if cards:
+        try_unmute_cm119_cards(cards, level=DRA_ALSA_SPEAKER_LEVEL)
+    import sounddevice as sd
+
+    for index in radio.audio_device_indices:
+        try:
+            name = str(sd.query_devices(index)["name"])
+        except Exception:
+            name = "?"
+        log.info("DRA transmit audio → PortAudio[%s] %s", index, name)
 
 
 def maybe_sync_cm119_alsa_unmute(radio: object) -> None:

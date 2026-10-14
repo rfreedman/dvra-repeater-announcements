@@ -1,0 +1,2 @@
+#!/bin/bash
+ssh repeater-nuc tail -f /home/rfreedman/projects/dvra-repeater-announcements/data/logs/announcements.log

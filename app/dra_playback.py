@@ -1,9 +1,13 @@
 """PortAudio output to DRA-36M USB devices (COMM OK heartbeat + left/right routing)."""
 from __future__ import annotations
 
+import logging
+import sys
 from collections.abc import Iterable
 
 import numpy as np
+
+log = logging.getLogger("app.dra_playback")
 
 from app.audio import PcmChunk, materialize_chunks
 
@@ -12,6 +16,19 @@ _DRA_NAME_MARKERS = ("USB PnP Sound Device", "C-Media")
 
 def is_dra_audio_name(name: str) -> bool:
     return any(marker in name for marker in _DRA_NAME_MARKERS)
+
+
+def refresh_portaudio_device_list() -> None:
+    """Re-enumerate PortAudio devices after Linux USB hot-plug (list is cached at init)."""
+    if not sys.platform.startswith("linux"):
+        return
+    import sounddevice as sd
+
+    try:
+        sd._terminate()
+        sd._initialize()
+    except Exception:
+        log.warning("PortAudio re-init after USB replug failed", exc_info=True)
 
 
 def list_dra_output_devices() -> list[tuple[int, dict]]:
