@@ -204,13 +204,53 @@ def portaudio_output_device_name(device_index: int) -> str:
         return str(sd.query_devices(device_index)["name"])
 
 
+def _alsa_hw_samplerate(card: int, subdevice: int = 0) -> int | None:
+    """Hardware rate for ``hw:C,D`` from ``arecord --dump-hw-params`` (often 48000 on NUC)."""
+    device = f"hw:{card},{subdevice}"
+    try:
+        proc = subprocess.run(
+            ["arecord", "-D", device, "--dump-hw-params"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+    text = f"{proc.stdout}\n{proc.stderr}"
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("RATE:"):
+            parts = stripped.split()
+            if len(parts) >= 2 and parts[1].isdigit():
+                return int(parts[1])
+    return None
+
+
 def dra_device_samplerate(device_index: int) -> int:
-    """PortAudio default rate for a DRA USB device (CM119 is typically 44100 Hz)."""
+    """Sample rate for DRA USB playback (ALSA hw rate when it differs from PortAudio)."""
     import sounddevice as sd
 
     with _portaudio_lock:
         _ensure_portaudio_initialized_unlocked()
-        return int(sd.query_devices(device_index)["default_samplerate"])
+        pa_rate = int(sd.query_devices(device_index)["default_samplerate"])
+    if sys.platform.startswith("linux"):
+        name = portaudio_output_device_name(device_index)
+        if _is_alsa_hw_portaudio_name(name):
+            from app.dra_alsa_mixer import alsa_card_from_portaudio_device
+
+            card = alsa_card_from_portaudio_device(device_index)
+            if card is not None:
+                hw_rate = _alsa_hw_samplerate(card, 0)
+                if hw_rate is not None and hw_rate != pa_rate:
+                    log.info(
+                        "DRA sample rate: PortAudio[%s] reports %s Hz; using ALSA hw %s Hz",
+                        device_index,
+                        pa_rate,
+                        hw_rate,
+                    )
+                    return hw_rate
+    return pa_rate
 
 
 def resample_pcm_int16_mono(pcm_int16: bytes, *, from_rate: int, to_rate: int) -> bytes:
@@ -252,16 +292,20 @@ def _write_mono_to_stream(
         stream.write(out)
 
 
-def _alsa_plughw_for_portaudio_index(device_index: int) -> str:
+def _alsa_playback_devices_for_portaudio_index(device_index: int) -> list[str]:
+    from app.config import DRA_ALSA_PLAYBACK_DEVICE
     from app.dra_alsa_mixer import alsa_card_from_portaudio_device
 
+    if DRA_ALSA_PLAYBACK_DEVICE:
+        return [DRA_ALSA_PLAYBACK_DEVICE]
     card = alsa_card_from_portaudio_device(device_index)
     if card is None:
         raise RuntimeError(
-            f"Could not map PortAudio index {device_index} to ALSA plughw "
+            f"Could not map PortAudio index {device_index} to ALSA hw "
             "(expected device name with (hw:N,0))"
         )
-    return f"plughw:{card},0"
+    # Prefer direct hw for CM119 USB; plughw can route through PipeWire and stay silent.
+    return [f"hw:{card},0", f"plughw:{card},0"]
 
 
 def _mono_f32_to_interleaved_s16(mono_f32: np.ndarray, channel: str) -> bytes:
@@ -280,7 +324,7 @@ def _play_s16_stereo_via_aplay(
     if not pcm:
         return
     try:
-        subprocess.run(
+        result = subprocess.run(
             [
                 "aplay",
                 "-q",
@@ -306,6 +350,28 @@ def _play_s16_stereo_via_aplay(
     except subprocess.CalledProcessError as exc:
         detail = (exc.stderr or exc.stdout or b"").decode("utf-8", errors="replace").strip()
         raise RuntimeError(f"aplay to {alsa_device} failed: {detail}") from exc
+    else:
+        if result.stderr:
+            log.debug("aplay stderr for %s: %s", alsa_device, result.stderr.decode(errors="replace"))
+
+
+def _play_s16_stereo_via_aplay_first_working(
+    pcm: bytes,
+    *,
+    sample_rate: int,
+    alsa_devices: list[str],
+) -> str:
+    errors: list[str] = []
+    for alsa_device in alsa_devices:
+        try:
+            _play_s16_stereo_via_aplay(pcm, sample_rate=sample_rate, alsa_device=alsa_device)
+        except RuntimeError as exc:
+            errors.append(f"{alsa_device}: {exc}")
+            continue
+        return alsa_device
+    raise RuntimeError(
+        "aplay failed on all ALSA devices: " + "; ".join(errors)
+    )
 
 
 def _linux_use_aplay() -> bool:
@@ -328,19 +394,28 @@ def play_mono_f32_to_dra_device(
         from app.dra_alsa_mixer import sync_cm119_speaker_unmute_for_indices
 
         sync_cm119_speaker_unmute_for_indices([device_index])
-        alsa_dev = _alsa_plughw_for_portaudio_index(device_index)
-        peak = float(np.max(np.abs(mono_f32)))
-        log.info(
-            "DRA aplay → %s (%s Hz, channel=%s, peak=%.4f, PortAudio[%s])",
-            alsa_dev,
-            samplerate,
-            channel,
-            peak,
-            device_index,
-        )
+        alsa_candidates = _alsa_playback_devices_for_portaudio_index(device_index)
+        peak_f32 = float(np.max(np.abs(mono_f32)))
         pcm = _mono_f32_to_interleaved_s16(mono_f32, channel)
-        _play_s16_stereo_via_aplay(pcm, sample_rate=samplerate, alsa_device=alsa_dev)
+        s16 = np.frombuffer(pcm, dtype=np.int16)
+        peak_s16 = int(np.max(np.abs(s16))) if s16.size else 0
+        used = _play_s16_stereo_via_aplay_first_working(
+            pcm,
+            sample_rate=samplerate,
+            alsa_devices=alsa_candidates,
+        )
+        line = (
+            f"DRA aplay → {used} ({samplerate} Hz, channel={channel}, "
+            f"peak_f32={peak_f32:.4f}, peak_s16={peak_s16}, "
+            f"bytes={len(pcm)}, PortAudio[{device_index}])"
+        )
+        log.info(line)
+        print(line, flush=True)
         return
+    print(
+        f"DRA PortAudio playback (PortAudio[{device_index}], {samplerate} Hz, channel={channel})",
+        flush=True,
+    )
     with DraUsbPlayback(device_index, channel, samplerate) as playback:
         playback.write_mono_f32(mono_f32)
 
@@ -471,17 +546,21 @@ def play_pcm_chunks_to_dra_devices(
         if _linux_use_aplay():
 
             def _run_aplay(index: int, program: np.ndarray, sr: int) -> None:
-                alsa_dev = _alsa_plughw_for_portaudio_index(index)
+                alsa_candidates = _alsa_playback_devices_for_portaudio_index(index)
+                pcm = _mono_f32_to_interleaved_s16(program, channel)
+                used = _play_s16_stereo_via_aplay_first_working(
+                    pcm,
+                    sample_rate=sr,
+                    alsa_devices=alsa_candidates,
+                )
                 log.info(
                     "DRA aplay → %s (%s frames, %s Hz, channel=%s, PortAudio[%s])",
-                    alsa_dev,
+                    used,
                     len(program),
                     sr,
                     channel,
                     index,
                 )
-                pcm = _mono_f32_to_interleaved_s16(program, channel)
-                _play_s16_stereo_via_aplay(pcm, sample_rate=sr, alsa_device=alsa_dev)
 
             if len(device_indices) == 1:
                 _run_aplay(device_indices[0], programs[0], samplerates[0])

@@ -150,6 +150,7 @@ def dra_alsa_unmute_enabled() -> bool:
 
 
 DRA_ALSA_SPEAKER_LEVEL = os.environ.get("TTS_DRA_ALSA_SPEAKER_LEVEL", "100%").strip() or "100%"
+DRA_ALSA_PLAYBACK_DEVICE = os.environ.get("TTS_DRA_ALSA_PLAYBACK_DEVICE", "").strip()
 
 
 def dra_prefer_alsa_hw() -> bool:

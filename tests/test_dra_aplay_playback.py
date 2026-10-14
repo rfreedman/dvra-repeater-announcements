@@ -15,16 +15,20 @@ def test_play_mono_f32_uses_aplay_on_linux(monkeypatch):
         lambda _indices: None,
     )
     monkeypatch.setattr(
-        "app.dra_playback._alsa_plughw_for_portaudio_index",
-        lambda _index: "plughw:1,0",
+        "app.dra_playback._alsa_playback_devices_for_portaudio_index",
+        lambda _index: ["hw:1,0", "plughw:1,0"],
     )
 
-    def fake_aplay(pcm: bytes, *, sample_rate: int, alsa_device: str) -> None:
-        aplay_calls.append((alsa_device, sample_rate))
+    def fake_first(pcm: bytes, *, sample_rate: int, alsa_devices: list[str]) -> str:
+        aplay_calls.append((alsa_devices[0], sample_rate))
         assert pcm
         assert sample_rate == 44100
+        return alsa_devices[0]
 
-    monkeypatch.setattr("app.dra_playback._play_s16_stereo_via_aplay", fake_aplay)
+    monkeypatch.setattr(
+        "app.dra_playback._play_s16_stereo_via_aplay_first_working",
+        fake_first,
+    )
 
     from app.dra_playback import play_mono_f32_to_dra_device
 
@@ -33,4 +37,4 @@ def test_play_mono_f32_uses_aplay_on_linux(monkeypatch):
     play_mono_f32_to_dra_device(
         mono, device_index=3, channel="left", samplerate=44100
     )
-    assert aplay_calls == [("plughw:1,0", 44100)]
+    assert aplay_calls == [("hw:1,0", 44100)]

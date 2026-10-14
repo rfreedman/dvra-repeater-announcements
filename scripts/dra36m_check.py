@@ -508,19 +508,72 @@ def cmd_tone(args) -> int:
     idx, audio = find_dra_audio_device()
     if idx is None:
         raise SystemExit("DRA audio device not found")
-    sr = int(audio["default_samplerate"])
+    from app.dra_playback import dra_device_samplerate, play_mono_f32_to_dra_device
+
+    sr = dra_device_samplerate(idx)
+    pa_sr = int(audio["default_samplerate"])
     duration = args.seconds
     freq = args.frequency
     t = np.linspace(0, duration, int(sr * duration), endpoint=False)
     mono = (args.level * np.sin(2 * np.pi * freq * t)).astype(np.float32)
     peak = float(np.max(np.abs(mono)))
+    from app.config import dra_linux_playback_backend
+
     print(
         f"Playing {freq} Hz on device {idx} ({audio['name']}), "
-        f"channel={args.channel}, peak={peak:.4f}"
+        f"channel={args.channel}, peak={peak:.4f}, rate={sr} Hz "
+        f"(PortAudio default {pa_sr} Hz), "
+        f"linux_playback={dra_linux_playback_backend()!r}",
+        flush=True,
     )
-    from app.dra_playback import play_mono_f32_to_dra_device
 
-    play_mono_f32_to_dra_device(mono, device_index=idx, channel=args.channel, samplerate=sr)
+    started = time.monotonic()
+    try:
+        play_mono_f32_to_dra_device(mono, device_index=idx, channel=args.channel, samplerate=sr)
+    except Exception as exc:
+        print(f"Playback failed: {exc}", flush=True)
+        raise
+    elapsed = time.monotonic() - started
+    print(f"Playback finished in {elapsed:.2f}s (expected ~{duration:.2f}s).", flush=True)
+    if elapsed < duration * 0.4:
+        print(
+            "WARNING: playback returned much faster than the tone length — "
+            "audio may not have been sent to the DRA.",
+            flush=True,
+        )
+    print("Done.", flush=True)
+    return 0
+
+
+def cmd_alsa_sine(args) -> int:
+    """Pure ALSA test — isolates the stack below our PortAudio/aplay code."""
+    if not sys.platform.startswith("linux"):
+        raise SystemExit("alsa-sine is Linux-only")
+    for alsa_dev in (f"hw:{args.card},0", f"plughw:{args.card},0"):
+        print(f"speaker-test → {alsa_dev} ({args.frequency} Hz, ~1 s)", flush=True)
+        try:
+            completed = subprocess.run(
+                [
+                    "speaker-test",
+                    "-D",
+                    alsa_dev,
+                    "-c",
+                    "2",
+                    "-t",
+                    "sine",
+                    "-f",
+                    str(int(args.frequency)),
+                    "-l",
+                    "1",
+                ],
+                check=False,
+            )
+        except FileNotFoundError:
+            raise SystemExit("speaker-test not found; install alsa-utils") from None
+        print(f"speaker-test exit code: {completed.returncode}", flush=True)
+        if completed.returncode == 0:
+            break
+    print("Done.", flush=True)
     return 0
 
 
@@ -533,7 +586,9 @@ def cmd_smoke(args) -> int:
         raise SystemExit("DRA audio device not found")
     dev = _open_cm119_hid(hid)
     lead = args.lead
-    sr = int(audio["default_samplerate"])
+    from app.dra_playback import dra_device_samplerate
+
+    sr = dra_device_samplerate(idx)
     duration = args.seconds
     freq = args.frequency
     t = np.linspace(0, duration, int(sr * duration), endpoint=False)
@@ -1228,6 +1283,19 @@ def main() -> int:
     p_tone.add_argument("--level", type=float, default=0.25)
     add_channel_argument(p_tone)
     p_tone.set_defaults(func=cmd_tone)
+
+    p_alsa_sine = sub.add_parser(
+        "alsa-sine",
+        help="1 s ALSA sine via speaker-test (no Python/PortAudio; checks plughw/hw)",
+    )
+    p_alsa_sine.add_argument(
+        "--card",
+        type=int,
+        default=1,
+        help="ALSA card number from aplay -l (default: 1)",
+    )
+    p_alsa_sine.add_argument("--frequency", type=float, default=1000.0)
+    p_alsa_sine.set_defaults(func=cmd_alsa_sine)
 
     p_smoke = sub.add_parser("smoke", help="PTT lead + tone + unkey")
     p_smoke.add_argument(
