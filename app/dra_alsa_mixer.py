@@ -160,6 +160,18 @@ class Cm119AlsaWatch:
 alsa_watch = Cm119AlsaWatch()
 
 
+def cm119_alsa_cards_for_radio(radio: object) -> list[int]:
+    from app.dra_radio import DraRadio
+
+    if not isinstance(radio, DraRadio):
+        return []
+    limit = max(len(radio.audio_device_indices), radio.hid_count)
+    cards = alsa_cards_for_dra_outputs(radio.audio_device_indices)
+    if cards:
+        return cards
+    return list(cm119_alsa_card_signature(limit=limit))
+
+
 def apply_cm119_replug_recovery(radio: object) -> None:
     """After USB replug: drop stale HID handles, unmute Speaker, refresh signature."""
     from app.config import DRA_ALSA_SPEAKER_LEVEL, dra_alsa_unmute_enabled
@@ -174,11 +186,21 @@ def apply_cm119_replug_recovery(radio: object) -> None:
         return
     if not hid_replug:
         radio.reset_hid_after_usb_replug()
-    if signature is not None and dra_alsa_unmute_enabled():
-        if not try_unmute_cm119_cards(list(signature), level=DRA_ALSA_SPEAKER_LEVEL):
+    need_unmute = dra_alsa_unmute_enabled() and (signature is not None or hid_replug)
+    if need_unmute:
+        cards = (
+            list(signature)
+            if signature is not None
+            else cm119_alsa_cards_for_radio(radio)
+        )
+        if cards and not try_unmute_cm119_cards(cards, level=DRA_ALSA_SPEAKER_LEVEL):
             return
+        noted = signature if signature is not None else tuple(
+            cm119_alsa_card_signature(limit=limit) or tuple(cards)
+        )
+        if noted:
+            alsa_watch.note_unmuted_signature(noted)
     if signature is not None:
-        alsa_watch.note_unmuted_signature(signature)
         log.info("CM119 USB replug recovery: card(s) %s", ", ".join(map(str, signature)))
     elif hid_replug:
         log.info("CM119 USB replug recovery: HID paths refreshed (ALSA signature unchanged)")

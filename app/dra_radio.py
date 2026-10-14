@@ -176,7 +176,25 @@ class DraRadio:
         hid = ensure_hid_module()
         entries = list_cm119_hid_entries(hid)
         if DRA_HID_PATH_BYTES is not None:
-            entries = [e for e in entries if e.get("path") == DRA_HID_PATH_BYTES]
+            pinned = [e for e in entries if e.get("path") == DRA_HID_PATH_BYTES]
+            if pinned:
+                return pinned
+            # USB replug assigns a new HID path; stale TTS_DRA_HID_PATH must not block recovery.
+            if len(self._hid_adapters) == 1 and len(entries) == 1:
+                log.warning(
+                    "TTS_DRA_HID_PATH (%s) stale after USB replug; using %s",
+                    DRA_HID_PATH_BYTES.hex(),
+                    entries[0]["path"].hex(),
+                )
+                return entries
+            if len(self._hid_adapters) == 1 and entries:
+                log.warning(
+                    "TTS_DRA_HID_PATH (%s) stale; using first CM119 HID %s",
+                    DRA_HID_PATH_BYTES.hex(),
+                    entries[0]["path"].hex(),
+                )
+                return entries[:1]
+            return []
         return entries
 
     def sync_hid_adapters_if_replugged(self) -> bool:
@@ -259,12 +277,23 @@ class DraRadio:
     def warm_open_hid(self) -> None:
         """Open CM119 HID once and keep it (avoids macOS open/close races with PTT)."""
         hid = ensure_hid_module()
-        with self._lock:
-            for index, adapter in enumerate(self._hid_adapters):
-                try:
+        for index, adapter in enumerate(self._hid_adapters):
+            try:
+                with self._lock:
                     self._ensure_adapter_hid_locked(hid, index, adapter)
-                except OSError:
-                    log.warning("COS/PTT HID warm-open failed on %s", adapter.label, exc_info=True)
+            except OSError:
+                if self.sync_hid_adapters_if_replugged():
+                    try:
+                        with self._lock:
+                            self._ensure_adapter_hid_locked(
+                                hid,
+                                index,
+                                self._hid_adapters[index],
+                            )
+                        continue
+                    except OSError:
+                        pass
+                log.warning("COS/PTT HID warm-open failed on %s", adapter.label, exc_info=True)
 
     def _sample_one_cos_locked(self, hid, adapter: Cm119HidAdapter, index: int) -> bool | None:
         if self._ptt_keyed:
