@@ -15,6 +15,10 @@ class ChannelBusyError(Exception):
     """Raised when COS is active immediately before PTT (should not key)."""
 
 
+class TransmitAbortError(Exception):
+    """Playback stopped early (e.g. DRA USB unplugged mid-transmit)."""
+
+
 class Radio(Protocol):
     def channel_busy(self) -> bool: ...
     def set_ptt(self, keyed: bool) -> None: ...

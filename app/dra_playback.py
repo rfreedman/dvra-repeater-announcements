@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import sys
 import threading
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 
 import numpy as np
 
@@ -268,13 +268,18 @@ def write_programs_interleaved(
     programs: list[np.ndarray],
     *,
     block_seconds: float = WRITE_BLOCK_SECONDS,
+    should_abort: Callable[[], bool] | None = None,
 ) -> None:
     """Feed each stream its program in lock-step blocks so all radios play together."""
+    from app.radio import TransmitAbortError
+
     if not streams:
         return
     duration = max(len(program) / stream.samplerate for stream, program in zip(streams, programs))
     blocks = int(np.ceil(duration / block_seconds))
     for block in range(blocks):
+        if should_abort is not None and should_abort():
+            raise TransmitAbortError("DRA USB playback aborted")
         start_s = block * block_seconds
         end_s = start_s + block_seconds
         for stream, program in zip(streams, programs):
@@ -290,6 +295,8 @@ def play_pcm_chunks_to_dra_devices(
     device_indices: list[int],
     channel: str = "left",
     lead_silence: float = 0.0,
+    should_abort: Callable[[], bool] | None = None,
+    register_stream: Callable[[DraUsbPlayback], None] | None = None,
 ) -> None:
     """Play the same announcement on one or two DRA USB outputs at the same time."""
     buffered = [chunk for chunk in materialize_chunks(chunks) if chunk.pcm_int16]
@@ -301,12 +308,14 @@ def play_pcm_chunks_to_dra_devices(
         for index in device_indices:
             playback = DraUsbPlayback(index, channel, dra_device_samplerate(index))
             playback.__enter__()
+            if register_stream is not None:
+                register_stream(playback)
             streams.append(playback)
         programs = [
             mono_program_f32(buffered, samplerate=stream.samplerate, lead_silence=lead_silence)
             for stream in streams
         ]
-        write_programs_interleaved(streams, programs)
+        write_programs_interleaved(streams, programs, should_abort=should_abort)
     finally:
         for playback in streams:
             playback.__exit__()

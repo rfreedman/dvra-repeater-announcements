@@ -195,9 +195,9 @@ def apply_cm119_replug_recovery(radio: object) -> None:
         return
     if not radio._runtime_usb_hid_tracking_enabled():
         return
-    if radio.ptt_keyed:
-        return
     if not radio.note_usb_hid_presence():
+        return
+    if radio.ptt_keyed:
         return
     reconnected = radio.usb_hid_reconnected_pending
     limit = max(len(radio.audio_device_indices), radio.hid_count)

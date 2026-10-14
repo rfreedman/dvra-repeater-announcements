@@ -17,7 +17,7 @@ from app.config import (
 )
 from app.models import Announcement, Schedule
 from app.fire_trace import fire_trace
-from app.radio import ChannelBusyError, Radio, channel_blocks_transmit, transmit
+from app.radio import ChannelBusyError, Radio, TransmitAbortError, channel_blocks_transmit, transmit
 
 log = logging.getLogger("app.fire")
 
@@ -359,6 +359,10 @@ def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
                 lead_seconds=deps.ptt_lead_seconds,
                 clear_seconds=deps.dra_clear_seconds,
             )
+        except TransmitAbortError:
+            log.warning("Fire aborted; %s; DRA USB lost during playback", label)
+            fire_trace("Fire aborted (USB loss) label=%s slot=%s", label, ctx.slot_key)
+            return "dropped"
         except ChannelBusyError:
             outcome = _defer_or_drop_on_busy(
                 deps, ctx, announcement, label, phase="at PTT key"

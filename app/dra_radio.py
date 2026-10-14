@@ -67,6 +67,9 @@ class DraRadio:
         self._usb_hid_absent = False
         self._usb_hid_reconnected_pending = False
         self._pending_audio_indices: list[int] | None = None
+        self._transmit_abort = threading.Event()
+        self._active_playback_streams: list[object] = []
+        self._play_streams_lock = threading.Lock()
 
     @property
     def ptt_keyed(self) -> bool:
@@ -220,9 +223,35 @@ class DraRadio:
             return []
         return entries
 
+    def _register_playback_stream(self, stream: object) -> None:
+        with self._play_streams_lock:
+            self._active_playback_streams.append(stream)
+
+    def _close_active_playback_streams(self) -> None:
+        with self._play_streams_lock:
+            streams = list(self._active_playback_streams)
+            self._active_playback_streams.clear()
+        for stream in streams:
+            try:
+                stream.__exit__(None, None, None)  # type: ignore[attr-defined]
+            except Exception:
+                log.debug("Closing playback stream after USB loss", exc_info=True)
+
+    def abort_transmit_due_to_usb_loss(self) -> None:
+        """Stop USB audio and unkey PTT when the CM119 disappears mid-fire."""
+        self._transmit_abort.set()
+        self._close_active_playback_streams()
+        log.warning("DRA USB unplugged during transmit; aborting playback and unkeying PTT")
+        try:
+            self.set_ptt(False)
+        except OSError:
+            log.warning("PTT unkey after USB loss failed", exc_info=True)
+
     def _enter_usb_hid_absent_state(self) -> None:
+        abort_transmit = False
         with self._lock:
             newly_absent = not self._usb_hid_absent
+            abort_transmit = self._ptt_keyed
             if self._ptt_keyed:
                 log.warning("DRA USB unplugged while PTT keyed; closing COS handles")
             self._close_cos_devices_locked()
@@ -235,6 +264,8 @@ class DraRadio:
             log.warning(
                 "DRA CM119 HID not found (USB unplugged?) — COS/PTT idle until reconnect"
             )
+        if abort_transmit:
+            self.abort_transmit_due_to_usb_loss()
 
     def note_usb_hid_presence(self) -> bool:
         """True when enough CM119 HID interfaces exist for this radio configuration."""
@@ -635,9 +666,17 @@ class DraRadio:
         lead_seconds: float,
     ) -> None:
         """Stream Piper PCM on all DRA outputs (lead silence on USB, not host sleep)."""
-        play_pcm_chunks_to_dra_devices(
-            chunks,
-            device_indices=self._audio_indices,
-            channel=self._usb_channel,
-            lead_silence=max(0.0, lead_seconds),
-        )
+        self._transmit_abort.clear()
+        try:
+            play_pcm_chunks_to_dra_devices(
+                chunks,
+                device_indices=self._audio_indices,
+                channel=self._usb_channel,
+                lead_silence=max(0.0, lead_seconds),
+                should_abort=self._transmit_abort.is_set,
+                register_stream=self._register_playback_stream,
+            )
+        finally:
+            self._transmit_abort.clear()
+            with self._play_streams_lock:
+                self._active_playback_streams.clear()
