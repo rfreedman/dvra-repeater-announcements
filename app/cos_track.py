@@ -24,6 +24,9 @@ def _poll_loop() -> None:
                 warm = getattr(radio, "warm_open_hid", None)
                 if warm is not None:
                     warm()
+                from app.dra_alsa_mixer import maybe_sync_cm119_alsa_unmute
+
+                maybe_sync_cm119_alsa_unmute(radio)
                 refresh = getattr(radio, "refresh_cos", None)
                 if refresh is not None:
                     refresh()

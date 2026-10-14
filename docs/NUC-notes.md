@@ -29,7 +29,9 @@ Re-run `python scripts/dra36m_check.py smoke -c left --seconds 2 --lead 0.6` to 
 
 With `TTS_RADIO_BACKEND=dra`, the app **unmutes Speaker at startup** on each CM119 ALSA card it uses (see `TTS_DRA_ALSA_UNMUTE`, `TTS_DRA_ALSA_SPEAKER_LEVEL`). Startup fails if `amixer` cannot unmute — fix permissions or install `alsa-utils`.
 
-Consider persisting unmute (boot script, `@reboot` cron, or a udev RUN rule) if the card resets to muted after replug without restarting the app.
+After **USB replug** while the app is running, the card often mutes again; the app watches `/proc/asound/cards` on the COS poll (~0.25 s) and before transmit, and re-runs `amixer` when CM119 card numbers change (no app restart needed).
+
+Optional: udev `@reboot` / RUN rules if you want unmute outside the app.
 
 ---
 

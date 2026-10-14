@@ -395,6 +395,14 @@ class DraRadio:
         lead_seconds: float,
     ) -> None:
         """Stream Piper PCM on all DRA outputs (lead silence on USB, not host sleep)."""
+        from app.config import DRA_ALSA_SPEAKER_LEVEL, dra_alsa_unmute_enabled
+        from app.dra_alsa_mixer import alsa_watch
+
+        if dra_alsa_unmute_enabled():
+            alsa_watch.sync_unmute_if_needed(
+                limit=len(self._audio_indices),
+                level=DRA_ALSA_SPEAKER_LEVEL,
+            )
         play_pcm_chunks_to_dra_devices(
             chunks,
             device_indices=self._audio_indices,

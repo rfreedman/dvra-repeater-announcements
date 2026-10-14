@@ -7,9 +7,12 @@ import subprocess
 import pytest
 
 from app.dra_alsa_mixer import (
+    Cm119AlsaWatch,
     alsa_card_from_portaudio_device,
     alsa_cards_for_dra_outputs,
+    alsa_watch,
     ensure_cm119_speakers_unmuted,
+    try_unmute_speaker,
     unmute_speaker,
 )
 from app.startup import StartupError, init_radio_at_startup
@@ -97,6 +100,50 @@ def test_init_radio_calls_unmute_for_dra_linux(monkeypatch):
 
     init_radio_at_startup()
     assert called == [[4]]
+
+
+def test_try_unmute_speaker_does_not_raise(monkeypatch):
+    def fake_run(cmd, **kwargs):
+        raise subprocess.CalledProcessError(1, cmd, stderr="bad")
+
+    monkeypatch.setattr("app.dra_alsa_mixer.subprocess.run", fake_run)
+    assert try_unmute_speaker(2, "100%") is False
+
+
+def test_alsa_watch_skips_when_signature_unchanged(monkeypatch):
+    monkeypatch.setattr("app.dra_alsa_mixer.sys.platform", "linux")
+    watch = Cm119AlsaWatch()
+    watch.note_unmuted_signature((1, 2))
+    monkeypatch.setattr("app.dra_alsa_mixer.cm119_alsa_card_signature", lambda limit: (1, 2))
+    called = False
+
+    def boom(*args, **kwargs):
+        nonlocal called
+        called = True
+        return True
+
+    monkeypatch.setattr("app.dra_alsa_mixer.try_unmute_cm119_cards", boom)
+    assert watch.sync_unmute_if_needed(limit=2, level="100%") is False
+    assert called is False
+
+
+def test_alsa_watch_unmutes_when_signature_changes(monkeypatch):
+    monkeypatch.setattr("app.dra_alsa_mixer.sys.platform", "linux")
+    watch = Cm119AlsaWatch()
+    watch.note_unmuted_signature((1,))
+    monkeypatch.setattr("app.dra_alsa_mixer.cm119_alsa_card_signature", lambda limit: (2,))
+    monkeypatch.setattr("app.dra_alsa_mixer.try_unmute_cm119_cards", lambda cards, level: True)
+    assert watch.sync_unmute_if_needed(limit=1, level="100%") is True
+    assert watch.last_unmuted_signature == (2,)
+
+
+def test_ensure_cm119_notes_signature_for_watch(monkeypatch):
+    alsa_watch.last_unmuted_signature = None
+    monkeypatch.setattr("app.dra_alsa_mixer.sys.platform", "linux")
+    monkeypatch.setattr("app.dra_alsa_mixer.alsa_cards_for_dra_outputs", lambda indices: [1, 2])
+    monkeypatch.setattr("app.dra_alsa_mixer.unmute_speaker", lambda card, level: None)
+    ensure_cm119_speakers_unmuted([4, 6], level="100%")
+    assert alsa_watch.last_unmuted_signature == (1, 2)
 
 
 def test_init_radio_skips_unmute_when_disabled(monkeypatch):
