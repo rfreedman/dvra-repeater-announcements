@@ -64,6 +64,6 @@ def test_usb_absent_during_ptt_signals_abort(monkeypatch):
     with radio._lock:
         radio._ptt_keyed = True
     monkeypatch.setattr(radio, "_enumerate_hid_entries", lambda: [])
-    monkeypatch.setattr(radio, "set_ptt", lambda keyed: None)
     radio.note_usb_hid_presence()
+    assert radio.ptt_keyed is False
     assert radio._transmit_abort.is_set()

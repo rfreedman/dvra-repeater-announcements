@@ -238,25 +238,22 @@ class DraRadio:
                 log.debug("Closing playback stream after USB loss", exc_info=True)
 
     def abort_transmit_due_to_usb_loss(self) -> None:
-        """Stop USB audio and unkey PTT when the CM119 disappears mid-fire."""
+        """Stop USB audio when the CM119 disappears mid-fire (PTT cleared in software only)."""
         self._transmit_abort.set()
         self._close_active_playback_streams()
-        log.warning("DRA USB unplugged during transmit; aborting playback and unkeying PTT")
-        try:
-            self.set_ptt(False)
-        except OSError:
-            log.warning("PTT unkey after USB loss failed", exc_info=True)
+        log.warning("DRA USB unplugged during transmit; aborting playback")
 
     def _enter_usb_hid_absent_state(self) -> None:
-        abort_transmit = False
+        abort_playback = False
         with self._lock:
             newly_absent = not self._usb_hid_absent
-            abort_transmit = self._ptt_keyed
+            abort_playback = newly_absent and self._ptt_keyed
             if self._ptt_keyed:
                 log.warning("DRA USB unplugged while PTT keyed; closing COS handles")
             self._close_cos_devices_locked()
-            if not self._ptt_keyed:
-                self._ptt_devices = []
+            # USB is gone — do not write PTT to stale HID handles; clear software state.
+            self._ptt_devices = []
+            self._ptt_keyed = False
             self._idle_since_mono = None
             self._last_cos_busy = None
             self._usb_hid_absent = True
@@ -264,7 +261,7 @@ class DraRadio:
             log.warning(
                 "DRA CM119 HID not found (USB unplugged?) — COS/PTT idle until reconnect"
             )
-        if abort_transmit:
+        if abort_playback:
             self.abort_transmit_due_to_usb_loss()
 
     def note_usb_hid_presence(self) -> bool:
@@ -629,8 +626,8 @@ class DraRadio:
                 for dev in self._ptt_devices:
                     try:
                         set_gpio3_ptt(dev, False)
-                    except OSError:
-                        log.warning("PTT unkey failed on one adapter", exc_info=True)
+                    except (OSError, ValueError):
+                        log.debug("PTT unkey skipped on closed HID handle", exc_info=True)
                 self._ptt_devices = []
                 self._ptt_keyed = False
                 self._apply_pending_audio_indices_unlocked()
