@@ -599,16 +599,19 @@ def cmd_smoke(args) -> int:
 
     print(
         f"Smoke test: PortAudio[{idx}] {audio['name']}; "
-        f"PTT + tone (channel={args.channel}, lead={lead}s, peak={peak:.4f}). "
-        "Low power / dummy load."
+        f"USB lead {lead}s (PTT off), then PTT + tone (channel={args.channel}, peak={peak:.4f}). "
+        "Low power / dummy load.",
+        flush=True,
     )
     from app.dra_playback import play_mono_f32_to_dra_device
 
+    if lead > 0 and lead_frames.size:
+        play_mono_f32_to_dra_device(
+            lead_frames, device_index=idx, channel=args.channel, samplerate=sr
+        )
     set_gpio3_ptt(dev, True)
     try:
-        play_mono_f32_to_dra_device(
-            program, device_index=idx, channel=args.channel, samplerate=sr
-        )
+        play_mono_f32_to_dra_device(mono, device_index=idx, channel=args.channel, samplerate=sr)
     finally:
         set_gpio3_ptt(dev, False)
     raw = read_hid_input(dev)

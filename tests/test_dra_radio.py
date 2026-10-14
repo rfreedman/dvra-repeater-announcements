@@ -33,30 +33,53 @@ def test_dra_channel_busy_or_across_adapters():
     assert radio.channel_busy() is True
 
 
-def test_transmit_uses_usb_lead_on_dra():
+def test_transmit_uses_usb_lead_on_dra(monkeypatch):
+    from app.cm119 import Cm119HidAdapter
+    from app.dra_radio import DraRadio
+
     events: list[tuple[str, object]] = []
+    radio = DraRadio(
+        hid_adapters=[Cm119HidAdapter(b"path", "dra-hid-1")],
+        audio_indices=[3],
+        usb_channel="left",
+        cos_line="vol_dn",
+        cos_active_high=False,
+    )
+    monkeypatch.setattr(
+        "app.dra_alsa_mixer.sync_cm119_speaker_unmute",
+        lambda _r: None,
+    )
+    monkeypatch.setattr(
+        "app.dra_alsa_mixer.prepare_dra_for_transmit",
+        lambda _r: None,
+    )
+    monkeypatch.setattr(
+        "app.dra_playback.play_dra_lead_silence",
+        lambda **kwargs: events.append(("usb_lead", kwargs["lead_seconds"])),
+    )
+    monkeypatch.setattr(radio, "set_ptt", lambda keyed: events.append(("ptt", keyed)))
+    monkeypatch.setattr(
+        radio,
+        "play_transmit_audio",
+        lambda _chunks, lead_seconds=0: events.append(("play_lead", lead_seconds)),
+    )
+    monkeypatch.setattr(
+        "app.radio.channel_blocks_transmit",
+        lambda _radio, clear_seconds=0: False,
+    )
 
-    class FakeDra:
-        def set_ptt(self, keyed: bool) -> None:
-            events.append(("ptt", keyed))
-
-        def play_transmit_audio(self, chunks, *, lead_seconds: float) -> None:
-            events.append(("lead", lead_seconds))
-
-        def channel_busy(self) -> bool:
-            return False
-
-    slept: list[float] = []
     transmit(
         [PcmChunk(pcm_int16=b"\x00\x00", sample_rate=22050)],
-        radio=FakeDra(),  # type: ignore[arg-type]
-        sleep_fn=slept.append,
+        radio=radio,
         lead_seconds=0.6,
+        clear_seconds=0,
     )
-    assert slept == []
-    assert ("lead", 0.6) in events
-    assert events[0] == ("ptt", True)
-    assert events[-1] == ("ptt", False)
+    assert events == [
+        ("usb_lead", 0.6),
+        ("ptt", True),
+        ("play_lead", 0),
+        ("ptt", False),
+    ]
 
 
 def test_create_radio_stub_default(monkeypatch):

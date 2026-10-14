@@ -380,6 +380,29 @@ def _linux_use_aplay() -> bool:
     return sys.platform.startswith("linux") and dra_linux_playback_backend() == "aplay"
 
 
+def play_dra_lead_silence(
+    *,
+    device_indices: list[int],
+    channel: str,
+    lead_seconds: float,
+) -> None:
+    """Stream USB silence with PTT off so COMM OK / heartbeat is up before keying."""
+    if lead_seconds <= 0 or not device_indices:
+        return
+    for index in device_indices:
+        sr = dra_device_samplerate(index)
+        frames = int(round(max(0.0, lead_seconds) * sr))
+        if frames <= 0:
+            continue
+        silence = np.zeros(frames, dtype=np.float32)
+        play_mono_f32_to_dra_device(
+            silence,
+            device_index=index,
+            channel=channel,
+            samplerate=sr,
+        )
+
+
 def play_mono_f32_to_dra_device(
     mono_f32: np.ndarray,
     *,

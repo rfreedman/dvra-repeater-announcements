@@ -88,18 +88,30 @@ def transmit(
 
     if play_on_dra is not None:
         from app.dra_alsa_mixer import prepare_dra_for_transmit, sync_cm119_speaker_unmute
+        from app.dra_playback import play_dra_lead_silence
+        from app.dra_radio import dra_radio_from
 
         sync_cm119_speaker_unmute(radio)
         prepare_dra_for_transmit(radio)
+        dra = dra_radio_from(radio)
+        if dra is not None and lead > 0:
+            play_dra_lead_silence(
+                device_indices=dra.audio_device_indices,
+                channel=dra._usb_channel,
+                lead_seconds=lead,
+            )
+        radio.set_ptt(True)
+        try:
+            play_on_dra(chunks, lead_seconds=0)
+        finally:
+            radio.set_ptt(False)
+        return
 
     radio.set_ptt(True)
     try:
-        if play_on_dra is not None:
-            play_on_dra(chunks, lead_seconds=lead)
-        else:
-            if lead > 0:
-                sleep(lead)
-            play(chunks)
+        if lead > 0:
+            sleep(lead)
+        play(chunks)
     finally:
         radio.set_ptt(False)
 
