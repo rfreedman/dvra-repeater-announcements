@@ -71,6 +71,12 @@ def _is_alsa_hw_portaudio_name(name: str) -> bool:
     return "(hw:" in name
 
 
+def _is_pipewire_usb_sink_name(name: str) -> bool:
+    """PipeWire/Pulse PortAudio sink for a USB sound card (not raw ``hw:``)."""
+    lowered = name.lower()
+    return "alsa_output.usb" in lowered and is_dra_audio_name(name)
+
+
 def _prefer_cm119_hw_devices(
     hw_dra: list[tuple[int, dict]],
 ) -> list[tuple[int, dict]]:
@@ -94,12 +100,22 @@ def auto_select_dra_outputs(
     """DRA-like outputs for auto pairing (no ``TTS_DRA_AUDIO_DEVICES``).
 
     On a Linux NUC with PipeWire, the same CM119 often appears as both an ALSA
-    ``(hw:…)`` device and an ``alsa_output.usb-…`` sink. Prefer ``(hw:…)`` entries
-    so one physical DRA is not counted twice. When no ``(hw:…)`` names exist
-    (typical macOS), return every DRA-like output.
+    ``(hw:…)`` device and an ``alsa_output.usb-…`` sink. Prefer the PipeWire
+    sink for playback (``TTS_DRA_PREFER_ALSA_HW=1`` forces ``(hw:…)``). When no
+    ``(hw:…)`` names exist (typical macOS), return every DRA-like output.
     """
+    from app.config import dra_prefer_alsa_hw
+
     all_dra = devices if devices is not None else list_dra_output_devices()
+    pw_usb = [
+        (index, dev)
+        for index, dev in all_dra
+        if _is_pipewire_usb_sink_name(str(dev["name"]))
+    ]
     hw = [(index, dev) for index, dev in all_dra if _is_alsa_hw_portaudio_name(dev["name"])]
+    if pw_usb and not dra_prefer_alsa_hw():
+        if not hw or len(pw_usb) >= len(_prefer_cm119_hw_devices(hw)):
+            return pw_usb
     if hw:
         return _prefer_cm119_hw_devices(hw)
     return all_dra
@@ -260,6 +276,10 @@ class DraUsbPlayback:
 
     def __exit__(self, *_exc) -> None:
         if self._stream is not None:
+            try:
+                self._stream.wait()
+            except Exception:
+                log.debug("PortAudio wait before stream close failed", exc_info=True)
             self._stream.stop()
             self._stream.close()
             self._stream = None

@@ -527,6 +527,10 @@ def cmd_smoke(args) -> int:
     idx, audio = find_dra_audio_device()
     if idx is None:
         raise SystemExit("DRA audio device not found")
+    if sys.platform.startswith("linux"):
+        from app.dra_alsa_mixer import sync_cm119_speaker_unmute_for_indices
+
+        sync_cm119_speaker_unmute_for_indices([idx])
     dev = _open_cm119_hid(hid)
     lead = args.lead
     sr = int(audio["default_samplerate"])
@@ -537,7 +541,8 @@ def cmd_smoke(args) -> int:
     lead_frames = np.zeros(int(max(0.0, lead) * sr), dtype=np.float32)
 
     print(
-        f"Smoke test: PTT + tone (channel={args.channel}, lead={lead}s silence then tone). "
+        f"Smoke test: PortAudio[{idx}] {audio['name']}; "
+        f"PTT + tone (channel={args.channel}, lead={lead}s silence then tone). "
         "Low power / dummy load."
     )
     set_gpio3_ptt(dev, True)
