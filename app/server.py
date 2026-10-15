@@ -196,13 +196,16 @@ async def startup_gate_middleware(request: Request, call_next):
 registry = get_registry()
 
 
-class SpeakRequest(BaseModel):
-    text: str = Field(..., min_length=1, max_length=MAX_TEXT_CHARS)
-    voice: str | None = None
+class TtsSpeechParams(BaseModel):
     speed: float = Field(default=DEFAULT_SPEED, gt=MIN_SPEECH_SPEED, le=MAX_SPEECH_SPEED)
     sentence_pause: float = Field(
         default=DEFAULT_SENTENCE_PAUSE, ge=0.0, le=MAX_SENTENCE_PAUSE
     )
+
+
+class SpeakRequest(TtsSpeechParams):
+    text: str = Field(..., min_length=1, max_length=MAX_TEXT_CHARS)
+    voice: str | None = None
 
     @field_validator("text")
     @classmethod
@@ -238,14 +241,10 @@ class SchedulePatch(BaseModel):
     enabled: bool | None = None
 
 
-class AnnouncementIn(BaseModel):
+class AnnouncementIn(TtsSpeechParams):
     name: str
     text: str = Field(..., min_length=1, max_length=MAX_TEXT_CHARS)
     voice: str | None = None
-    speed: float = Field(default=DEFAULT_SPEED, gt=MIN_SPEECH_SPEED, le=MAX_SPEECH_SPEED)
-    sentence_pause: float = Field(
-        default=DEFAULT_SENTENCE_PAUSE, ge=0.0, le=MAX_SENTENCE_PAUSE
-    )
     busy_retry_seconds: float = Field(
         default=DEFAULT_BUSY_RETRY_SECONDS, gt=0, le=MAX_BUSY_RETRY_SECONDS
     )
