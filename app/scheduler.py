@@ -31,6 +31,12 @@ from app.fire import (
     handle_fire,
 )
 from app.fire_trace import fire_trace
+from app.manual_trigger_types import (
+    ManualInflightEntry,
+    ManualTriggerPhase,
+    PendingManualTriggerRow,
+    RunningTransmission,
+)
 from app.models import Announcement, Schedule
 from app.pcm_cache import chunks_for_announcement
 from app.playback import play_chunks
@@ -64,11 +70,11 @@ _scheduler: BackgroundScheduler | None = None
 _playback_lock = threading.Lock()
 _idle_assertion: c_uint32 | None = None
 _running_lock = threading.Lock()
-_running: dict[str, object] | None = None
+_running: RunningTransmission | None = None
 _manual_drop_lock = threading.Lock()
 _manual_drop_notice: dict[str, object] | None = None
 _manual_inflight_lock = threading.Lock()
-_manual_inflight: dict[str, dict[str, object]] = {}
+_manual_inflight: dict[str, ManualInflightEntry] = {}
 
 MANUAL_DROP_REASONS: dict[str, str] = {
     "give_up": "The channel did not stay clear long enough before the give-up timer expired.",
@@ -150,7 +156,7 @@ def _station_zone() -> ZoneInfo:
     return zone_for(get_store().document().settings.timezone)
 
 
-def get_running() -> dict[str, object] | None:
+def get_running() -> RunningTransmission | None:
     with _running_lock:
         return dict(_running) if _running else None
 
@@ -346,9 +352,11 @@ def _pending_row_for_manual(
     give_up_remaining: float,
     retry_in: float | None,
     in_progress: bool,
-) -> dict[str, object]:
+) -> PendingManualTriggerRow:
     # Radio state wins over in_progress: an in-flight retry spends most of its time
     # blocked in the clear-hold wait, and the UI should show that countdown.
+    phase: ManualTriggerPhase
+    clear_remaining: float | None
     if clear_seconds > 0 and idle >= clear_seconds:
         phase = "clear_window"
         clear_remaining = 0.0
@@ -449,7 +457,7 @@ def _radio_status_for_ui() -> tuple[bool, float, float]:
     return busy, idle, clear_seconds
 
 
-def pending_manual_triggers() -> list[dict[str, object]]:
+def pending_manual_triggers() -> list[PendingManualTriggerRow]:
     """Live status for manual Trigger now retries (busy defer / clear-window wait)."""
     sched = get_scheduler()
     deferred: dict[str, object] = {}
@@ -471,7 +479,7 @@ def pending_manual_triggers() -> list[dict[str, object]]:
     zone = zone_for(document.settings.timezone)
     now = datetime.now(zone)
     busy, idle, clear_seconds = _radio_status_for_ui()
-    out: list[dict[str, object]] = []
+    out: list[PendingManualTriggerRow] = []
     for schedule_id in schedule_ids:
         schedule = document.schedule_by_id(schedule_id)
         if schedule is None:

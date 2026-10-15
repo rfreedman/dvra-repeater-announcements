@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from app.manual_trigger_types import RunningTransmission
 from app.models import StoreDocument
 from app.schedule_logic import next_transmission
 from app.scheduler import (
@@ -26,7 +27,7 @@ THROTTLED_PUBLISH_INTERVAL_SECONDS = 1.0
 
 
 def upcoming_for_document(
-    document: StoreDocument, running: dict[str, object] | None
+    document: StoreDocument, running: RunningTransmission | None
 ) -> dict[str, object] | None:
     if running:
         return {
