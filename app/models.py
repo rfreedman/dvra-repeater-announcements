@@ -58,7 +58,6 @@ DEFAULT_PRIORITY = {
     "monthly_range": 20,
     "emergency": 100,
 }
-EMERGENCY_PRIORITY = 100
 
 
 def normalize_days(value: list[str]) -> list[str]:
@@ -136,6 +135,13 @@ def normalize_announcement_text(value: str) -> str:
     return text
 
 
+def normalize_entity_name(value: str) -> str:
+    name = value.strip()
+    if not name:
+        raise ValueError("Name is required")
+    return name
+
+
 class Announcement(BaseModel):
     """Spoken text. Schedules point here; the text has no timing of its own."""
 
@@ -157,10 +163,7 @@ class Announcement(BaseModel):
     @field_validator("name")
     @classmethod
     def name_present(cls, value: str) -> str:
-        name = value.strip()
-        if not name:
-            raise ValueError("Name is required")
-        return name
+        return normalize_entity_name(value)
 
     @field_validator("text")
     @classmethod
@@ -195,18 +198,15 @@ class Schedule(BaseModel):
     @field_validator("name")
     @classmethod
     def name_present(cls, value: str) -> str:
-        name = value.strip()
-        if not name:
-            raise ValueError("Name is required")
-        return name
+        return normalize_entity_name(value)
 
     @model_validator(mode="after")
     def kind_fields(self) -> Schedule:
         ZoneInfo(self.timezone)
-        if self.priority == 0:
-            self.priority = DEFAULT_PRIORITY[self.kind]
         if self.kind == "emergency":
-            self.priority = EMERGENCY_PRIORITY
+            self.priority = DEFAULT_PRIORITY["emergency"]
+        elif self.priority == 0:
+            self.priority = DEFAULT_PRIORITY[self.kind]
         if self.kind == "baseline":
             if not self.announcement_id:
                 raise ValueError("A baseline schedule needs an announcement")
