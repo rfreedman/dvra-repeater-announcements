@@ -8,6 +8,7 @@ from app.config import (
     DEFAULT_BUSY_RETRY_SECONDS,
     DEFAULT_SENTENCE_PAUSE,
     DEFAULT_SPEED,
+    MAX_BUSY_GIVE_UP_SECONDS,
 )
 from app.engines.base import VoiceInfo
 from app.engines.piper import PiperEngine
@@ -61,6 +62,7 @@ class EngineRegistry:
             "sentence_pause": DEFAULT_SENTENCE_PAUSE,
             "busy_retry_seconds": DEFAULT_BUSY_RETRY_SECONDS,
             "busy_give_up_seconds": DEFAULT_BUSY_GIVE_UP_SECONDS,
+            "max_busy_give_up_seconds": MAX_BUSY_GIVE_UP_SECONDS,
             "voices": [voice.to_dict() for voice in self.engine.list_voices()],
         }
 

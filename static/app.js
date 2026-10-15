@@ -2,6 +2,29 @@ const PREFS_KEY = "announcements-prefs";
 // Timer-driven refreshes send this so they do not reset the server's idle logout.
 // The server checks only that the header is present (BACKGROUND_POLL_HEADER in app/auth.py).
 const BACKGROUND_HEADERS = { "X-Background-Poll": "1" };
+
+// Poll / countdown (frontend). REST interval aligns with home status fallback when SSE is idle.
+const HOME_REST_POLL_MS = 15_000;
+const STATS_REST_POLL_MS = 15_000;
+const UPCOMING_SOON_MS = 15_000;
+const COUNTDOWN_TICK_MS = 1_000;
+
+// Mirrors app/config.py DEFAULT_SLOT_HALF_WINDOW_MINUTES until /api/schedules settings load.
+const DEFAULT_SLOT_HALF_WINDOW_MINUTES = 10;
+
+// Fallback when /api/voices has not loaded; app/config.py MAX_BUSY_GIVE_UP_SECONDS (600 s).
+const MANUAL_TRIGGER_FETCH_TIMEOUT_MS = 600_000;
+
+// Mirrors app/models.py DEFAULT_PRIORITY (overlay kinds; baseline stays 0 server-side).
+const DEFAULT_SCHEDULE_PRIORITY = {
+  weekly: 50,
+  monthly: 50,
+  once: 50,
+  range: 20,
+  monthly_range: 20,
+  emergency: 100,
+};
+
 const DAYS = [
   ["mon", "Mon"],
   ["tue", "Tue"],
@@ -33,7 +56,7 @@ const TEMPLATES = {
     days: ["sun"],
     slots: ["21:00"],
     offset_minutes: -5,
-    priority: 50,
+    priority: DEFAULT_SCHEDULE_PRIORITY.weekly,
   },
   monthly: {
     name: "Monthly",
@@ -43,9 +66,14 @@ const TEMPLATES = {
     slots: ["19:00"],
     offset_minutes: -5,
     skip_months: [],
-    priority: 50,
+    priority: DEFAULT_SCHEDULE_PRIORITY.monthly,
   },
-  range: { name: "Event countdown", kind: "range", offset_minutes: 0, priority: 20 },
+  range: {
+    name: "Event countdown",
+    kind: "range",
+    offset_minutes: 0,
+    priority: DEFAULT_SCHEDULE_PRIORITY.range,
+  },
   monthly_range: {
     name: "Monthly countdown",
     kind: "monthly_range",
@@ -54,9 +82,15 @@ const TEMPLATES = {
     event_slot: "19:00",
     days_before: 7,
     offset_minutes: 0,
-    priority: 20,
+    priority: DEFAULT_SCHEDULE_PRIORITY.monthly_range,
   },
-  once: { name: "Once", kind: "once", slots: ["12:00"], offset_minutes: 0, priority: 50 },
+  once: {
+    name: "Once",
+    kind: "once",
+    slots: ["12:00"],
+    offset_minutes: 0,
+    priority: DEFAULT_SCHEDULE_PRIORITY.once,
+  },
   silence: {
     name: "Silence",
     kind: "weekly",
@@ -64,9 +98,14 @@ const TEMPLATES = {
     slots: ["21:30"],
     offset_minutes: 0,
     announcement_id: null,
-    priority: 50,
+    priority: DEFAULT_SCHEDULE_PRIORITY.weekly,
   },
-  emergency: { name: "Emergency", kind: "emergency", offset_minutes: 0, priority: 100 },
+  emergency: {
+    name: "Emergency",
+    kind: "emergency",
+    offset_minutes: 0,
+    priority: DEFAULT_SCHEDULE_PRIORITY.emergency,
+  },
 };
 
 const voiceEl = document.getElementById("voice");
@@ -98,7 +137,10 @@ let ledBlinkUntil = 0;
 let defaultScript = "";
 let announcements = [];
 let schedules = [];
-let settings = { slot_half_window_minutes: 10, baseline_randomize: false };
+let settings = {
+  slot_half_window_minutes: DEFAULT_SLOT_HALF_WINDOW_MINUTES,
+  baseline_randomize: false,
+};
 let triggerNowEnabled = false;
 let triggerNowBusy = false;
 let pendingManualTriggers = [];
@@ -799,7 +841,7 @@ function tickUpcoming() {
   if (!upcoming && pendingManualTriggers.length === 0 && !triggerNowBusy) return;
   const soon =
     upcoming?.at &&
-    new Date(upcoming.at).getTime() - (Date.now() + clockSkewMs) <= 15000;
+    new Date(upcoming.at).getTime() - (Date.now() + clockSkewMs) <= UPCOMING_SOON_MS;
   if (
     triggerNowBusy ||
     upcoming?.status === "running" ||
@@ -921,7 +963,7 @@ function syncKindFields() {
   document.getElementById("field-priority").classList.toggle("hidden", kind === "baseline" || kind === "emergency");
   document.getElementById("silence-hint").classList.toggle("hidden", kind === "baseline");
   fillAnnouncementSelect(document.getElementById("sched-announcement").value, { allowSilence: kind !== "baseline" });
-  const windowMin = settings.slot_half_window_minutes ?? 10;
+  const windowMin = settings.slot_half_window_minutes ?? DEFAULT_SLOT_HALF_WINDOW_MINUTES;
   const offset = document.getElementById("sched-offset");
   offset.min = String(-windowMin);
   offset.max = String(windowMin);
@@ -975,7 +1017,10 @@ function fillScheduleForm(schedule) {
   document.getElementById("sched-enabled").checked = schedule?.enabled !== false;
   document.getElementById("sched-offset").value = String(schedule?.offset_minutes ?? 0);
   document.getElementById("sched-priority").value = String(
-    schedule?.priority || (isCountdownKind(kind) ? 20 : 50),
+    schedule?.priority ||
+      (isCountdownKind(kind)
+        ? DEFAULT_SCHEDULE_PRIORITY.range
+        : DEFAULT_SCHEDULE_PRIORITY.weekly),
   );
   fillDayChips(document.getElementById("weekly-days"), schedule?.days || ["sun"]);
   fillDayChips(document.getElementById("monthly-weekday"), schedule?.days?.[0] || "wed", { exclusive: true });
@@ -1085,8 +1130,10 @@ function renderSchedules(rows) {
           triggerNowBusy = true;
           syncTriggerNowButtons();
           const controller = new AbortController();
-          const triggerTimeoutMs = 600_000;
-          const timeoutId = setTimeout(() => controller.abort(), triggerTimeoutMs);
+          const timeoutId = setTimeout(
+            () => controller.abort(),
+            manualTriggerFetchTimeoutMs(),
+          );
           try {
             const res = await fetch(`/api/schedules/${row.schedule_id}/trigger`, {
               method: "POST",
@@ -1446,8 +1493,12 @@ function renderSystemStats(payload) {
 }
 
 function startHomePolling() {
-  if (!pollTimer) pollTimer = setInterval(() => refreshHome({ background: true }).catch(() => {}), 15000);
-  if (!countdownTimer) countdownTimer = setInterval(tickUpcoming, 1000);
+  if (!pollTimer)
+    pollTimer = setInterval(
+      () => refreshHome({ background: true }).catch(() => {}),
+      HOME_REST_POLL_MS,
+    );
+  if (!countdownTimer) countdownTimer = setInterval(tickUpcoming, COUNTDOWN_TICK_MS);
   if (!homeSseWanted) {
     homeSseWanted = true;
     runHomeSseLoop().catch(() => {});
@@ -1470,7 +1521,7 @@ function startStatsPolling() {
   if (!statsTimer) {
     statsTimer = setInterval(() => {
       if (!statsSseConnected) refreshSystemStats().catch(() => {});
-    }, 15000);
+    }, STATS_REST_POLL_MS);
   }
   if (!statsSseWanted) {
     statsSseWanted = true;
@@ -1569,6 +1620,12 @@ function newAnnouncementDefaults() {
     busy_retry_seconds: catalog?.busy_retry_seconds ?? 5,
     busy_give_up_seconds: catalog?.busy_give_up_seconds ?? 45,
   };
+}
+
+function manualTriggerFetchTimeoutMs() {
+  const maxSec = catalog?.max_busy_give_up_seconds;
+  if (maxSec != null && maxSec > 0) return maxSec * 1000;
+  return MANUAL_TRIGGER_FETCH_TIMEOUT_MS;
 }
 
 function blankAnnouncement() {

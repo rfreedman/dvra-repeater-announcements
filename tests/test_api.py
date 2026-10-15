@@ -304,3 +304,10 @@ def test_installed_version_matches_pyproject():
 
     pyproject = tomllib.loads((ROOT_DIR / "pyproject.toml").read_text(encoding="utf-8"))
     assert __version__ == pyproject["project"]["version"]
+
+
+def test_voices_payload_includes_busy_caps(client):
+    from app.config import MAX_BUSY_GIVE_UP_SECONDS
+
+    payload = client.get("/api/voices").json()
+    assert payload["max_busy_give_up_seconds"] == MAX_BUSY_GIVE_UP_SECONDS
