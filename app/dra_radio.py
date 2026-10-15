@@ -36,6 +36,9 @@ from app.radio import ChannelBusyError
 
 log = logging.getLogger("app.dra_radio")
 
+# macOS often needs backoff between close/reopen on the same CM119 HID path (bench-tuned).
+PTT_HID_OPEN_RETRY_DELAYS_SECONDS = (0.0, 0.03, 0.08, 0.15, 0.3)
+
 
 def dra_radio_from(radio: object) -> DraRadio | None:
     """Unwrap ``_RunningOnKeyRadio`` (and similar) for DRA-only helpers."""
@@ -459,7 +462,7 @@ class DraRadio:
     def _open_hid_path(self, hid, path: bytes):
         """Open CM119 HID; macOS often needs a brief pause after a prior close on the same path."""
         last: OSError | None = None
-        for delay in (0.0, 0.03, 0.08, 0.15, 0.3):
+        for delay in PTT_HID_OPEN_RETRY_DELAYS_SECONDS:
             if delay:
                 time.sleep(delay)
             try:

@@ -15,6 +15,7 @@ log = logging.getLogger("app.cm119")
 
 VENDOR_ID = 0x0D8C
 PRODUCT_ID_CM119A = 0x013A
+HID_READ_TIMEOUT_MS = 300
 
 _COS_BIT = {"vol_up": 0x01, "vol_dn": 0x02}
 
@@ -147,7 +148,7 @@ def drain_hid_interrupt(dev, *, max_packets: int = 32) -> bytes | None:
     return latest
 
 
-def read_hid_sample(dev, timeout_ms: int = 300) -> HidSample:
+def read_hid_sample(dev, timeout_ms: int = HID_READ_TIMEOUT_MS) -> HidSample:
     if dev is None:
         return HidSample(None, "not-open")
     ctrl: bytes | None = None

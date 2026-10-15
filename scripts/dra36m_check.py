@@ -38,6 +38,7 @@ if str(REPO_ROOT) not in sys.path:
 
 # Shared with the app so bench results match production HID/audio behavior.
 from app.cm119 import (  # noqa: E402
+    HID_READ_TIMEOUT_MS,
     PRODUCT_ID_CM119A,
     VENDOR_ID,
     HidSample,
@@ -174,7 +175,7 @@ def try_open_cm119_hid(hid, path: bytes):
         return None
 
 
-def read_hid_input(dev, timeout_ms: int = 300) -> bytes | None:
+def read_hid_input(dev, timeout_ms: int = HID_READ_TIMEOUT_MS) -> bytes | None:
     return read_hid_sample(dev, timeout_ms).raw
 
 

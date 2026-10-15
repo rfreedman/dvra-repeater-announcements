@@ -18,6 +18,9 @@ Fixed items and root-cause history: [`code-review-findings.md`](code-review-find
 | [#8](https://github.com/rfreedman/dvra-repeater-announcements/issues/8) | Deduplicate name_present validators on Announcement and Schedule (via [#30](https://github.com/rfreedman/dvra-repeater-announcements/issues/30)) |
 | [#9](https://github.com/rfreedman/dvra-repeater-announcements/issues/9) | Consolidate emergency schedule priority constants (via [#30](https://github.com/rfreedman/dvra-repeater-announcements/issues/30)) |
 | [#30](https://github.com/rfreedman/dvra-repeater-announcements/issues/30) | Refactor Schedule and Announcement model helpers (`models.py`) |
+| [#12](https://github.com/rfreedman/dvra-repeater-announcements/issues/12) | Constant for CM119 HID read timeout (via [#31](https://github.com/rfreedman/dvra-repeater-announcements/issues/31)) |
+| [#13](https://github.com/rfreedman/dvra-repeater-announcements/issues/13) | Name DRA PTT key retry delay tuple (via [#31](https://github.com/rfreedman/dvra-repeater-announcements/issues/31)) |
+| [#31](https://github.com/rfreedman/dvra-repeater-announcements/issues/31) | Name radio timing constants (CM119 HID and DRA PTT retries) |
 
 ## Closed (documentation / other)
 
@@ -34,8 +37,6 @@ Fixed items and root-cause history: [`code-review-findings.md`](code-review-find
 | --- | --- | --- |
 | [#10](https://github.com/rfreedman/dvra-repeater-announcements/issues/10) | Split app/server.py into routes and schemas modules | tech-debt, enhancement |
 | [#11](https://github.com/rfreedman/dvra-repeater-announcements/issues/11) | Extract manual-trigger state and macOS idle assertion from scheduler | tech-debt |
-| [#12](https://github.com/rfreedman/dvra-repeater-announcements/issues/12) | Constant for CM119 HID read timeout | tech-debt — batch with [#13](https://github.com/rfreedman/dvra-repeater-announcements/issues/13) when convenient |
-| [#13](https://github.com/rfreedman/dvra-repeater-announcements/issues/13) | Name DRA PTT key retry delay tuple | tech-debt, documentation |
 | [#14](https://github.com/rfreedman/dvra-repeater-announcements/issues/14) | Make login rate limiter limits configurable via env | enhancement, security |
 | [#15](https://github.com/rfreedman/dvra-repeater-announcements/issues/15) | Remove deprecated serve --preload CLI flag | tech-debt |
 | [#16](https://github.com/rfreedman/dvra-repeater-announcements/issues/16) | Add /api/meta for calendar labels and overlay priority defaults | enhancement, frontend |
