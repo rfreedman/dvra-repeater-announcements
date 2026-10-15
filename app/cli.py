@@ -43,11 +43,6 @@ def main(argv: list[str] | None = None) -> int:
     serve = sub.add_parser("serve", help="Run the FastAPI web UI and streaming API")
     serve.add_argument("--host", default=HOST)
     serve.add_argument("--port", type=int, default=PORT)
-    serve.add_argument(
-        "--preload",
-        action="store_true",
-        help="Deprecated: serve always preloads all Piper voices at startup",
-    )
 
     sub.add_parser("voices", help="List Piper voices")
 

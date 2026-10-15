@@ -21,6 +21,9 @@ Fixed items and root-cause history: [`code-review-findings.md`](code-review-find
 | [#12](https://github.com/rfreedman/dvra-repeater-announcements/issues/12) | Constant for CM119 HID read timeout (via [#31](https://github.com/rfreedman/dvra-repeater-announcements/issues/31)) |
 | [#13](https://github.com/rfreedman/dvra-repeater-announcements/issues/13) | Name DRA PTT key retry delay tuple (via [#31](https://github.com/rfreedman/dvra-repeater-announcements/issues/31)) |
 | [#31](https://github.com/rfreedman/dvra-repeater-announcements/issues/31) | Name radio timing constants (CM119 HID and DRA PTT retries) |
+| [#15](https://github.com/rfreedman/dvra-repeater-announcements/issues/15) | Remove deprecated serve --preload CLI flag (via [#32](https://github.com/rfreedman/dvra-repeater-announcements/issues/32)) |
+| [#20](https://github.com/rfreedman/dvra-repeater-announcements/issues/20) | Style: blank line after radio_backend in config.py (via [#32](https://github.com/rfreedman/dvra-repeater-announcements/issues/32)) |
+| [#32](https://github.com/rfreedman/dvra-repeater-announcements/issues/32) | CLI and config cleanup (remove serve --preload, config spacing) |
 
 ## Closed (documentation / other)
 
@@ -38,11 +41,9 @@ Fixed items and root-cause history: [`code-review-findings.md`](code-review-find
 | [#10](https://github.com/rfreedman/dvra-repeater-announcements/issues/10) | Split app/server.py into routes and schemas modules | tech-debt, enhancement |
 | [#11](https://github.com/rfreedman/dvra-repeater-announcements/issues/11) | Extract manual-trigger state and macOS idle assertion from scheduler | tech-debt |
 | [#14](https://github.com/rfreedman/dvra-repeater-announcements/issues/14) | Make login rate limiter limits configurable via env | enhancement, security |
-| [#15](https://github.com/rfreedman/dvra-repeater-announcements/issues/15) | Remove deprecated serve --preload CLI flag | tech-debt |
 | [#16](https://github.com/rfreedman/dvra-repeater-announcements/issues/16) | Add /api/meta for calendar labels and overlay priority defaults | enhancement, frontend |
 | [#17](https://github.com/rfreedman/dvra-repeater-announcements/issues/17) | deploy.sh: configurable stop and startup wait timeouts | enhancement |
 | [#18](https://github.com/rfreedman/dvra-repeater-announcements/issues/18) | Narrow broad except Exception on HTTP handlers where practical | tech-debt |
-| [#20](https://github.com/rfreedman/dvra-repeater-announcements/issues/20) | Style: blank line after radio_backend in config.py | tech-debt |
 | [#22](https://github.com/rfreedman/dvra-repeater-announcements/issues/22) | Editing overlay offset into the past leaves stale scheduled job time | enhancement |
 | [#25](https://github.com/rfreedman/dvra-repeater-announcements/issues/25) | Browser or E2E tests for manual trigger polling and countdown UI | testing, frontend |
 | [#26](https://github.com/rfreedman/dvra-repeater-announcements/issues/26) | Bench-verify interleaved dual-DRA playback on two physical radios | testing |

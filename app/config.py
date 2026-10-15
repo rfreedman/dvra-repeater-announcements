@@ -83,6 +83,8 @@ PTT_LEAD_SECONDS = float(os.environ.get("TTS_PTT_LEAD_SECONDS", "0.4"))
 
 def radio_backend() -> str:
     return os.environ.get("TTS_RADIO_BACKEND", "stub").strip().lower()
+
+
 DRA_USB_CHANNEL = os.environ.get("TTS_DRA_USB_CHANNEL", "left").strip().lower()
 if DRA_USB_CHANNEL not in {"left", "right", "mono"}:
     import logging

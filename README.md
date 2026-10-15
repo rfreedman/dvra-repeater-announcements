@@ -172,14 +172,13 @@ echo "From a pipe" | python -m app speak --stdin
 Start the FastAPI web UI and HTTP API (announcements, schedules, auth, scheduler).
 
 ```bash
-python -m app serve [--host HOST] [--port PORT] [--preload]
+python -m app serve [--host HOST] [--port PORT]
 ```
 
 | Option | Default | Description |
 | --- | --- | --- |
 | `--host` | `TTS_HOST` (`0.0.0.0`) | Bind address |
 | `--port` | `TTS_PORT` (`8000`) | Listen port |
-| `--preload` | — | Deprecated; voices are always preloaded at startup |
 
 ```bash
 python -m app serve

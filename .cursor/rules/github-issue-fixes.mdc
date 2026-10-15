@@ -11,6 +11,6 @@ When implementing a fix for a numbered GitHub issue (e.g. from the tech-debt bac
 - **Do** implement the fix, run tests, and briefly tell the user which issue was addressed and how to verify.
 - The user closes the issue after they test on their machine or the NUC.
 
-When the user asks to close a **parent issue** that has sub-issues (e.g. [#30](https://github.com/rfreedman/dvra-repeater-announcements/issues/30), [#31](https://github.com/rfreedman/dvra-repeater-announcements/issues/31)), close **all linked sub-issues in the same turn**, then the parent, unless they say otherwise.
+When the user asks to close a **parent issue** that has sub-issues (e.g. [#30](https://github.com/rfreedman/dvra-repeater-announcements/issues/30), [#31](https://github.com/rfreedman/dvra-repeater-announcements/issues/31), [#32](https://github.com/rfreedman/dvra-repeater-announcements/issues/32)), close **all linked sub-issues in the same turn**, then the parent, unless they say otherwise.
 
 Optional: add a finding row to `docs/code-review-findings.md` when the fix matches a documented review item.
