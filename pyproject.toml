@@ -1,6 +1,6 @@
 [project]
 name = "dvra-repeater-announcements"
-version = "0.2.55"
+version = "0.3.0"
 description = "Piper TTS repeater announcements with a FastAPI UI, scheduler, and DRA-36M radio control"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -31,4 +31,5 @@ module-root = ""
 dev = [
     "pytest>=8.0.0",
     "httpx2>=2.0",
+    "pytest-playwright>=0.10.0",
 ]

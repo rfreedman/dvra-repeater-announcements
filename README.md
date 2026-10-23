@@ -377,7 +377,7 @@ Audio is produced one Piper sentence at a time and sent as it is ready.
 uv run pytest -q
 ```
 
-Tests set `TTS_SKIP_DOTENV=1` (in `tests/conftest.py`) so your local `.env` cannot change their results.
+Tests set `TTS_SKIP_DOTENV=1` (in `tests/conftest.py`) so your local `.env` cannot change their results. Browser tests for the manual-trigger countdown are opt-in: `uv run playwright install chromium` once, then `uv run pytest -m e2e`.
 
 ## Data files
 
