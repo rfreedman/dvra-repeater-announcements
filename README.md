@@ -70,7 +70,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt  # NUC, from 
 
 The exported file pins every package (with hashes) and keeps platform markers, so the macOS-only `pyobjc-framework-Cocoa` is skipped on Linux. It ends with `-e .`, which installs this project in editable mode (that is where the app gets its version), so run the `pip install` from the repo root. It is gitignored: regenerate it after any dependency change rather than editing it.
 
-`./serve.sh` runs `uv sync --inexact --no-dev` before starting (when uv is installed), so the venv always matches `pyproject.toml` / `uv.lock`.
+`./serve.sh` runs `uv sync --frozen --inexact --no-dev` before starting (when uv is installed), so the venv matches the committed `uv.lock` and the lock file itself is left unchanged.
 
 ### Versioning
 
