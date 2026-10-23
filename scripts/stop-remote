@@ -1,17 +1,22 @@
 #!/usr/bin/env bash
 # Stop the app on the NUC (SIGTERM only; no SIGKILL — PTT safety).
-# Usage: scripts/stop-remote [host]   (env: DEPLOY_HOST, DEPLOY_PATH)
+# Usage: scripts/stop-remote [host]   (env: DEPLOY_HOST, DEPLOY_PATH, DEPLOY_STOP_TIMEOUT)
 set -euo pipefail
 
 HOST="${1:-${DEPLOY_HOST:-repeater-nuc}}"
 REMOTE_PATH="${DEPLOY_PATH:-/home/rfreedman/projects/dvra-repeater-announcements}"
+stop_timeout="${DEPLOY_STOP_TIMEOUT:-30}"
+if [[ ! "$stop_timeout" =~ ^[1-9][0-9]*$ ]]; then
+  echo "Invalid DEPLOY_STOP_TIMEOUT=$stop_timeout (positive integer seconds)." >&2
+  exit 1
+fi
 
 echo "Stopping app on $HOST ($REMOTE_PATH)"
-ssh "$HOST" bash -s -- "$REMOTE_PATH" <<'REMOTE'
+ssh "$HOST" bash -s -- "$REMOTE_PATH" "$stop_timeout" <<'REMOTE'
 set -euo pipefail
 cd "$1"
+stop_timeout="$2"
 pattern='python -m app serve'
-stop_timeout=30
 
 pids="$(pgrep -u "$USER" -f "$pattern" || true)"
 if [[ -z "$pids" ]]; then

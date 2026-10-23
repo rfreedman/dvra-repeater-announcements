@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Deploy origin/main to the NUC: stop the app, git pull, start serve.sh, wait for startup.
-# Usage: scripts/deploy.sh [host]
+# Usage: scripts/deploy [host]
 #   env: DEPLOY_HOST, DEPLOY_PATH, DEPLOY_BRANCH, DEPLOY_STOP_TIMEOUT, DEPLOY_START_TIMEOUT
 set -euo pipefail
 
@@ -69,7 +69,7 @@ if [[ "$(git rev-parse HEAD)" != "$(git rev-parse "origin/$branch")" ]]; then
   newest="$(printf '%s\n%s\n' "$deployed" "$candidate" | sort -V | tail -n 1)"
   if [[ "$candidate" == "$deployed" || "$newest" != "$candidate" ]]; then
     echo "origin/$branch has new commits but version is $candidate (deployed: $deployed)." >&2
-    echo "Bump it on the dev machine, then commit, push, and re-run scripts/deploy.sh:" >&2
+    echo "Bump it on the dev machine, then commit, push, and re-run scripts/deploy:" >&2
     echo "  uv version --bump patch     # or minor / major" >&2
     echo "App left running; nothing deployed." >&2
     exit 1

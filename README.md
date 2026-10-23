@@ -40,8 +40,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 From the dev machine, deploy whatever is pushed to `origin/main`:
 
 ```bash
-scripts/deploy.sh                 # default host repeater-nuc
-scripts/deploy.sh other-host      # or DEPLOY_HOST=other-host; DEPLOY_PATH overrides the NUC repo path
+scripts/deploy                    # default host repeater-nuc
+scripts/deploy other-host         # or DEPLOY_HOST=other-host; DEPLOY_PATH overrides the NUC repo path
 ```
 
 The script refuses to run with uncommitted or unpushed local changes. On the NUC it checks that uv is present, that the clone is clean, and that `origin/main` fast-forwards, all before touching the app. If `origin/main` has new commits, its `pyproject.toml` version must be greater than the one the NUC is running (bump with `uv version --bump patch`, commit, push); otherwise the deploy stops and leaves the app running. A redeploy with no new commits just restarts the app. Then it stops the running `python -m app serve` with SIGTERM, pulls, and starts `./serve.sh` in the background, which syncs dependencies. It waits for `Startup complete` in the log and warns if the radio mode is `stub`. Background output goes to `data/logs/serve.out` on the NUC. If the app does not stop within `DEPLOY_STOP_TIMEOUT` seconds (default 30), the deploy aborts without updating; it never SIGKILLs the app, because that can leave PTT keyed. Startup must log `Startup complete` within `DEPLOY_START_TIMEOUT` seconds (default 180) or the deploy reports failure. Both values are positive integer seconds.
@@ -385,7 +385,7 @@ Audio is produced one Piper sentence at a time and sent as it is ready.
 uv run pytest -q
 ```
 
-Tests set `TTS_SKIP_DOTENV=1` (in `tests/conftest.py`) so your local `.env` cannot change their results. Browser tests for the manual-trigger countdown are opt-in: `uv run playwright install chromium` once, then `uv run pytest -m e2e`.
+Pushes and pull requests to `main` run the same default suite in GitHub Actions (see the **Test** workflow). Tests set `TTS_SKIP_DOTENV=1` (in `tests/conftest.py`) so your local `.env` cannot change their results. Browser tests for the manual-trigger countdown are opt-in locally: `uv run playwright install chromium` once, then `uv run pytest -m e2e`. On GitHub, run the **E2E** workflow manually from the Actions tab.
 
 ## Data files
 

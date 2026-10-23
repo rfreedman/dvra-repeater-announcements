@@ -11,16 +11,21 @@ scripts/start-remote other-host      # or DEPLOY_HOST=other-host
 
 ## `stop-remote`
 
-Run from the **dev machine**: SSH to the NUC and stop `python -m app serve` with SIGTERM (30 s wait; never SIGKILL). Exits 0 if the app was not running. Deploy's stop wait is `DEPLOY_STOP_TIMEOUT` (default 30 s) and is separate from this script.
+Run from the **dev machine**: SSH to the NUC and stop `python -m app serve` with SIGTERM (never SIGKILL). Waits up to `DEPLOY_STOP_TIMEOUT` seconds (default 30), same as deploy. Exits 0 if the app was not running.
 
 ```bash
 scripts/stop-remote
 scripts/stop-remote other-host
 ```
 
-## `deploy.sh`
+## `deploy`
 
 Run from the dev machine: stops the app on the NUC, runs `git pull` there, and restarts `./serve.sh` in the background. The host defaults to `repeater-nuc`; override it with `DEPLOY_HOST` or the first argument. `DEPLOY_STOP_TIMEOUT` (default 30) and `DEPLOY_START_TIMEOUT` (default 180) are the stop and startup waits, in seconds. Needs uv on the NUC. Details: [README — Deploying (NUC)](../README.md#deploying-nuc).
+
+```bash
+scripts/deploy
+scripts/deploy other-host
+```
 
 ## `dra36m_check.py`
 

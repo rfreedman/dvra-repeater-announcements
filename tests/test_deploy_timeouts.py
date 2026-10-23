@@ -8,6 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEPLOY = ROOT / "scripts" / "deploy"
+STOP_REMOTE = ROOT / "scripts" / "stop-remote"
 
 
 def _run_deploy(**env: str) -> subprocess.CompletedProcess[str]:
@@ -50,3 +51,31 @@ def test_deploy_passes_timeouts_into_the_remote_script():
 def test_serve_sh_uses_frozen_sync_so_nuc_does_not_dirty_uv_lock():
     serve = ROOT / "serve.sh"
     assert "uv sync --frozen" in serve.read_text(encoding="utf-8")
+
+
+def _run_stop_remote(**env: str) -> subprocess.CompletedProcess[str]:
+    run_env = os.environ.copy()
+    run_env.pop("DEPLOY_STOP_TIMEOUT", None)
+    run_env.update(env)
+    return subprocess.run(
+        ["bash", str(STOP_REMOTE)],
+        cwd=ROOT,
+        env=run_env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_stop_remote_rejects_invalid_deploy_stop_timeout():
+    result = _run_stop_remote(DEPLOY_STOP_TIMEOUT="0")
+    assert result.returncode == 1
+    assert "Invalid DEPLOY_STOP_TIMEOUT=0" in result.stderr
+    assert "Stopping app on" not in result.stdout
+
+
+def test_stop_remote_passes_stop_timeout_to_remote_script():
+    text = STOP_REMOTE.read_text(encoding="utf-8")
+    assert '"$REMOTE_PATH" "$stop_timeout"' in text
+    assert 'stop_timeout="$2"' in text
+    assert 'stop_timeout="${DEPLOY_STOP_TIMEOUT:-30}"' in text
