@@ -19,6 +19,7 @@ def test_playback_unmutes_by_portaudio_indices_before_stream(monkeypatch):
         lambda _index: None,
     )
     monkeypatch.setattr("app.dra_playback.dra_device_samplerate", lambda _i: 44100)
+    monkeypatch.setattr("app.dra_playback._linux_use_aplay", lambda: False)
 
     class FakeStream:
         samplerate = 44100

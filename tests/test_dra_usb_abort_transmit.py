@@ -37,6 +37,7 @@ def test_playback_abort_raises_transmit_abort_error():
             lambda *args, **kwargs: FakeStream(),
         )
         monkeypatch.setattr("app.dra_playback.dra_device_samplerate", lambda _i: 44100)
+        monkeypatch.setattr("app.dra_playback._linux_use_aplay", lambda: False)
         from app.audio import PcmChunk
 
         chunks = [

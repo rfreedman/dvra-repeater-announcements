@@ -45,6 +45,7 @@ def test_transmit_prep_runs_on_running_on_key_wrapper(monkeypatch):
         [PcmChunk(pcm_int16=b"\x00\x00", sample_rate=22050)],
         radio=wrapped,
         clear_seconds=0,
+        lead_seconds=0,
     )
 
     assert sync_calls == [wrapped]
