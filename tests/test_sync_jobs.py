@@ -88,6 +88,19 @@ def test_late_offset_overlay_survives_sync_after_slot_center(paused, store):
     assert job is not None and job.next_run_time == _at(15, 35)
 
 
+def test_overlay_offset_moved_into_the_past_drops_stale_job(paused, store):
+    _seed(store, overlay_offset=-5)
+    jid = "slot:2026-10-14T15:30"
+    _sync_at(_at(15, 20))
+    job = paused.get_job(jid)
+    assert job is not None and job.next_run_time == _at(15, 25)
+    net = next(item for item in store.list_schedules() if item.kind == "weekly")
+    store.save_schedule(net.model_copy(update={"offset_minutes": -10}))
+    _sync_at(_at(15, 22))  # new fire_at 15:20 has passed; old job still said 15:25
+    assert paused.get_job(jid) is None
+    assert all(item.next_run_time != _at(15, 25) for item in paused.get_jobs())
+
+
 def test_late_offset_overlay_is_scheduled_by_sync_after_slot_center(paused, store):
     _seed(store, overlay_offset=5)
     _sync_at(_at(15, 32))  # restart between slot center and fire time

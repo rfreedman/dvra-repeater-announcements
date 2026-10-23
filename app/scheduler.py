@@ -764,13 +764,25 @@ def _run_manual_trigger_body(
     )
 
 
+def _job_still_scheduled_at(job, fire_at: datetime) -> bool:
+    """True when a pending job will still run at this fire time."""
+    when = job.next_run_time
+    if when is None:
+        return False
+    zone = fire_at.tzinfo
+    if not isinstance(zone, ZoneInfo):
+        return False
+    return as_local(when, zone) == fire_at
+
+
 def sync_jobs() -> None:
     """Make APScheduler's slot jobs match the store.
 
     Only *future* fire times get new jobs. A slot whose fire time has passed is
-    kept if its job is still pending (scheduler woke late) but is never re-added
-    once APScheduler has run and removed it — re-adding a past DateTrigger inside
-    the misfire grace makes the slot transmit a second time.
+    kept only when its pending job is still scheduled for that same fire time
+    (scheduler woke late). A job waiting at an older offset is removed and is
+    never re-added — re-adding a past DateTrigger inside the misfire grace
+    makes the slot transmit a second time.
     """
     scheduler = get_scheduler()
     if scheduler is None:
@@ -784,14 +796,14 @@ def sync_jobs() -> None:
         minutes=document.settings.slot_half_window_minutes,
         seconds=SLOT_MISFIRE_GRACE_SECONDS,
     )
-    existing = {job.id for job in scheduler.get_jobs() if job.id}
     wanted: set[str] = set()
     for item in resolve_window(document, now - lookback, until):
         if item.source == "none":
             continue
         jid = _slot_job_id(item.slot.key)
         if item.fire_at <= now:
-            if jid in existing:
+            job = scheduler.get_job(jid)
+            if job is not None and _job_still_scheduled_at(job, item.fire_at):
                 wanted.add(jid)
             continue
         wanted.add(jid)
