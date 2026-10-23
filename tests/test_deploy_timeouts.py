@@ -45,3 +45,8 @@ def test_deploy_passes_timeouts_into_the_remote_script():
     assert 'start_timeout="$4"' in text
     assert 'stop_timeout="${DEPLOY_STOP_TIMEOUT:-30}"' in text
     assert 'start_timeout="${DEPLOY_START_TIMEOUT:-180}"' in text
+
+
+def test_serve_sh_uses_frozen_sync_so_nuc_does_not_dirty_uv_lock():
+    serve = ROOT / "serve.sh"
+    assert "uv sync --frozen" in serve.read_text(encoding="utf-8")

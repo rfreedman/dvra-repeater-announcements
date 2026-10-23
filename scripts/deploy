@@ -50,6 +50,9 @@ git fetch --quiet origin "$branch"
 if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
   echo "NUC working tree has local changes; app left running." >&2
   git status --short --untracked-files=no >&2
+  if [[ "$(git status --porcelain --untracked-files=no)" == " M uv.lock" ]]; then
+    echo "If only uv.lock changed: git restore uv.lock on the NUC, then redeploy (see README Deploying)." >&2
+  fi
   exit 1
 fi
 if ! git merge-base --is-ancestor HEAD "origin/$branch"; then

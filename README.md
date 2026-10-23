@@ -46,6 +46,14 @@ scripts/deploy.sh other-host      # or DEPLOY_HOST=other-host; DEPLOY_PATH overr
 
 The script refuses to run with uncommitted or unpushed local changes. On the NUC it checks that uv is present, that the clone is clean, and that `origin/main` fast-forwards, all before touching the app. If `origin/main` has new commits, its `pyproject.toml` version must be greater than the one the NUC is running (bump with `uv version --bump patch`, commit, push); otherwise the deploy stops and leaves the app running. A redeploy with no new commits just restarts the app. Then it stops the running `python -m app serve` with SIGTERM, pulls, and starts `./serve.sh` in the background, which syncs dependencies. It waits for `Startup complete` in the log and warns if the radio mode is `stub`. Background output goes to `data/logs/serve.out` on the NUC. If the app does not stop within `DEPLOY_STOP_TIMEOUT` seconds (default 30), the deploy aborts without updating; it never SIGKILLs the app, because that can leave PTT keyed. Startup must log `Startup complete` within `DEPLOY_START_TIMEOUT` seconds (default 180) or the deploy reports failure. Both values are positive integer seconds.
 
+If deploy reports **NUC working tree has local changes** and `git status` shows only `uv.lock`, an older `./serve.sh` may have rewritten the lock on Linux. On the NUC, discard that change, then redeploy after `origin/main` includes `./serve.sh` with `uv sync --frozen`:
+
+```bash
+ssh repeater-nuc 'cd /home/rfreedman/projects/dvra-repeater-announcements && git restore uv.lock'
+```
+
+After `./serve.sh` is frozen, restarts should not modify `uv.lock` again; confirm with `git status` on the NUC if you want to be sure.
+
 #### Process restart and in-memory state
 
 Deploy and any manual restart start a **new process**. Nothing below is written to disk:
