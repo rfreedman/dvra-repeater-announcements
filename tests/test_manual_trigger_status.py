@@ -4,7 +4,7 @@ from __future__ import annotations
 import threading
 from datetime import datetime, timedelta
 
-from app import scheduler
+from app import manual_trigger_state, scheduler
 from app.auth import BACKGROUND_POLL_HEADER
 from app.audio import PcmChunk
 from app.scheduler import (
@@ -54,7 +54,7 @@ def test_inflight_without_clear_hold_is_in_progress():
 
 def test_inflight_row_reports_give_up_remaining(store, monkeypatch):
     _announcement, schedule = _seed_baseline(store)
-    monkeypatch.setattr(scheduler, "_radio_status_for_ui", lambda: (True, 0.0, 10.0))
+    monkeypatch.setattr(manual_trigger_state, "_radio_status_for_ui", lambda: (True, 0.0, 10.0))
     _set_manual_inflight(schedule.id, "x")
     try:
         zone = scheduler.zone_for(store.document().settings.timezone)
