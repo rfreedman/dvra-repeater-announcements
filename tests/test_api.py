@@ -311,3 +311,14 @@ def test_voices_payload_includes_busy_caps(client):
 
     payload = client.get("/api/voices").json()
     assert payload["max_busy_give_up_seconds"] == MAX_BUSY_GIVE_UP_SECONDS
+
+
+def test_meta_returns_calendar_labels_and_default_priorities(client):
+    from app.models import DAY_LABELS, DAY_NAMES, DEFAULT_PRIORITY, MONTH_LABELS
+
+    payload = client.get("/api/meta").json()
+    assert payload["days"] == [{"id": day, "label": DAY_LABELS[day]} for day in DAY_NAMES]
+    assert payload["months"] == [
+        {"id": month, "label": MONTH_LABELS[month]} for month in range(1, 13)
+    ]
+    assert payload["default_priority"] == DEFAULT_PRIORITY

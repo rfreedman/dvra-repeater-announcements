@@ -60,6 +60,15 @@ DEFAULT_PRIORITY = {
 }
 
 
+def schedule_meta() -> dict[str, object]:
+    """Day and month labels plus template priorities for the schedule editor."""
+    return {
+        "days": [{"id": day, "label": DAY_LABELS[day]} for day in DAY_NAMES],
+        "months": [{"id": month, "label": MONTH_LABELS[month]} for month in range(1, 13)],
+        "default_priority": dict(DEFAULT_PRIORITY),
+    }
+
+
 def normalize_days(value: list[str]) -> list[str]:
     out: list[str] = []
     for day in value:

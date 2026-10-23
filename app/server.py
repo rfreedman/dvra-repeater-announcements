@@ -52,6 +52,7 @@ from app.models import (
     Settings,
     StoreDocument,
     normalize_announcement_text,
+    schedule_meta,
 )
 from app.registry import get_registry
 from app.schedule_logic import (
@@ -487,6 +488,11 @@ def delete_user(user_id: str, _admin: AdminUser) -> dict[str, bool]:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"ok": True}
+
+
+@app.get("/api/meta")
+def meta(_user: AuthUser) -> dict[str, object]:
+    return schedule_meta()
 
 
 @app.get("/api/voices")

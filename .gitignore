@@ -20,3 +20,9 @@ requirements.txt
 
 # optional personal overrides (if you ever split secrets/local tweaks out of .envrc)
 .envrc.local
+
+# Local Cursor MCP config (machine-specific paths)
+.cursor/mcp.json
+
+# Playwright MCP session snapshots and console logs
+.playwright-mcp/

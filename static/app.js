@@ -15,39 +15,9 @@ const DEFAULT_SLOT_HALF_WINDOW_MINUTES = 10;
 // Fallback when /api/voices has not loaded; app/config.py MAX_BUSY_GIVE_UP_SECONDS (600 s).
 const MANUAL_TRIGGER_FETCH_TIMEOUT_MS = 600_000;
 
-// Mirrors app/models.py DEFAULT_PRIORITY (overlay kinds; baseline stays 0 server-side).
-const DEFAULT_SCHEDULE_PRIORITY = {
-  weekly: 50,
-  monthly: 50,
-  once: 50,
-  range: 20,
-  monthly_range: 20,
-  emergency: 100,
-};
+// Day/month labels and template priorities come from GET /api/meta (app/models.py).
+let scheduleMeta = null;
 
-const DAYS = [
-  ["mon", "Mon"],
-  ["tue", "Tue"],
-  ["wed", "Wed"],
-  ["thu", "Thu"],
-  ["fri", "Fri"],
-  ["sat", "Sat"],
-  ["sun", "Sun"],
-];
-const MONTHS = [
-  [1, "Jan"],
-  [2, "Feb"],
-  [3, "Mar"],
-  [4, "Apr"],
-  [5, "May"],
-  [6, "Jun"],
-  [7, "Jul"],
-  [8, "Aug"],
-  [9, "Sep"],
-  [10, "Oct"],
-  [11, "Nov"],
-  [12, "Dec"],
-];
 const TEMPLATES = {
   baseline: { name: "Baseline", kind: "baseline", offset_minutes: 0 },
   weekly: {
@@ -56,7 +26,6 @@ const TEMPLATES = {
     days: ["sun"],
     slots: ["21:00"],
     offset_minutes: -5,
-    priority: DEFAULT_SCHEDULE_PRIORITY.weekly,
   },
   monthly: {
     name: "Monthly",
@@ -66,13 +35,11 @@ const TEMPLATES = {
     slots: ["19:00"],
     offset_minutes: -5,
     skip_months: [],
-    priority: DEFAULT_SCHEDULE_PRIORITY.monthly,
   },
   range: {
     name: "Event countdown",
     kind: "range",
     offset_minutes: 0,
-    priority: DEFAULT_SCHEDULE_PRIORITY.range,
   },
   monthly_range: {
     name: "Monthly countdown",
@@ -82,14 +49,12 @@ const TEMPLATES = {
     event_slot: "19:00",
     days_before: 7,
     offset_minutes: 0,
-    priority: DEFAULT_SCHEDULE_PRIORITY.monthly_range,
   },
   once: {
     name: "Once",
     kind: "once",
     slots: ["12:00"],
     offset_minutes: 0,
-    priority: DEFAULT_SCHEDULE_PRIORITY.once,
   },
   silence: {
     name: "Silence",
@@ -98,13 +63,11 @@ const TEMPLATES = {
     slots: ["21:30"],
     offset_minutes: 0,
     announcement_id: null,
-    priority: DEFAULT_SCHEDULE_PRIORITY.weekly,
   },
   emergency: {
     name: "Emergency",
     kind: "emergency",
     offset_minutes: 0,
-    priority: DEFAULT_SCHEDULE_PRIORITY.emergency,
   },
 };
 
@@ -852,9 +815,53 @@ function tickUpcoming() {
   }
 }
 
+function shortCalendarLabel(label) {
+  // Chip text is the first three letters of the server label (Monday → Mon, January → Jan).
+  return String(label).slice(0, 3);
+}
+
+function renderPriorityDefaults() {
+  const el = document.getElementById("priority-defaults");
+  if (!el || !scheduleMeta) return;
+  const priorities = scheduleMeta.default_priority;
+  const standard = [priorities.weekly, priorities.monthly, priorities.once];
+  const standardText = standard.every((value) => value === standard[0])
+    ? `weekly/monthly/once ${standard[0]}`
+    : `weekly ${priorities.weekly}, monthly ${priorities.monthly}, once ${priorities.once}`;
+  const countdownText =
+    priorities.range === priorities.monthly_range
+      ? String(priorities.range)
+      : `${priorities.range} (event countdown), ${priorities.monthly_range} (monthly countdown)`;
+  el.textContent = `Defaults: emergency ${priorities.emergency}, ${standardText}, event countdown ${countdownText}.`;
+}
+
+async function ensureScheduleMeta() {
+  if (scheduleMeta) return scheduleMeta;
+  const res = await fetch("/api/meta");
+  if (!res.ok) throw new Error("Could not load schedule options");
+  scheduleMeta = await res.json();
+  renderPriorityDefaults();
+  return scheduleMeta;
+}
+
+function applyTemplatePriority(template) {
+  const priority = scheduleMeta.default_priority[template.kind];
+  if (template.kind === "baseline" || priority == null) return { ...template };
+  return { ...template, priority };
+}
+
+function editorPriority(schedule, kind) {
+  if (schedule?.priority) return schedule.priority;
+  const priorities = scheduleMeta.default_priority;
+  if (isCountdownKind(kind)) return priorities.range;
+  return priorities.weekly;
+}
+
 function fillDayChips(container, selected, { exclusive = false } = {}) {
   container.replaceChildren();
-  for (const [value, label] of DAYS) {
+  for (const day of scheduleMeta.days) {
+    const value = day.id;
+    const label = shortCalendarLabel(day.label);
     const chip = document.createElement("label");
     chip.className = "chip";
     const input = document.createElement("input");
@@ -869,7 +876,9 @@ function fillDayChips(container, selected, { exclusive = false } = {}) {
 
 function fillMonthSkip(container, selected) {
   container.replaceChildren();
-  for (const [value, label] of MONTHS) {
+  for (const month of scheduleMeta.months) {
+    const value = month.id;
+    const label = shortCalendarLabel(month.label);
     const chip = document.createElement("label");
     chip.className = "chip";
     const input = document.createElement("input");
@@ -1016,12 +1025,7 @@ function fillScheduleForm(schedule) {
   document.getElementById("sched-kind").value = kind;
   document.getElementById("sched-enabled").checked = schedule?.enabled !== false;
   document.getElementById("sched-offset").value = String(schedule?.offset_minutes ?? 0);
-  document.getElementById("sched-priority").value = String(
-    schedule?.priority ||
-      (isCountdownKind(kind)
-        ? DEFAULT_SCHEDULE_PRIORITY.range
-        : DEFAULT_SCHEDULE_PRIORITY.weekly),
-  );
+  document.getElementById("sched-priority").value = String(editorPriority(schedule, kind));
   fillDayChips(document.getElementById("weekly-days"), schedule?.days || ["sun"]);
   fillDayChips(document.getElementById("monthly-weekday"), schedule?.days?.[0] || "wed", { exclusive: true });
   document.getElementById("monthly-occurrence").value = String(schedule?.occurrence || 1);
@@ -1981,6 +1985,7 @@ async function route() {
     }
     if (parts[0] === "help") {
       stopHomePolling();
+      await ensureScheduleMeta();
       showScreen("view-help");
       editorKey = "help";
       clearEditorGuard();
@@ -2008,15 +2013,17 @@ async function route() {
       }
       stopHomePolling();
       showScreen("view-schedule");
+      const metaReady = ensureScheduleMeta();
       if (!announcements.length) {
         const lib = await fetch("/api/announcements");
         announcements = lib.ok ? (await lib.json()).announcements || [] : [];
       }
+      await metaReady;
       if (parts[1] === "new") {
         editingScheduleId = null;
         document.getElementById("schedule-title").textContent = "New schedule";
         const template = TEMPLATES[params.get("template") || "baseline"] || TEMPLATES.baseline;
-        fillScheduleForm(template);
+        fillScheduleForm(applyTemplatePriority(template));
       } else {
         editingScheduleId = parts[1];
         document.getElementById("schedule-title").textContent = readOnly ? "View schedule" : "Edit schedule";
