@@ -385,7 +385,9 @@ Audio is produced one Piper sentence at a time and sent as it is ready.
 uv run pytest -q
 ```
 
-Pushes and pull requests to `main` run the same default suite in GitHub Actions (see the **Test** workflow). Tests set `TTS_SKIP_DOTENV=1` (in `tests/conftest.py`) so your local `.env` cannot change their results. Browser tests for the manual-trigger countdown are opt-in locally: `uv run playwright install chromium` once, then `uv run pytest -m e2e`. On GitHub, run the **E2E** workflow manually from the Actions tab.
+Pushes and pull requests to `main` run the same default suite in GitHub Actions (see the **Test** workflow; you can also re-run it manually from the Actions tab). Tests set `TTS_SKIP_DOTENV=1` (in `tests/conftest.py`) so your local `.env` cannot change their results. Browser tests for the manual-trigger countdown are opt-in locally: `uv run playwright install chromium` once, then `uv run pytest -m e2e`. On GitHub, run the **E2E** workflow manually from the Actions tab.
+
+To catch Linux-only test paths before push (macOS dev machines skip some ALSA/PortAudio code), run `./scripts/ci-local.sh` (Docker + Ubuntu 24.04). It uses a temporary venv inside the container and does not change your Mac `.venv`.
 
 ## Data files
 

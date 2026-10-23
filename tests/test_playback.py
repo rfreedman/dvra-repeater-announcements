@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-import sounddevice as sd
+import sys
+import types
 
 from app.audio import PcmChunk, silence_chunk
 from app.playback import play_chunks
@@ -33,7 +34,9 @@ def test_play_chunks_drains_generator_before_opening_stream(monkeypatch):
         def close(self):
             events.append("stream_close")
 
-    monkeypatch.setattr(sd, "OutputStream", FakeStream)
+    fake_sd = types.ModuleType("sounddevice")
+    fake_sd.OutputStream = FakeStream
+    monkeypatch.setitem(sys.modules, "sounddevice", fake_sd)
     play_chunks(generate())
     assert events[:5] == ["speech1", "pause", "speech2", "stream_open", "stream_start"]
     assert events.count("write") == 3

@@ -11,7 +11,9 @@ from app.dra_radio import DraRadio
 from app.radio import TransmitAbortError
 
 
-def test_playback_abort_raises_transmit_abort_error():
+def test_playback_abort_raises_transmit_abort_error(
+    monkeypatch, stub_dra_playback_dependencies
+):
     abort_after = {"blocks": 2}
 
     def should_abort() -> bool:
@@ -30,27 +32,21 @@ def test_playback_abort_raises_transmit_abort_error():
         def write_mono_f32(self, mono: np.ndarray) -> None:
             pass
 
-    monkeypatch = pytest.MonkeyPatch()
-    try:
-        monkeypatch.setattr(
-            "app.dra_playback.DraUsbPlayback",
-            lambda *args, **kwargs: FakeStream(),
-        )
-        monkeypatch.setattr("app.dra_playback.dra_device_samplerate", lambda _i: 44100)
-        monkeypatch.setattr("app.dra_playback._linux_use_aplay", lambda: False)
-        from app.audio import PcmChunk
+    monkeypatch.setattr(
+        "app.dra_playback.DraUsbPlayback",
+        lambda *args, **kwargs: FakeStream(),
+    )
+    from app.audio import PcmChunk
 
-        chunks = [
-            PcmChunk(pcm_int16=b"\x00\x00" * 44100, sample_rate=22050),
-        ]
-        with pytest.raises(TransmitAbortError):
-            play_pcm_chunks_to_dra_devices(
-                chunks,
-                device_indices=[0],
-                should_abort=should_abort,
-            )
-    finally:
-        monkeypatch.undo()
+    chunks = [
+        PcmChunk(pcm_int16=b"\x00\x00" * 44100, sample_rate=22050),
+    ]
+    with pytest.raises(TransmitAbortError):
+        play_pcm_chunks_to_dra_devices(
+            chunks,
+            device_indices=[0],
+            should_abort=should_abort,
+        )
 
 
 def test_aplay_playback_honors_should_abort(monkeypatch):

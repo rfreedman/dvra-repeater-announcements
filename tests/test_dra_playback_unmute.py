@@ -7,19 +7,15 @@ import numpy as np
 from app.audio import PcmChunk
 
 
-def test_playback_unmutes_by_portaudio_indices_before_stream(monkeypatch):
+def test_playback_unmutes_by_portaudio_indices_before_stream(
+    monkeypatch, stub_dra_playback_dependencies
+):
     unmute_calls: list[list[int]] = []
 
     monkeypatch.setattr(
         "app.dra_alsa_mixer.sync_cm119_speaker_unmute_for_indices",
         lambda indices: unmute_calls.append(list(indices)),
     )
-    monkeypatch.setattr(
-        "app.dra_pulse_mixer.sync_pulse_sink_unmute_for_portaudio_index",
-        lambda _index: None,
-    )
-    monkeypatch.setattr("app.dra_playback.dra_device_samplerate", lambda _i: 44100)
-    monkeypatch.setattr("app.dra_playback._linux_use_aplay", lambda: False)
 
     class FakeStream:
         samplerate = 44100

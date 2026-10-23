@@ -3,6 +3,9 @@ name: E2E
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   playwright:
     runs-on: ubuntu-latest
@@ -13,7 +16,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Install PortAudio (sounddevice)
-        run: sudo apt-get update && sudo apt-get install -y libportaudio2
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libportaudio2
 
       - name: Install uv
         uses: astral-sh/setup-uv@v10.3.2

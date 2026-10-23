@@ -20,6 +20,60 @@ from app.users import UserStore, set_user_store
 ADMIN_USERNAME = "admin"
 ADMIN_PASSWORD = "test-password"
 
+_CM119_PORTAUDIO_NAME = "USB PnP Sound Device: Audio (hw:1,0)"
+
+
+def _fake_portaudio_device_dict(index: int) -> dict[str, object]:
+    return {
+        "name": _CM119_PORTAUDIO_NAME,
+        "index": index,
+        "hostapi": 0,
+        "max_input_channels": 0,
+        "max_output_channels": 2,
+        "default_low_input_latency": 0.01,
+        "default_low_output_latency": 0.01,
+        "default_high_input_latency": 0.05,
+        "default_high_output_latency": 0.05,
+        "default_samplerate": 44100.0,
+    }
+
+
+def _fake_sounddevice_query_devices(device=None, kind=None):
+    import sounddevice as sd
+
+    if kind not in ("input", "output", None):
+        raise ValueError(f"Invalid kind: {kind!r}")
+    if device is None and kind is None:
+        return sd.DeviceList(_fake_portaudio_device_dict(i) for i in range(2))
+    if device is None:
+        return _fake_portaudio_device_dict(0)
+    if isinstance(device, str):
+        return _fake_portaudio_device_dict(0)
+    return _fake_portaudio_device_dict(int(device))
+
+
+@pytest.fixture(autouse=True)
+def headless_portaudio_on_ci(monkeypatch):
+    """Headless GitHub runners expose PortAudio without usable device indices."""
+    if not os.environ.get("GITHUB_ACTIONS"):
+        return
+    monkeypatch.setattr("sounddevice.query_devices", _fake_sounddevice_query_devices)
+
+
+@pytest.fixture
+def stub_dra_playback_dependencies(monkeypatch):
+    """Standard mocks for ``play_pcm_chunks_to_dra_devices`` on Linux/CI."""
+    monkeypatch.setattr(
+        "app.dra_alsa_mixer.sync_cm119_speaker_unmute_for_indices",
+        lambda _indices: None,
+    )
+    monkeypatch.setattr(
+        "app.dra_pulse_mixer.sync_pulse_sink_unmute_for_portaudio_index",
+        lambda _index: None,
+    )
+    monkeypatch.setattr("app.dra_playback.dra_device_samplerate", lambda _i: 44100)
+    monkeypatch.setattr("app.dra_playback._linux_use_aplay", lambda: False)
+
 
 @pytest.fixture(autouse=True)
 def fire_wall_clock_for_tests(monkeypatch):
