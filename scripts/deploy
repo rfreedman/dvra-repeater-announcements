@@ -1,11 +1,22 @@
 #!/usr/bin/env bash
 # Deploy origin/main to the NUC: stop the app, git pull, start serve.sh, wait for startup.
-# Usage: scripts/deploy.sh [host]   (env: DEPLOY_HOST, DEPLOY_PATH, DEPLOY_BRANCH)
+# Usage: scripts/deploy.sh [host]
+#   env: DEPLOY_HOST, DEPLOY_PATH, DEPLOY_BRANCH, DEPLOY_STOP_TIMEOUT, DEPLOY_START_TIMEOUT
 set -euo pipefail
 
 HOST="${1:-${DEPLOY_HOST:-repeater-nuc}}"
 REMOTE_PATH="${DEPLOY_PATH:-/home/rfreedman/projects/dvra-repeater-announcements}"
 BRANCH="${DEPLOY_BRANCH:-main}"
+stop_timeout="${DEPLOY_STOP_TIMEOUT:-30}"
+start_timeout="${DEPLOY_START_TIMEOUT:-180}"
+if [[ ! "$stop_timeout" =~ ^[1-9][0-9]*$ ]]; then
+  echo "Invalid DEPLOY_STOP_TIMEOUT=$stop_timeout (positive integer seconds)." >&2
+  exit 1
+fi
+if [[ ! "$start_timeout" =~ ^[1-9][0-9]*$ ]]; then
+  echo "Invalid DEPLOY_START_TIMEOUT=$start_timeout (positive integer seconds)." >&2
+  exit 1
+fi
 
 cd "$(dirname "$0")/.."
 
@@ -20,15 +31,15 @@ if [[ -n "$(git rev-list "origin/$BRANCH..$BRANCH")" ]]; then
 fi
 
 echo "Deploying origin/$BRANCH to $HOST:$REMOTE_PATH"
-ssh "$HOST" bash -s -- "$REMOTE_PATH" "$BRANCH" <<'REMOTE'
+ssh "$HOST" bash -s -- "$REMOTE_PATH" "$BRANCH" "$stop_timeout" "$start_timeout" <<'REMOTE'
 set -euo pipefail
 cd "$1"
 branch="$2"
+stop_timeout="$3"
+start_timeout="$4"
 # Non-interactive ssh skips ~/.bashrc, where the uv installer adds itself; serve.sh needs uv to sync.
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 pattern='python -m app serve'
-stop_timeout=30
-start_timeout=180
 out=data/logs/serve.out
 
 if ! command -v uv >/dev/null 2>&1; then
