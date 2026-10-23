@@ -51,7 +51,7 @@ The script refuses to run with uncommitted or unpushed local changes. On the NUC
 Deploy and any manual restart start a **new process**. Nothing below is written to disk:
 
 - **Busy retries** — APScheduler `defer:` jobs and in-flight manual-trigger retries are dropped. A slot whose fire time has already passed is **not** played late after restart (see startup behavior below).
-- **Login rate limit** — Failed sign-in counters (`429` after five failures per username from the same client within five minutes) reset. Legitimate sessions in cookies may still work until they expire.
+- **Login rate limit** — Failed sign-in counters (`429` after `TTS_LOGIN_MAX_FAILURES` failures, default five, per username from the same client within `TTS_LOGIN_WINDOW_SECONDS`, default 300 seconds) reset. Legitimate sessions in cookies may still work until they expire.
 
 After an outage or restart, use **Trigger now** or wait for the next slot if something did not air; check logs for deferred fires that will not run until you trigger again.
 
@@ -275,6 +275,8 @@ python -m app users delete bob
 | `TTS_USERS_PATH` | `$TTS_DATA_DIR/users.json` | Web UI users |
 | `TTS_SESSION_SECRET` | auto (`data/.session_secret`) | Signs login session cookies |
 | `TTS_SESSION_IDLE_SECONDS` | `1800` (30 min) | Log out after this much idle time (the UI's automatic 15 s refreshes do not count as activity) |
+| `TTS_LOGIN_MAX_FAILURES` | `5` | Failed sign-ins for the same username from the same client before `429` |
+| `TTS_LOGIN_WINDOW_SECONDS` | `300` | How long those failures stay counted, in seconds |
 | `TTS_PCM_CACHE_DIR` | `./data/pcm` | Pre-rendered announcement PCM (written on save and at startup; scheduled fires play this) |
 | `TTS_LOG_DIR` | `./data/logs` | Daily `announcements.log` files (30 days; uvicorn access lines are not written here) |
 | `TTS_PTT_LEAD_SECONDS` | `0.4` | Delay after PTT before audio (on **dra**, silence is streamed on USB; on **stub**, host sleep) |
@@ -365,7 +367,7 @@ Streams 16-bit little-endian mono PCM. Format headers:
 
 Audio is produced one Piper sentence at a time and sent as it is ready.
 
-`GET /api/voices` lists voices and the server defaults for new announcements (speed, sentence pause, busy retry / give-up). `POST /api/prepare` downloads/loads a model without speaking. Most `/api/*` routes require a login session cookie. Five failed sign-ins for the same username from the same address within 5 minutes return `429` until the window passes; that limit is **in-memory** and clears on process restart (see [Process restart and in-memory state](#process-restart-and-in-memory-state)). Requests carrying an `X-Background-Poll` header (any value; only its presence is checked) are authenticated but do not reset the idle timer. User management is under `/api/users` (Admin only). Auth helpers: `/api/auth/status`, `/api/auth/setup`, `/api/auth/login`, `/api/auth/logout`, `/api/auth/me`.
+`GET /api/voices` lists voices and the server defaults for new announcements (speed, sentence pause, busy retry / give-up). `POST /api/prepare` downloads/loads a model without speaking. Most `/api/*` routes require a login session cookie. Failed sign-ins for the same username from the same address return `429` after `TTS_LOGIN_MAX_FAILURES` attempts (default 5) within `TTS_LOGIN_WINDOW_SECONDS` (default 300) until the window passes; that limit is **in-memory** and clears on process restart (see [Process restart and in-memory state](#process-restart-and-in-memory-state)). Requests carrying an `X-Background-Poll` header (any value; only its presence is checked) are authenticated but do not reset the idle timer. User management is under `/api/users` (Admin only). Auth helpers: `/api/auth/status`, `/api/auth/setup`, `/api/auth/login`, `/api/auth/logout`, `/api/auth/me`.
 
 `GET /api/system/stats` returns `{"celsius", "thermal_state", "cpu_percent", "memory_percent"}` (authenticated). The UI uses `GET /api/events/stats` (SSE): an initial `snapshot` event, then `stats` events about every 15s from a single server broadcast (one sample shared across tabs). If the stream drops, the client falls back to REST polling every 15s. CPU% uses `psutil.cpu_percent(interval=None)` (average since the previous sample); memory uses psutil. Temperature is °C from Linux thermal sysfs, or macOS `ProcessInfo.thermalState` (`nominal` / `fair` / `serious` / `critical`) when Celsius is unavailable.
 

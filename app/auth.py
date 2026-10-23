@@ -7,7 +7,7 @@ from typing import Annotated
 import bcrypt
 from fastapi import Depends, HTTPException, Request
 
-from app.config import SESSION_IDLE_SECONDS
+from app.config import SESSION_IDLE_SECONDS, login_max_failures, login_window_seconds
 from app.users import Role, User, get_user_store
 
 SESSION_USER_KEY = "user_id"
@@ -57,7 +57,15 @@ class LoginRateLimiter:
                 self._failures.pop(key, None)
 
 
-login_limiter = LoginRateLimiter()
+def configured_login_limiter() -> LoginRateLimiter:
+    """Build a limiter from ``TTS_LOGIN_MAX_FAILURES`` / ``TTS_LOGIN_WINDOW_SECONDS``."""
+    return LoginRateLimiter(
+        max_failures=login_max_failures(),
+        window_seconds=login_window_seconds(),
+    )
+
+
+login_limiter = configured_login_limiter()
 
 
 def hash_password(password: str) -> str:

@@ -151,6 +151,55 @@ def test_duplicate_username_rejected(client, users, admin_user):
     assert res.status_code == 400
 
 
+def test_login_limiter_uses_startup_config():
+    from app.auth import login_limiter
+    from app.config import LOGIN_MAX_FAILURES, LOGIN_WINDOW_SECONDS
+
+    assert login_limiter.max_failures == LOGIN_MAX_FAILURES
+    assert login_limiter.window_seconds == LOGIN_WINDOW_SECONDS
+
+
+def test_login_limit_env_invalid_falls_back(monkeypatch, caplog):
+    import logging
+
+    from app.config import login_max_failures, login_window_seconds
+
+    monkeypatch.delenv("TTS_LOGIN_MAX_FAILURES", raising=False)
+    monkeypatch.delenv("TTS_LOGIN_WINDOW_SECONDS", raising=False)
+    assert login_max_failures() == 5
+    assert login_window_seconds() == 300.0
+
+    monkeypatch.setenv("TTS_LOGIN_MAX_FAILURES", "0")
+    monkeypatch.setenv("TTS_LOGIN_WINDOW_SECONDS", "nope")
+    with caplog.at_level(logging.WARNING, logger="app.config"):
+        assert login_max_failures() == 5
+        assert login_window_seconds() == 300.0
+    assert "TTS_LOGIN_MAX_FAILURES" in caplog.text
+    assert "TTS_LOGIN_WINDOW_SECONDS" in caplog.text
+
+
+def test_login_rate_limit_follows_env(users, admin_user, monkeypatch):
+    """A limiter built the same way as startup honors TTS_LOGIN_* (issue #14)."""
+    from app.auth import configured_login_limiter
+
+    monkeypatch.setenv("TTS_LOGIN_MAX_FAILURES", "2")
+    monkeypatch.setenv("TTS_LOGIN_WINDOW_SECONDS", "90")
+    monkeypatch.setattr("app.routes.auth.login_limiter", configured_login_limiter())
+    with TestClient(app) as client:
+        for _ in range(2):
+            res = client.post(
+                "/api/auth/login",
+                json={"username": ADMIN_USERNAME, "password": "wrong-pass"},
+            )
+            assert res.status_code == 401
+        res = client.post(
+            "/api/auth/login",
+            json={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD},
+        )
+        assert res.status_code == 429
+        assert int(res.headers["Retry-After"]) <= 91
+
+
 def test_idle_timeout_clears_session(users, admin_user, monkeypatch):
     monkeypatch.setattr("app.auth.SESSION_IDLE_SECONDS", 30)
     clock = {"t": 1_000_000.0}

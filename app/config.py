@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 from pathlib import Path
 
@@ -29,6 +30,33 @@ def _env_flag(name: str, default: bool = False) -> bool:
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_positive_int(name: str, default: int) -> int:
+    return int(_env_positive(name, default, int))
+
+
+def _env_positive_float(name: str, default: float) -> float:
+    return float(_env_positive(name, default, float))
+
+
+def _env_positive(name: str, default: int | float, parse):
+    """Parse a positive number from the environment, or return ``default``."""
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = parse(raw.strip())
+    except ValueError:
+        value = None
+    if isinstance(value, float) and not math.isfinite(value):
+        value = None
+    if value is None or value <= 0:
+        import logging
+
+        logging.getLogger("app.config").warning("Invalid %s=%r; using %s", name, raw, default)
+        return default
+    return value
 
 
 # Tests set TTS_SKIP_DOTENV=1 so a developer's .env cannot change their results.
@@ -186,6 +214,20 @@ LOOKAHEAD_HOURS = int(os.environ.get("TTS_SLOT_LOOKAHEAD_HOURS", "72"))
 TRIGGER_NOW = _env_flag("TTS_TRIGGER_NOW", False)
 FIRE_VERBOSE_LOG = _env_flag("TTS_FIRE_VERBOSE_LOG", False)
 SESSION_IDLE_SECONDS = int(os.environ.get("TTS_SESSION_IDLE_SECONDS", str(30 * 60)))
+
+
+def login_max_failures() -> int:
+    """Failed sign-ins allowed per client+username before HTTP 429."""
+    return _env_positive_int("TTS_LOGIN_MAX_FAILURES", 5)
+
+
+def login_window_seconds() -> float:
+    """How long those failures stay counted, in seconds."""
+    return _env_positive_float("TTS_LOGIN_WINDOW_SECONDS", 300.0)
+
+
+LOGIN_MAX_FAILURES = login_max_failures()
+LOGIN_WINDOW_SECONDS = login_window_seconds()
 
 
 def fire_verbose_log_enabled() -> bool:
