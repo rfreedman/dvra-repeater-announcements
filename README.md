@@ -383,4 +383,4 @@ Tests set `TTS_SKIP_DOTENV=1` (in `tests/conftest.py`) so your local `.env` cann
 
 ## Review history
 
-Issues found in code review, what was changed, and the regression tests that guard them are recorded in [docs/code-review-findings.md](docs/code-review-findings.md).
+Historical notes on review fixes that were not filed as GitHub issues are in [docs/code-review-findings.md](docs/code-review-findings.md). Bugs and minor enhancements are tracked on GitHub.

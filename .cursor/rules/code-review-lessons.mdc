@@ -5,9 +5,9 @@ alwaysApply: true
 
 # Code review lessons (read before changing scheduler, radio, auth, or tests)
 
-Full history, causes, and guarding tests: `docs/code-review-findings.md`.
-When you fix a bug or pay down tech debt, add an entry there (symptom, cause, fix, test)
-and add a one-line lesson here if it is a pattern worth avoiding.
+Historical fix notes that were never filed as GitHub issues: `docs/code-review-findings.md`. Do not add bugs or minor enhancements there, or anywhere else in the repo, once they are GitHub issues. When you file an issue, delete the local note that only described it.
+
+Add a one-line lesson here only when a fix reveals a pattern that would be easy to repeat in this codebase.
 
 ## Scheduler (`app/scheduler.py`)
 - Decide what to schedule or prune by **`fire_at`**, never by the slot center (:00/:30). Overlays fire up to ±`slot_half_window_minutes` from the center.

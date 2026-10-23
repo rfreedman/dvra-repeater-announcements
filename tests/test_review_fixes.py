@@ -1,4 +1,4 @@
-"""Regression tests for fixes recorded in docs/code-review-findings.md."""
+"""Regression tests for the October 2026 review fixes."""
 from __future__ import annotations
 
 import threading

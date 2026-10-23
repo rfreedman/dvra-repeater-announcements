@@ -10,16 +10,12 @@ When the user asks for the **next issue to work on** (or similar: "what should w
 1. **Lead with the issue number** in the first sentence (e.g. "**#7** — …"). Do **not** call CreatePlan or draft an implementation plan until that number is stated and briefly justified.
 
 2. **Selection method** (same every time):
-   - List **open** issues via `gh issue list` (or `docs/tech-debt-backlog.md` + `gh` for bodies); consider by **issue number ascending**.
+   - List **open** issues via `gh issue list`; consider by **issue number ascending**. Read bodies with `gh issue view` when the title is not enough.
    - Treat **closed-on-main but still open on GitHub** as "verify/close only", not new implementation — skip to the next number.
    - Pick the **lowest issue number** that still needs code and **makes sense** now.
-   - **Defer** issues that would block or create heavy merge conflict with later backlog items, especially:
-     - **#10** (split `app/server.py`) before smaller **#7, #14, #18** server touches.
+   - **Defer** large refactors that would block or conflict with smaller open issues on the same files, especially:
+     - **#10** (split `app/server.py`) before smaller server touches such as **#14** and **#18**.
      - **#11** (extract scheduler) mixed with **#22** (overlay job reconcile) on `app/scheduler.py`.
    - Prefer small, file-scoped tech-debt before large refactors and before unrelated feature/bug work unless the user overrides.
 
 3. **After the number**: short rationale (1–3 bullets), then offer or proceed to a plan **only if** the user asked for implementation.
-
-Reference: [docs/tech-debt-backlog.md](docs/tech-debt-backlog.md), [docs/code-review-findings.md](docs/code-review-findings.md).
-
-Current convention (Oct 2026): **#6** done on main; next implementation candidate was **#7** unless verification-only work on #6.

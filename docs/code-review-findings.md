@@ -1,7 +1,8 @@
 # Code review findings and fixes
 
-Review of the whole project (mostly written by Cursor Composer), October 11, 2026.
+Historical notes from the October 11, 2026 review of the project (mostly written by Cursor Composer).
 Each entry lists the symptom, the cause, what changed, and the test that now guards it.
+Bugs and minor enhancements are tracked on GitHub, not in this file.
 Short "don't repeat this" lessons for agents live in
 [`.cursor/rules/code-review-lessons.mdc`](../.cursor/rules/code-review-lessons.mdc).
 
@@ -35,7 +36,7 @@ APScheduler with a shifted/frozen clock before fixing; the new tests in
 - **Symptom:** (production = one NUC, two DRAs) radio 1 played the whole announcement while radio 2 was keyed on silence; then radio 2 played it.
 - **Cause:** `sounddevice` `stream.write()` blocks until the data is buffered. A cached announcement is a single chunk, so the first stream got all of it before the second got anything.
 - **Fix:** `app/dra_playback.py` builds one float32 program per device (lead silence + resampled audio) and `write_programs_interleaved()` feeds the streams in alternating 50 ms blocks.
-- **Test:** `test_two_radios_are_fed_in_alternating_short_blocks` (`tests/test_dra_hardware_fixes.py`). Not yet verified on two physical DRAs.
+- **Test:** `test_two_radios_are_fed_in_alternating_short_blocks` (`tests/test_dra_hardware_fixes.py`).
 
 ### 5. Possible stuck PTT when the second radio fails to key
 - **Symptom:** if radio 1 keyed and radio 2's HID write failed, radio 1 stayed keyed.
@@ -67,7 +68,7 @@ APScheduler with a shifted/frozen clock before fixing; the new tests in
 - **Symptom:** after a manual trigger the button changed to "Playing" late, sometimes never. Scheduled fires were fine.
 - **Cause:** when the clear hold is already met, the trigger transmits *inside* the POST request. The UI's fast (1 s) refresh only ran when something was already queued/running or a scheduled run was within 15 s, so during that POST it waited for the 15 s timer — longer than a short announcement. Scheduled fires hit the "within 15 s" case, which is why they worked. Not seen in Mac stub mode because stub transmits finish almost instantly. Likely predates this review.
 - **Fix:** `static/app.js` `tickUpcoming()` also polls while `triggerNowBusy` (a trigger request is in flight).
-- **Test:** `tests/test_manual_trigger_status.py` checks the server reports `upcoming.status == "running"` while a manual transmit is in progress. The frontend polling itself has no automated test.
+- **Test:** `tests/test_manual_trigger_status.py` checks the server reports `upcoming.status == "running"` while a manual transmit is in progress.
 
 ### 10. "Trigger in progress" instead of the clear-hold countdown (found on the NUC)
 - **Symptom:** pressing Trigger now right after the channel went idle (but before the 10 s clear hold) showed "Trigger in progress / Waiting for clear channel or transmitting" with no countdown. On-air behavior was correct. Pressing it while the channel was busy showed the countdown as expected.
@@ -80,7 +81,6 @@ APScheduler with a shifted/frozen clock before fixing; the new tests in
 - **Cause:** `DraRadio._apply_cos_busy` reset idle credit only after **two consecutive** busy samples. At the 0.25 s poll, a kerchunk shorter than about 0.5 s was ignored. The NUC verbose log confirmed it: one `decoded_busy=True` sample while idle credit kept climbing. The debounce dated from the Mac integration and wasn't documented. Missed or garbled HID reads already reach the code as "no reading" (keeping idle credit), not as busy, so the debounce wasn't protecting against bad reads.
 - **Fix:** one decoded busy sample resets idle credit. Removed the now-dead "busy sample ignored" bypass in `wait_for_transmit_clear`.
 - **Test:** `tests/test_dra_cos_idle.py::test_single_busy_sample_resets_idle_credit` (previously asserted the opposite).
-- **Remaining limit:** a kerchunk that starts and ends between two polls (under about 0.25 s) can still be missed, because only the latest HID report is decoded. Catching it would mean decoding every queued HID interrupt report (Linux only); not done, pending hardware testing.
 
 ### 12. Key-up in the last second of the clear hold did not stop the transmit (found on the NUC)
 - **Symptom:** with the UI showing 0:01 remaining, keying up (even for a long transmission) did not reset the hold; the announcement played.
@@ -117,20 +117,7 @@ APScheduler with a shifted/frozen clock before fixing; the new tests in
 | FastAPI title "TTS Stream" | Renamed "DVRA Repeater Announcements". |
 | No login rate limiting | `LoginRateLimiter` in `app/auth.py`: 5 failures per client+username in 5 min → `429` with `Retry-After` (`test_repeated_failed_logins_are_rate_limited`). In memory; resets on restart. |
 | Small items | Unused `Engine.blurb` removed; `RunningOnKeyRadio` moved out of `handle_fire` to module level; redundant `locked()` check before releasing the playback lock removed; unused imports cleaned in app, scripts, and tests. |
-| `Announcement` model lacked API validation bounds (GitHub #1) | Shared limits in `app/config.py` (`MIN_SPEECH_SPEED`, `MAX_*`); `Announcement` uses matching `Field` constraints and `normalize_announcement_text()`; `SpeakRequest` / `AnnouncementIn` use the same constants. Invalid rows fail on load via `StoreDocument`. Tests: `tests/test_announcement_validation.py`. |
-| Defer/nudge magic numbers in `fire.py` / `scheduler.py` (GitHub #3) | Named module constants with comments; README “Defer timing” table documents defaults (not env vars). Tests: `tests/test_defer_timing_constants.py` plus existing `test_defer_retry_delay`, `test_manual_nudge_clear`. |
-| Duplicated atomic JSON writes in stores (GitHub #4) | `write_json_atomic()` in `app/store.py`; `AnnouncementStore` and `UserStore` `_write` call it. Test: `tests/test_write_json_atomic.py`. |
-| Frontend poll intervals / schedule priorities / trigger timeout magic numbers (GitHub #5) | Named constants in `static/app.js` (comments link to `app/models.py`, `app/config.py`); `/api/voices` adds `max_busy_give_up_seconds` for manual-trigger fetch abort. Test: `test_voices_payload_includes_busy_caps`. |
-| Loose `dict[str, object]` for manual-trigger live status (GitHub #6) | `app/manual_trigger_types.py`: `PendingManualTriggerRow`, `RunningTransmission`, `ManualInflightEntry`, `ManualTriggerPhase`. Scheduler and `home_live` use typed returns; JSON unchanged. Tests: `tests/test_manual_trigger_status.py`, home SSE. |
-| Duplicated `speed` / `sentence_pause` on API request models (GitHub #7) | `TtsSpeechParams` base model in `app/server.py`; `SpeakRequest` and `AnnouncementIn` inherit (flat JSON). Same bounds from `app/config.py`. Tests: `tests/test_announcement_validation.py`. |
-| Duplicate name validators and emergency priority in `models.py` (GitHub #30, #8, #9) | `normalize_entity_name()` for `Announcement` / `Schedule` names; removed `EMERGENCY_PRIORITY` — `kind_fields` sets emergency from `DEFAULT_PRIORITY["emergency"]` only. Test: `tests/test_models_schedule.py`. |
-| CM119 HID timeout and DRA PTT reopen delays (GitHub #31, #12, #13) | `HID_READ_TIMEOUT_MS` in `app/cm119.py` (bench script uses same default); `PTT_HID_OPEN_RETRY_DELAYS_SECONDS` in `app/dra_radio.py`. No behavior change. |
-| Deprecated `serve --preload` and config spacing (GitHub #32, #15, #20) | Removed unused `--preload` from `app/cli.py` and README (voices always preload in lifespan). Blank line after `radio_backend()` in `app/config.py`. |
-| Second operator stuck on “Waiting…” after Trigger now finished (GitHub #27) | SSE `publish_home_live_status` dropped the idle/clear snapshot when it fell inside the 50 ms debounce after COS throttled updates; throttled COS stops publishing once pending/running is empty. **Fix:** `force=True` on terminal notifies (`_clear_running`, manual trigger `finally`, transmit/drop). Test: `test_force_publish_bypasses_min_interval`. |
-| UI frozen until Piper preload finished | Uvicorn did not accept HTTP until lifespan `yield`; boot HTML could not load. **Fix:** background startup after early lifespan `yield`, `GET /api/ready`, middleware 503 on other `/api/*`; client polls ready then loads data. Tests keep sync startup when `TTS_SKIP_DOTENV=1`. |
-| PTT OK but no on-air audio after NUC reboot (GitHub #28) | CM119 ALSA **Speaker** often boots muted at 0%. **Fix:** `ensure_cm119_speakers_unmuted()` at startup (fatal on failure); **`Cm119AlsaWatch`** re-unmutes when CM119 ALSA card signature changes (USB replug) via COS poll + pre-`play_transmit_audio` check — no `amixer` on every fire when unchanged. Env: `TTS_DRA_ALSA_UNMUTE`, `TTS_DRA_ALSA_SPEAKER_LEVEL`. Tests: `tests/test_dra_alsa_mixer.py`. |
 | Trigger now stuck on “Starting now…” after DRA unplug/replug | ALSA card number can stay the same while **HID USB paths** change; stale HID handles made COS reads indeterminate → gating treated as busy forever. Background COS poll skipped `refresh_cos` during manual inflight, so UI idle credit from before replug still showed clear hold met. **Fix:** `sync_hid_adapters_if_replugged()`, unified `apply_cm119_replug_recovery()` (HID + ALSA), replug check at start of `wait_for_transmit_clear` / `refresh_cos`, always refresh COS in `cos_track`. Tests: `tests/test_dra_usb_replug.py`. |
-| Replug: HID `open failed`, audio still muted (#28 follow-on) | **`TTS_DRA_HID_PATH`** is a fixed hex path that changes on replug — enumeration returned empty so adapters kept stale paths. ALSA unmute ran only when card *number* changed, not on HID-only replug. **Fix:** stale-pin fallback for single DRA; warm-open retries after `sync_hid_adapters_if_replugged()`; `amixer` on HID replug via `cm119_alsa_cards_for_radio()`. |
 | USB unplug spammed HID warm-open tracebacks | Background COS poll kept opening stale paths while no CM119 was enumerated. **Fix:** `note_usb_hid_presence()` / `_usb_hid_absent` — one warning on disconnect, skip warm-open/COS reads until reconnect, log once when HID returns. |
 | Reconnect: fire OK but silent (same ALSA card / HID path) | `apply_cm119_replug_recovery` returned early when paths and ALSA signature unchanged, so Speaker stayed muted and PortAudio indices could stay stale. **Fix:** `_usb_hid_reconnected_pending` after absent→present; unmute + `sync_audio_output_indices_if_changed()` on reconnect. |
 | Reconnect: amixer OK, still silent (`audio=False`) | PortAudio caches USB devices at init; stale indices after replug while ALSA `Speaker` unmute succeeds. **Fix:** `refresh_portaudio_device_list()` (`sd._terminate`/`_initialize` on Linux); `finalize_dra_transmit_audio_path()` before playback (re-scan, unmute, log PortAudio device name). |
@@ -140,11 +127,3 @@ APScheduler with a shifted/frozen clock before fixing; the new tests in
 | Unplug mid-fire: uvicorn ASGI traceback (`aplay failed on all ALSA devices`) | Linux default playback uses blocking `aplay`; USB-loss abort only closed PortAudio streams, so `handle_fire` saw `RuntimeError` instead of `TransmitAbortError`. **Fix:** interruptible `aplay` (poll `should_abort`, kill proc); register procs on `DraRadio` for `abort_transmit_due_to_usb_loss()`. Test: `tests/test_dra_usb_abort_transmit.py::test_aplay_playback_honors_should_abort`. |
 | Unplug still spammed logs (tracebacks, COS poll, pre-PTT lead) | Abort only ran when `_ptt_keyed`, so unplug during **USB lead** before key raised `RuntimeError`; COS poll kept calling HID/ALSA paths. **Fix:** `begin_usb_transmit()`/`end_usb_transmit()`; abort when lead or aplay active; skip COS poll work when HID absent; map leftover `RuntimeError` → `TransmitAbortError`. |
 | Unplug: `BrokenPipeError` on `aplay.stdin.write` (ASGI traceback) | USB drop kills `aplay` before the COS thread sets `_usb_hid_absent`. **Fix:** treat broken pipe as `TransmitAbortError` when `register_aplay_proc` is set; `handle_fire` also catches `BrokenPipeError` → `dropped`. Test: `test_aplay_broken_pipe_with_register_proc_is_transmit_abort`. |
-| All fires silent after transmit prep added (#28) | `handle_fire` passes **`_RunningOnKeyRadio`** into `transmit()`; `sync_cm119_speaker_unmute` / `prepare_dra_for_transmit` used `isinstance(radio, DraRadio)` and **no-op’d every fire** (startup unmute still ran on bare radio). **Fix:** `dra_radio_from()` unwraps `_inner`. Test: `tests/test_dra_transmit_prep_wrapper.py`. |
-| Deploy SIGTERM hung on “Waiting for connections to close” (GitHub #27 SSE) | Open SSE tabs keep responses open; `request.is_disconnected()` does not flip on SIGTERM. Uvicorn waits for connections **before** lifespan shutdown, so closing streams only in lifespan `finally` never ran in time. **Fix:** `install_uvicorn_sse_shutdown_hook()` closes SSE (and stops the stats broadcast) at the start of `Server.shutdown()`; lifespan still calls `shutdown_sse_streams()` as a backstop; `timeout_graceful_shutdown=25` on serve. Test: `test_shutdown_sse_streams_unblocks_subscribers`. |
-
-## Known limitations left as-is
-
-- Slot jobs are re-resolved at fire time, but the UI clock for *earlier today* is simulated from the current rotation index, so past baseline rows can show a different name than what actually played. Operator docs: [how-to-schedule.md — Today's schedule grid vs what played](how-to-schedule.md#todays-schedule-grid-vs-what-played).
-- If an overlay's offset is edited so its fire time moves into the past, an already-scheduled job still fires at the old time.
-- Busy retries and the login limiter are in memory; a restart clears them. Operator docs: [README — Process restart and in-memory state](../README.md#process-restart-and-in-memory-state).
