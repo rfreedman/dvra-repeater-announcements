@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
 from collections.abc import AsyncIterator, Iterator
+from typing import NoReturn
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -17,7 +19,31 @@ from app.schemas import PrepareRequest, SpeakRequest
 
 router = APIRouter()
 registry = get_registry()
+log = logging.getLogger("app.routes.speak")
 _END = object()
+
+
+def _chained_oserror(exc: BaseException) -> bool:
+    """True when ``exc`` was raised from an OSError (download/disk failure)."""
+    cause = exc.__cause__
+    seen = {id(exc)}
+    while cause is not None and id(cause) not in seen:
+        if isinstance(cause, OSError):
+            return True
+        seen.add(id(cause))
+        cause = cause.__cause__
+    return False
+
+
+def _raise_engine_http(exc: Exception, *, where: str) -> NoReturn:
+    """Map a voice or I/O failure to HTTP. Unexpected errors are logged and become 500."""
+    if isinstance(exc, VoiceError) and not _chained_oserror(exc):
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if isinstance(exc, (VoiceError, OSError)):
+        log.warning("Engine I/O failure during %s: %s", where, exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    log.exception("Unexpected %s failure", where)
+    raise HTTPException(status_code=500, detail="Internal Server Error") from exc
 
 
 @router.get("/api/voices")
@@ -29,10 +55,10 @@ def voices(_user: AuthUser) -> dict[str, object]:
 def prepare(req: PrepareRequest, _user: AuthUser) -> dict[str, str]:
     try:
         voice_id = registry.prepare(req.voice)
-    except VoiceError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except HTTPException:
+        raise
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        _raise_engine_http(exc, where="prepare")
     return {"voice": voice_id}
 
 
@@ -50,10 +76,10 @@ async def speak(req: SpeakRequest, request: Request, _user: AuthUser) -> Streami
                 sentence_pause=req.sentence_pause,
             )
         )
-    except VoiceError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except HTTPException:
+        raise
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        _raise_engine_http(exc, where="speak")
 
     return StreamingResponse(
         _pcm_stream(request, chunks),
@@ -84,7 +110,8 @@ async def _pcm_stream(request: Request, chunks: Iterator[PcmChunk]) -> AsyncIter
             try:
                 close()
             except Exception:
-                pass
+                # close() runs after the client may already be gone; don't fail the response.
+                log.debug("Speech stream close failed", exc_info=True)
 
     try:
         while True:

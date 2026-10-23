@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from collections.abc import AsyncIterator
@@ -9,6 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import ValidationError
 from starlette.middleware.sessions import SessionMiddleware
 
 from app import __version__
@@ -35,7 +37,7 @@ from app.sse_hub import (
 from app.startup import StartupError, fail_startup, init_radio_at_startup
 from app.startup_gate import clear_startup_ready, is_startup_ready, mark_startup_ready
 from app.stats_sse import stats_broadcast_loop
-from app.store import get_store
+from app.store import DataFileError, get_store
 from app.system_status import read_system_stats
 from app.users import get_user_store
 from app.uvicorn_shutdown import register_stats_broadcast_stop
@@ -59,7 +61,10 @@ async def _complete_startup(started: float, stats_stop: asyncio.Event) -> asynci
         start_scheduler()
     except StartupError as exc:
         fail_startup(str(exc))
+    except (DataFileError, OSError, json.JSONDecodeError, ValidationError) as exc:
+        fail_startup(str(exc) or exc.__class__.__name__)
     except Exception as exc:
+        log.exception("Unexpected startup failure")
         fail_startup(str(exc) or exc.__class__.__name__)
     log.info(
         "Startup complete in %.1fs (radio mode: %s)",

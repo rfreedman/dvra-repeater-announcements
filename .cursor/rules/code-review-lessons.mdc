@@ -20,6 +20,7 @@ Add a one-line lesson here only when a fix reveals a pattern that would be easy 
 - PTT: track each device as soon as it keys; on any failure unkey exactly those. A stuck PTT is the worst failure mode.
 - Multiple PortAudio streams: never write a whole buffer to one stream before the next — `write()` blocks. Interleave short blocks (`write_programs_interleaved`).
 - HTTP handlers must not sample COS or reschedule jobs; that belongs to the background COS thread.
+- Speak/prepare: `VoiceError` is 400; `OSError` (including a download failure raised from one) is 502. Log anything else and return 500 — don't report it as 502. Startup logs unexpected errors before `fail_startup`; leave `cos_track` / `pcm_cache` swallows alone unless a test covers the change.
 
 ## Config, data, auth
 - `app/config.py` reads env at import; tests set `TTS_SKIP_DOTENV=1`. Never let a developer `.env` affect tests.
