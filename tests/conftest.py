@@ -56,7 +56,7 @@ def no_pcm_warm(monkeypatch, tmp_path):
     from app.pcm_cache import PcmCache, set_pcm_cache
 
     set_pcm_cache(PcmCache(tmp_path / "pcm-cache"))
-    monkeypatch.setattr("app.server.warm_announcement", lambda announcement: None)
+    monkeypatch.setattr("app.routes.announcements.warm_announcement", lambda announcement: None)
     monkeypatch.setattr("app.server.warm_all", lambda announcements=None: None)
     yield
     set_pcm_cache(None)

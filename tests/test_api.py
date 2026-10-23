@@ -199,7 +199,7 @@ def test_speak_does_not_key_ptt(client, store, monkeypatch):
 
         return "en_US-ryan-medium", 22050, chunks()
 
-    monkeypatch.setattr("app.server.registry.stream_synthesize", fake_synthesize)
+    monkeypatch.setattr("app.routes.speak.registry.stream_synthesize", fake_synthesize)
     res = client.post("/api/speak", json={"text": "hello from preview"})
     assert res.status_code == 200
     assert res.content == b"\x00\x00"

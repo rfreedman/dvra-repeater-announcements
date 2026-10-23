@@ -105,7 +105,7 @@ def test_create_schedule_notifies_data_changed(client, store, monkeypatch):
     def _record() -> None:
         calls.append("data_changed")
 
-    monkeypatch.setattr("app.server.notify_home_data_changed", _record)
+    monkeypatch.setattr("app.routes.schedules.notify_home_data_changed", _record)
     res = client.post(
         "/api/schedules",
         json={

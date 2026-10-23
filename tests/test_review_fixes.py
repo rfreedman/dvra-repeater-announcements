@@ -89,7 +89,7 @@ def test_saving_announcement_does_not_wait_for_pcm_render(client, store, monkeyp
         release.wait(5)
         rendered.set()
 
-    monkeypatch.setattr("app.server.warm_announcement", slow_warm)
+    monkeypatch.setattr("app.routes.announcements.warm_announcement", slow_warm)
     started = time.perf_counter()
     res = client.post("/api/announcements", json={"name": "ID", "text": "Hello."})
     assert res.status_code == 200
