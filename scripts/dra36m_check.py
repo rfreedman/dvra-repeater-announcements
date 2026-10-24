@@ -16,6 +16,9 @@ Examples:
   python scripts/dra36m_check.py monitor --interval 1 --raw
   python scripts/dra36m_check.py voice "This is a test."
   python scripts/dra36m_check.py retest -c left --with-voice
+  python scripts/dra36m_check.py probe-all
+  python scripts/dra36m_check.py dual-smoke -c left --seconds 2 --lead 0.6
+  python scripts/dra36m_check.py dual-retest -c left --with-voice --lead 0.6
   python scripts/dra36m_check.py voice-gate -c left --poll 0.25
   python scripts/dra36m_check.py snap --period 0.25
 """
@@ -48,12 +51,16 @@ from app.cm119 import (  # noqa: E402
 )
 from app.cm119 import cos_line_busy as _app_cos_line_busy  # noqa: E402
 from app.cm119 import open_cm119_hid_at as _open_cm119_hid_at  # noqa: E402
+from app.dra_bench_pairing import BenchPairingError, DraBenchPair, resolve_bench_dra_pairs  # noqa: E402
 from app.dra_playback import (  # noqa: E402
     DraUsbPlayback,
     auto_select_dra_outputs,
+    dra_device_samplerate,
     list_dra_output_devices,
     mono_to_channel,
+    play_pcm_chunks_to_dra_devices,
 )
+from app.cm119 import list_cm119_hid_entries  # noqa: E402
 
 
 def _subprocess_env() -> dict[str, str]:
@@ -487,6 +494,300 @@ def cmd_probe(_args) -> int:
             )
     dev.close()
     return 0 if audio is not None else 1
+
+
+def _format_probe_cos_block(
+    raw: bytes | None,
+    *,
+    active_high: bool,
+) -> None:
+    print(f"    input report (IR0..3): {raw.hex() if raw else '(none)'}")
+    if raw:
+        print(f"    IR0 COS/button bits: {decode_cos_byte(raw)}")
+        print(f"    IR0 edge latch bits: {decode_ir0_events(raw)}")
+        print(
+            f"    vol_dn busy: {cos_line_busy(raw, line='vol_dn', active_low=not active_high)}"
+        )
+        print(
+            f"    allstar3 busy (IR0|1|2==0): "
+            f"{cos_line_busy(raw, line='allstar3', active_low=not active_high)}"
+        )
+        print("    monitor: --cos vol_dn (use --active-high if idle/busy swap)")
+        if raw == bytes(4):
+            print(
+                "    hint: all zeros and COS never changes → install JU1 "
+                "(Masters factory default is JU1 off)"
+            )
+
+
+def _open_hids_for_pairs(hid, pairs: list[DraBenchPair]) -> list[object]:
+    devices: list[object] = []
+    for pair in pairs:
+        path = pair.hid_entry.get("path")
+        if not path:
+            raise SystemExit(f"{pair.label}: HID path missing")
+        devices.append(_open_cm119_hid_at(hid, path))
+    return devices
+
+
+def _set_ptt_all(devices: list[object], keyed: bool) -> None:
+    if not keyed:
+        for dev in devices:
+            try:
+                set_gpio3_ptt(dev, False)
+            except (OSError, ValueError):
+                pass
+        return
+    keyed_devices: list[object] = []
+    try:
+        for dev in devices:
+            set_gpio3_ptt(dev, True)
+            keyed_devices.append(dev)
+    except OSError:
+        for dev in keyed_devices:
+            try:
+                set_gpio3_ptt(dev, False)
+            except OSError:
+                pass
+        raise
+
+
+def _close_hids(devices: list[object]) -> None:
+    for dev in devices:
+        try:
+            dev.close()
+        except (OSError, ValueError):
+            pass
+
+
+def _play_mono_f32_on_pairs(
+    mono_f32,
+    pairs: list[DraBenchPair],
+    *,
+    channel: str,
+) -> None:
+    import threading
+
+    from app.dra_playback import play_mono_f32_to_dra_device
+
+    errors: list[BaseException] = []
+
+    def _target(pair: DraBenchPair, data) -> None:
+        try:
+            sr = dra_device_samplerate(pair.audio_index)
+            play_mono_f32_to_dra_device(
+                data,
+                device_index=pair.audio_index,
+                channel=channel,
+                samplerate=sr,
+            )
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads: list[threading.Thread] = []
+    for pair in pairs:
+        thread = threading.Thread(
+            target=_target,
+            args=(pair, mono_f32),
+            name=f"dra-mono-{pair.label}",
+        )
+        threads.append(thread)
+        thread.start()
+    for thread in threads:
+        thread.join()
+    if errors:
+        raise errors[0]
+
+
+def cmd_probe_all(args) -> int:
+    hid = _ensure_hid()
+    ok = True
+
+    print("=== USB audio (PortAudio, all DRA-like) ===")
+    all_dra = list_dra_output_devices()
+    selected = auto_select_dra_outputs(all_dra)
+    if not all_dra:
+        print("FAIL: no DRA-like output devices")
+        ok = False
+    else:
+        for index, dev in all_dra:
+            mark = " (auto-selected)" if (index, dev) in selected else ""
+            print(
+                f"  index {index}: {dev['name']} "
+                f"outputs={dev['max_output_channels']} default_sr={dev['default_samplerate']}{mark}"
+            )
+
+    print("\n=== USB HID (CM119A, all paths) ===")
+    entries = list_cm119_hid_entries(hid)
+    if not entries:
+        print("FAIL: no CM119 HID interfaces")
+        ok = False
+    active_high = args.active_high
+    for i, entry in enumerate(entries, start=1):
+        path = entry.get("path")
+        path_hex = path.hex() if path else "?"
+        print(
+            f"\n--- dra-{i} HID path={path_hex} "
+            f"if={entry.get('interface_number')} product={entry.get('product_string')!r} ---"
+        )
+        if not path:
+            print("    FAIL: no path")
+            ok = False
+            continue
+        try:
+            dev = _open_cm119_hid_at(hid, path)
+        except OSError as exc:
+            print(f"    FAIL: open HID: {exc}")
+            ok = False
+            continue
+        try:
+            raw = read_hid_input(dev)
+            _format_probe_cos_block(raw, active_high=active_high)
+        finally:
+            dev.close()
+
+    print("\n=== Production pairing (HID → PortAudio) ===")
+    try:
+        pairs = resolve_bench_dra_pairs(hid, min_pairs=args.require)
+    except BenchPairingError as exc:
+        print(f"FAIL: {exc}")
+        return 1
+    import sounddevice as sd
+
+    for pair in pairs:
+        dev = sd.query_devices(pair.audio_index)
+        print(
+            f"  {pair.label}: HID {pair.hid_path_hex} → PortAudio[{pair.audio_index}] "
+            f"{dev['name']}"
+        )
+    print(f"\nOK: {len(pairs)} paired DRA(s) (require >= {args.require})")
+    return 0 if ok else 1
+
+
+def cmd_dual_smoke(args) -> int:
+    import numpy as np
+
+    hid = _ensure_hid()
+    pairs = resolve_bench_dra_pairs(hid, min_pairs=2)
+    hids = _open_hids_for_pairs(hid, pairs)
+    try:
+        lead = args.lead
+        duration = args.seconds
+        freq = args.frequency
+        sr_ref = dra_device_samplerate(pairs[0].audio_index)
+        t = np.linspace(0, duration, int(sr_ref * duration), endpoint=False)
+        mono = (args.level * np.sin(2 * np.pi * freq * t)).astype(np.float32)
+        lead_frames = np.zeros(int(max(0.0, lead) * sr_ref), dtype=np.float32)
+        indices = [p.audio_index for p in pairs]
+        print(
+            f"Dual smoke: {len(pairs)} DRA(s), PortAudio{indices}; "
+            f"USB lead {lead}s (PTT off), then both PTT + tone "
+            f"(channel={args.channel}). Low power / dummy load.",
+            flush=True,
+        )
+        if lead > 0 and lead_frames.size:
+            _play_mono_f32_on_pairs(lead_frames, pairs, channel=args.channel)
+        _set_ptt_all(hids, True)
+        try:
+            _play_mono_f32_on_pairs(mono, pairs, channel=args.channel)
+        finally:
+            _set_ptt_all(hids, False)
+        for pair, dev in zip(pairs, hids, strict=True):
+            raw = read_hid_input(dev)
+            print(f"{pair.label} post-TX IR: {raw.hex() if raw else '(none)'}")
+    finally:
+        _close_hids(hids)
+    print("Done.")
+    return 0
+
+
+def cmd_dual_voice(args) -> int:
+    from app.registry import get_registry
+
+    hid = _ensure_hid()
+    pairs = resolve_bench_dra_pairs(hid, min_pairs=2)
+    hids = _open_hids_for_pairs(hid, pairs)
+    text = _voice_text_from_args(args.text)
+    if not text:
+        text = "This is a dual DRA test announcement from the Delaware Valley Radio Association."
+
+    try:
+        print(f"Synthesizing Piper voice… ({len(text)} chars)")
+        registry = get_registry()
+        voice_id, piper_rate, chunks = registry.synthesize(text, voice=args.voice)
+        indices = [p.audio_index for p in pairs]
+        print(
+            f"Dual voice: PTT + Piper ({voice_id}, {piper_rate} Hz) on PortAudio{indices}, "
+            f"channel={args.channel}, lead={args.lead}s — low power / dummy load.",
+            flush=True,
+        )
+        _set_ptt_all(hids, True)
+        try:
+            play_pcm_chunks_to_dra_devices(
+                chunks,
+                device_indices=indices,
+                channel=args.channel,
+                lead_silence=args.lead,
+            )
+        finally:
+            _set_ptt_all(hids, False)
+        for pair, dev in zip(pairs, hids, strict=True):
+            raw = read_hid_input(dev)
+            print(f"{pair.label} post-TX IR: {raw.hex() if raw else '(none)'}")
+    finally:
+        _close_hids(hids)
+    print("Done.")
+    return 0
+
+
+def cmd_dual_retest(args) -> int:
+    print("=== dual-retest: probe-all ===")
+    probe_ns = argparse.Namespace(require=2, active_high=args.active_high)
+    if cmd_probe_all(probe_ns) != 0:
+        return 1
+
+    hid = _ensure_hid()
+    pairs = resolve_bench_dra_pairs(hid, min_pairs=2)
+    print("=== dual-retest: COS idle on each HID ===")
+    for pair in pairs:
+        path = pair.hid_entry["path"]
+        dev = _open_cm119_hid_at(hid, path)
+        try:
+            raw = read_hid_input(dev)
+            busy = cos_line_busy(raw, line="vol_dn", active_low=not args.active_high)
+            print(
+                f"  {pair.label} ir0..3={raw.hex() if raw else 'none'} vol_dn_busy={busy} "
+                "(expect False when squelched)"
+            )
+            if busy:
+                print("  WARNING: reads busy while squelched; check SQL / JU1 / JU5", flush=True)
+        finally:
+            dev.close()
+
+    print("=== dual-retest: dual-smoke (tone) ===")
+    smoke_ns = argparse.Namespace(
+        lead=args.lead,
+        seconds=args.smoke_seconds,
+        frequency=800.0,
+        level=0.3,
+        channel=args.channel,
+    )
+    if cmd_dual_smoke(smoke_ns) != 0:
+        return 1
+
+    if args.with_voice:
+        print("=== dual-retest: dual-voice (Piper) ===")
+        voice_ns = argparse.Namespace(
+            text=[args.voice_text],
+            voice=args.voice,
+            lead=args.lead,
+            channel=args.channel,
+        )
+        if cmd_dual_voice(voice_ns) != 0:
+            return 1
+
+    print("=== dual-retest: PASS (manual: confirm both rigs keyed and heard tone/voice) ===")
+    return 0
 
 
 def cmd_ptt(args) -> int:
@@ -1264,6 +1565,61 @@ def main() -> int:
 
     p_probe = sub.add_parser("probe", help="List USB audio + HID; read idle COS byte")
     p_probe.set_defaults(func=cmd_probe)
+
+    p_probe_all = sub.add_parser(
+        "probe-all",
+        help="List every DRA USB audio + HID path, COS per radio, production pairing",
+    )
+    p_probe_all.add_argument(
+        "--require",
+        type=int,
+        default=2,
+        metavar="N",
+        help="Minimum paired DRA count (default: 2)",
+    )
+    p_probe_all.add_argument(
+        "--active-high",
+        action="store_true",
+        help="Invert vol_dn polarity in COS samples",
+    )
+    p_probe_all.set_defaults(func=cmd_probe_all)
+
+    p_dual_smoke = sub.add_parser(
+        "dual-smoke",
+        help="PTT + tone on all paired DRAs (same lead/channel flags as smoke)",
+    )
+    p_dual_smoke.add_argument("--lead", type=float, default=0.4)
+    p_dual_smoke.add_argument("--seconds", type=float, default=4.0)
+    p_dual_smoke.add_argument("--frequency", type=float, default=800.0)
+    p_dual_smoke.add_argument("--level", type=float, default=0.3)
+    add_channel_argument(p_dual_smoke)
+    p_dual_smoke.set_defaults(func=cmd_dual_smoke)
+
+    p_dual_voice = sub.add_parser(
+        "dual-voice",
+        help="PTT + Piper TTS on all paired DRAs",
+    )
+    p_dual_voice.add_argument("text", nargs="*", help="Text to synthesize and transmit")
+    p_dual_voice.add_argument("-v", "--voice", help="Piper voice id or alias")
+    p_dual_voice.add_argument("--lead", type=float, default=0.4)
+    add_channel_argument(p_dual_voice)
+    p_dual_voice.set_defaults(func=cmd_dual_voice)
+
+    p_dual_retest = sub.add_parser(
+        "dual-retest",
+        help="probe-all, per-HID COS idle, dual-smoke, optional dual-voice",
+    )
+    p_dual_retest.add_argument("--with-voice", action="store_true")
+    p_dual_retest.add_argument(
+        "--voice-text",
+        default="This is a dual DRA test announcement from the Delaware Valley Radio Association.",
+    )
+    p_dual_retest.add_argument("-v", "--voice", help="Piper voice id or alias")
+    p_dual_retest.add_argument("--lead", type=float, default=0.4)
+    p_dual_retest.add_argument("--smoke-seconds", type=float, default=2.0)
+    p_dual_retest.add_argument("--active-high", action="store_true")
+    add_channel_argument(p_dual_retest)
+    p_dual_retest.set_defaults(func=cmd_dual_retest)
 
     p_hid_once = sub.add_parser(
         "hid-once",

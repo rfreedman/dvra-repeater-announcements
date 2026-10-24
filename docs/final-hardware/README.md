@@ -157,7 +157,7 @@ SQL polarity: radio pin 6 is **high when the squelch is open**. CM119A COS for A
 
 When startup succeeds, the server logs **`Startup complete in …s (radio mode: dra)`** or **`… stub`**, reflecting the registered radio implementation. Use that line (stderr or `data/logs/announcements.log`) to confirm the NUC is on **dra** before relying on on-air PTT/COS.
 
-Bench verification before enabling **dra**: [`dra36m-check-tests.md`](dra36m-check-tests.md) and [`scripts/dra36m_check.py`](../../scripts/dra36m_check.py).
+Bench verification before enabling **dra**: [`dra36m-check-tests.md`](dra36m-check-tests.md) and [`scripts/dra36m_check.py`](../../scripts/dra36m_check.py). With **both** DRAs on the NUC: `probe-all`, `dual-smoke`, `dual-retest` (see [dual DRA checklist](dra36m-check-tests.md#dual-dra-both-plugged-in-on-the-nuc)).
 
 ---
 

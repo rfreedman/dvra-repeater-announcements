@@ -80,6 +80,30 @@ Optional: **`snap --period 0.25`** during step 2 for a burst log of `vol_dn` / `
 
 ---
 
+## Dual DRA (both plugged in on the NUC)
+
+Use these when **two** DRA-36M units are on fixed USB ports. Single-radio commands (`probe`, `smoke`, `retest`) still target the **first** CM119 only; dual commands pair every HID with PortAudio the same way as the app.
+
+Run from repo root with venv active (`python scripts/dra36m_check.py …`).
+
+| Step | Command | Pass criteria |
+|------|---------|----------------|
+| 1 Pairing | `probe-all` | Lists **each** HID path + idle COS; **two** PortAudio DRA devices; pairing table `dra-1` / `dra-2` with no HID ≠ audio count error |
+| 2 Dual tone | `dual-smoke -c left --seconds 2 --lead 0.6` | **Both** radios key after lead; tone on both; adjust **R16** per DRA |
+| 3 Dual Piper | `dual-voice -c left --lead 0.6 "…"` | Same speech on both rigs; not clipped at start |
+| 4 Regression | `dual-retest -c left --with-voice --lead 0.6` | Exit 0; manual confirm both keyed and heard voice |
+
+| Flag | Used on | Purpose |
+|------|---------|---------|
+| **`--require N`** | `probe-all` | Minimum paired count (default **2**) |
+| **`--active-high`** | `probe-all`, `dual-retest` | Flip vol_dn polarity in idle COS samples |
+
+**Env:** Leave **`TTS_DRA_HID_PATH` unset** with two DRAs. If PortAudio order is wrong, use fixed USB ports and optional **`TTS_DRA_AUDIO_DEVICES`**.
+
+Per-radio jumper/COS checkout (first time on a new unit): unplug the other DRA and run the [single-radio order](#recommended-order-single-radio) above.
+
+---
+
 ## macOS shell prefix
 
 ```bash

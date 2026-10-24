@@ -45,4 +45,4 @@ python scripts/dra36m_check.py retest -c left --with-voice --lead 0.6
 
 **Linux (NUC):** udev rules + `plugdev` for CM119 HID/USB — [`dra36m-check-tests.md`](../docs/final-hardware/dra36m-check-tests.md#linux-nuc-udev-and-plugdev).
 
-Subcommands: `probe`, `monitor`, `snap`, `ptt`, `tone`, `smoke`, `voice`, `voice-gate`, `retest`.
+Subcommands: `probe`, **`probe-all`**, `monitor`, `snap`, `ptt`, `tone`, `smoke`, `voice`, `voice-gate`, `retest`, **`dual-smoke`**, **`dual-voice`**, **`dual-retest`** (dual = both DRAs on the NUC).
