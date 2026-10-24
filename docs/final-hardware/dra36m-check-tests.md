@@ -6,6 +6,18 @@ Script path: [`scripts/dra36m_check.py`](../../scripts/dra36m_check.py) ([`scrip
 
 ---
 
+## Verification status (October 2026)
+
+| Mode | Host | Radios | Regression command | Result |
+|------|------|--------|-------------------|--------|
+| Single DRA | Intel **NUC** | **IC-2720** (dev / test rig) | `retest -c left --with-voice --lead 0.6` | **Pass** (2026-10-24) |
+| Single DRA | Intel **NUC** | **IC-207H** (production) | same `retest` | **Pass** (2026-10-24) |
+| Dual DRA | Intel **NUC** | **IC-2720** + **FT-8900R** | `dual-retest -c left --with-voice --lead 0.6` | **Pass** (2026-10-24) |
+
+Earlier **macOS + IC-2720** checkout (2026-10-10) is recorded in [`bench-record.md`](bench-record.md). On-air production will use **two IC-207H**; dual **`dual-retest`** with both production rigs on the NUC is not recorded yet.
+
+---
+
 ## Prerequisites
 
 | Item | Requirement |
@@ -80,9 +92,11 @@ Optional: **`snap --period 0.25`** during step 2 for a burst log of `vol_dn` / `
 
 ---
 
-## Dual DRA (both plugged in on the NUC)
+## Dual DRA (two adapters on one host)
 
-Use these when **two** DRA-36M units are on fixed USB ports. Single-radio commands (`probe`, `smoke`, `retest`) still target the **first** CM119 only; dual commands pair every HID with PortAudio the same way as the app.
+**Verified on Intel NUC (2026-10-24):** two **DRA-36M** units with **IC-2720** and **FT-8900R** — `probe-all`, `dual-smoke`, `dual-voice`, and `dual-retest -c left --with-voice --lead 0.6` all passed (both rigs keyed; Piper heard on both).
+
+Use these when **two** DRA-36M units are on fixed USB ports on the NUC (or on a dev Mac). Single-radio commands (`probe`, `smoke`, `retest`) still target the **first** CM119 only; dual commands pair every HID with PortAudio the same way as the app.
 
 Run from repo root with venv active (`python scripts/dra36m_check.py …`).
 
@@ -320,7 +334,7 @@ Hidden helper: one HID read as JSON. Used by macOS COS polling fallback; not par
 - Omit **`DYLD_*`** on Linux.
 - Install [udev rules and `plugdev`](#linux-nuc-udev-and-plugdev) before relying on `probe` / PTT / COS.
 - Prefer **`monitor --cos vol_dn`** as authoritative COS polarity for future app config.
-- Dual DRA: run this checklist **per radio** before dual-TX software exists.
+- Dual DRA: run the [single-radio order](#recommended-order-single-radio) **per radio** when bringing up a new unit; then run the [dual commands](#dual-dra-two-adapters-on-one-host) with both plugged in (production app and bench scripts support dual TX).
 
 ---
 

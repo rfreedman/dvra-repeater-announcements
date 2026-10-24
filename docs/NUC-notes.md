@@ -1,6 +1,6 @@
 # NUC production notes (shack)
 
-Operational lessons from **Xubuntu on the Intel NUC** + **DRA-36M** bench checkout (2026-10). For jumpers, checkout order, and `dra36m_check.py` commands, see [`final-hardware/`](final-hardware/README.md).
+Operational lessons from **Xubuntu on the Intel NUC** + **DRA-36M** bench checkout (2026-10). On the NUC (2026-10-24): **single-radio** `retest` with **IC-2720** and **IC-207H**; **dual DRA** `dual-retest` with **IC-2720** + **FT-8900R**. Re-run `probe-all` / `dual-retest` when both production **IC-207H** replace the bench pair. For jumpers, checkout order, and `dra36m_check.py` commands, see [`final-hardware/`](final-hardware/README.md).
 
 After **deploy or restart**, busy-retry / defer state and login lockout counters are in-memory only — see [README — Process restart and in-memory state](../README.md#process-restart-and-in-memory-state).
 
@@ -78,7 +78,7 @@ Dual transmit uses **two separate CM119A devices** (one per DRA-36M): two USB au
 - Use **fixed USB ports** on the NUC; optional **`TTS_DRA_AUDIO_DEVICES`** if device order varies.
 - With PipeWire, the same CM119 may appear as both `(hw:…)` and `alsa_output.usb-…` in PortAudio. The app defaults to **`(hw:…)`** for device pick (PipeWire sink playback can hang PortAudio). Set **`TTS_DRA_PREFER_ALSA_HW=0`** to use the Pulse sink. **Playback on Linux uses `aplay -D plughw:N,0` by default** (`TTS_DRA_LINUX_PLAYBACK=aplay`); set **`TTS_DRA_LINUX_PLAYBACK=portaudio`** to force PortAudio. Unmute uses **all playback ALSA controls** on the card (not only `Speaker`).
 - If HID count ≠ audio count, run `python scripts/dra36m_check.py probe-all`, confirm udev/`plugdev`, and see [Identifying two identical adapters](final-hardware/README.md#identifying-two-identical-adapters) in [`final-hardware/README.md`](final-hardware/README.md).
-- With both DRAs connected: `probe-all` then `dual-retest -c left --with-voice --lead 0.6` ([dual checklist](final-hardware/dra36m-check-tests.md#dual-dra-both-plugged-in-on-the-nuc)). For first-time checkout of one new unit, unplug the other and use single-radio `retest`.
+- With both DRAs connected: `probe-all` then `dual-retest -c left --with-voice --lead 0.6` ([dual checklist](final-hardware/dra36m-check-tests.md#dual-dra-two-adapters-on-one-host)). For first-time checkout of one new unit, unplug the other and use single-radio `retest`.
 
 ---
 

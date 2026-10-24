@@ -6,6 +6,8 @@ This is the production radio interface for the announcements app.
 
 **Host:** a used **Intel NUC** running **64-bit Xubuntu**, with an **internal SSD**. A Raspberry Pi 4 was considered as the host, but the NUC was chosen instead: faster CPU, internal SSD, and approximately the same cost in 2026.
 
+**Bench status (October 2026):** On the **Intel NUC**, single-DRA **`retest`** passed with **IC-2720** and **IC-207H**; dual-DRA **`dual-retest`** passed with **IC-2720** + **FT-8900R**. Summary: [verification table](dra36m-check-tests.md#verification-status-october-2026), [bench record](bench-record.md), [dual checklist](dra36m-check-tests.md#dual-dra-two-adapters-on-one-host).
+
 ## Parts list / cost
 
 | Item | Cost ea | Qty | Total | Source |
@@ -157,7 +159,7 @@ SQL polarity: radio pin 6 is **high when the squelch is open**. CM119A COS for A
 
 When startup succeeds, the server logs **`Startup complete in …s (radio mode: dra)`** or **`… stub`**, reflecting the registered radio implementation. Use that line (stderr or `data/logs/announcements.log`) to confirm the NUC is on **dra** before relying on on-air PTT/COS.
 
-Bench verification before enabling **dra**: [`dra36m-check-tests.md`](dra36m-check-tests.md) and [`scripts/dra36m_check.py`](../../scripts/dra36m_check.py). With **both** DRAs on the NUC: `probe-all`, `dual-smoke`, `dual-retest` (see [dual DRA checklist](dra36m-check-tests.md#dual-dra-both-plugged-in-on-the-nuc)).
+Bench verification before enabling **dra**: [`dra36m-check-tests.md`](dra36m-check-tests.md) and [`scripts/dra36m_check.py`](../../scripts/dra36m_check.py). With **both** DRAs on one host: `probe-all`, `dual-smoke`, `dual-retest` (see [dual DRA checklist](dra36m-check-tests.md#dual-dra-two-adapters-on-one-host)).
 
 ---
 

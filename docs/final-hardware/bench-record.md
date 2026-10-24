@@ -1,6 +1,12 @@
 # Bench record (DRA + radio checkout)
 
-Copy this file or extend it when moving from dev (Mac) to production (NUC). Values below document the **Mac + IC-2720** path verified in October 2026. **Production (both radios): JU3 = L, USB left channel, R16.** Fill **NUC / IC-207H** sections when that hardware is available.
+Copy this file or extend it when moving from dev (Mac) to production (NUC). **Production (both radios): JU3 = L, USB left channel, R16.**
+
+**Intel NUC (2026-10-24):** Single-DRA **`retest`** **pass** with **IC-2720** (dev/test rig) and with production **IC-207H**. Dual-DRA **`dual-retest`** **pass** with **IC-2720** + **FT-8900R** (2× DRA-36M on the NUC).
+
+**macOS (2026-10-10):** Earlier **IC-2720** checkout on a dev MacBook — see sign-off below. **NUC + 2× IC-207H** dual checkout is not recorded yet.
+
+Detailed tables below: Mac-era values first; optional NUC fields for production rigs.
 
 **How to run each test:** [`dra36m-check-tests.md`](dra36m-check-tests.md) (probe, monitor, snap, smoke, voice, voice-gate, retest, flags).
 
@@ -54,11 +60,11 @@ export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib
 
 ---
 
-## IC-2720 (development radio only)
+## IC-2720 (dev bench radio)
 
 | Item | Value | Your notes |
 |------|--------|------------|
-| **Role** | Dev bench; production target is **IC-207H** | |
+| **Role** | Dev/test rig on the **NUC** — single-radio `retest` and one leg of **dual** (with FT-8900R) | |
 | **Frequency** | 146.520 MHz simplex (2 m calling) | |
 | **DATA rate** | **1200 bps** (not 9600) | |
 | **Band / mode** | | e.g. VFO, packet/DATA band as set on rig |
@@ -68,7 +74,30 @@ export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib
 
 ---
 
-## NUC + IC-207H (fill in on site)
+## IC-207H (production radio)
+
+| Item | Value | Your notes |
+|------|--------|------------|
+| **Role** | Production repeater radio; **single-radio** `retest` passed on shack NUC (2026-10-24) | |
+| **DATA rate** | **1200 bps** (not 9600) | Same Mini-DIN DATA jack as IC-2720 |
+| **Frequency / DATA** | | |
+| **SQL (SQ)** | | Knob up enough for pin 6 COS |
+| **Mic** | Unplug for on-air tests @ 1200 | |
+
+---
+
+## FT-8900R (NUC bench, dual-radio second rig)
+
+| Item | Value | Your notes |
+|------|--------|------------|
+| **Role** | Second radio for **dual DRA** checkout on the **NUC** (IC-2720 on the other DRA) | |
+| **Regression** | `dual-retest -c left --with-voice --lead 0.6` with both DRAs on NUC | **Pass** 2026-10-24 |
+| **DATA / packet** | | 1200 bps DATA as used for checkout |
+| **Mic / volume** | | As set when COS and TX passed |
+
+---
+
+## NUC + two IC-207H (optional detail)
 
 | Item | Radio 1 | Radio 2 |
 |------|---------|---------|
@@ -93,5 +122,7 @@ export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib
 | Mac + IC-2720: probe, monitor, smoke, voice | 2026-10-10 | |
 | Mac + IC-2720: voice-gate (10 s clear) | 2026-10-10 | |
 | Mac + IC-2720: retest `--with-voice --lead 0.6` | 2026-10-10 | |
-| NUC + first DRA | | |
-| NUC + dual DRA + 207H | | |
+| NUC + IC-2720: single-radio `retest --with-voice --lead 0.6` | 2026-10-24 | |
+| NUC + IC-207H: single-radio `retest --with-voice --lead 0.6` | 2026-10-24 | |
+| NUC + IC-2720 + FT-8900R: dual `dual-retest --with-voice --lead 0.6` | 2026-10-24 | |
+| NUC + 2× IC-207H: dual `dual-retest --with-voice` | | |
