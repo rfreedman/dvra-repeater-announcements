@@ -7,7 +7,7 @@ Piper streams one sentence at a time and has many English voices (plus any [Pipe
 ## Requirements
 
 - macOS or **64-bit Linux** (production station hardware: [docs/final-hardware/README.md](docs/final-hardware/README.md); DRA bench tests: [dra36m-check-tests.md](docs/final-hardware/dra36m-check-tests.md), [scripts/README.md](scripts/README.md)).
-- Python 3.10+
+- Python 3.12+
 - [uv](https://docs.astral.sh/uv/) (`brew install uv` on macOS, or `curl -LsSf https://astral.sh/uv/install.sh | sh`)
 - For CLI playback: PortAudio (`brew install portaudio` on macOS, `sudo apt install libportaudio2` on Debian/Ubuntu)
 

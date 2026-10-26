@@ -314,8 +314,13 @@ def test_newsline_packages_are_declared_for_deploy():
     deps = "\n".join(
         tomllib.loads((ROOT_DIR / "pyproject.toml").read_text(encoding="utf-8"))["project"]["dependencies"]
     )
-    for name in ("feedparser", "requests", "rapidfuzz", "faster-whisper", "stable-ts"):
+    for name in ("feedparser", "requests", "rapidfuzz", "faster-whisper", "stable-ts", "av", "torch", "torchaudio"):
         assert name in deps, f"{name} must be a project dependency so deploy installs it"
+    assert "av>=19" in deps
+    lock = (ROOT_DIR / "uv.lock").read_text(encoding="utf-8")
+    assert "av-19.0.2-cp312-abi3-manylinux_2_28_x86_64.whl" in lock
+    assert "torch-2.14.1%2Bcpu-cp314-cp314-manylinux_2_28_x86_64.whl" in lock
+    assert "nvidia-cudnn" not in lock
 
 
 def test_voices_payload_includes_busy_caps(client):
