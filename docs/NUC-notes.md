@@ -45,18 +45,59 @@ Piper outputs **22050 Hz**; the DRA USB interface accepts **44100 / 48000 Hz**. 
 
 ## Desktop audio (KDE / PipeWire)
 
-Keep the **default Pulse/PipeWire output** on **HDMI or onboard**, not the C-Media USB device:
+The announcements app plays to the DRAs with **`aplay -D plughw:N,0`**, not the desktop default sink. KDE / PipeWire can still stream **UI sounds** to a C-Media USB sink and light the DRA front panel even when **`python -m app serve` is idle** and not keying PTT.
+
+### DRA LEDs (idle vs streaming)
+
+| LED | Normal when idle | During host USB audio |
+|-----|------------------|------------------------|
+| Green (heartbeat) | Solid | Blinking |
+| Blue (COMM OK) | Off | Solid |
+| Red (PTT) | Off | On only while keyed |
+
+See [DRA-36M status LEDs](final-hardware/README.md#dra-36m-status-leds-masters). Busy / COS does **not** drive blue.
+
+### Fix that worked on shack-nuc (2026-10)
+
+**Symptom:** One DRA showed **green blinking + blue solid** with both units connected and no transmit. **`fuser`** showed **`pipewire`** on **`/dev/snd/pcmC*D0p`**. **`wpctl inspect`** on the **libcanberra** stream reported **`event.id = "audio-volume-change"`** and **`target.object`** pinned to a **C-Media Pulse sink** (not the default null sink). **`kdeglobals` `[Sounds] Enable=false`** alone did **not** stop the loop; **`kcm_soundrc`** volume feedback did.
+
+**Persistent KDE settings** (survived reboot; both DRAs **green solid / blue off** after restart):
 
 ```bash
-pactl set-default-sink alsa_output.pci-0000_00_1f.3.hdmi-stereo   # example; use `pactl list sinks short`
+kwriteconfig6 --file kdeglobals --group Sounds --key Enable false
+kwriteconfig6 --file kcm_soundrc --group General --key EnableSoundFeedback false
+killall kded6   # once, after writing config; Plasma respawns kded
 ```
 
-Otherwise **plasmashell** / **libcanberra** (volume click sounds) can target the DRA sink, leaving **COMM OK** on and **HB** blinking after tests even when the app has stopped. If that happens:
+Optional in **System Settings → Sound**: default playback **not** “USB PnP Sound Device”; turn off event / feedback sounds if the GUI exposes them.
 
-1. Set default sink away from USB, kill stray sink-inputs if needed, or  
-2. **Unplug/replug** the DRA USB cable to reset the adapter LEDs.
+**Optional session helpers** (the null sink module is **not** kept across PipeWire restart unless you add a login script):
 
-Do not rely on `sudo` for bench tests to “fix” permissions — use udev + `plugdev` instead.
+```bash
+pactl load-module module-null-sink sink_name=shack_null sink_properties=device.description=Shack_Null_Output
+pactl set-default-sink shack_null
+# Pulse index from first column of `pactl list sinks short` — names vary by USB path:
+pactl suspend-sink alsa_output.usb-C-Media_Electronics_Inc._USB_PnP_Sound_Device-00.analog-stereo 1
+pactl suspend-sink alsa_output.usb-C-Media_Electronics_Inc._USB_PnP_Sound_Device-00.2.analog-stereo 1
+```
+
+On this NUC, built-in **HDA Intel PCH** had **`Active Profile: off`** in PipeWire (no HDMI monitor / no analog jack), so **`pactl list sinks short | grep -v C-Media`** was empty until a profile or null sink was added. That made it easy for the default to land on a DRA.
+
+### If it happens again (runbook)
+
+Work on the NUC console; one check at a time is fine.
+
+1. **Confirm the app is not transmitting** — no stuck **`aplay`** / serve log in a TX phase; red PTT LED off on the DRA.
+2. **See who holds ALSA playback:** `fuser -v /dev/snd/pcmC0D0p /dev/snd/pcmC1D0p 2>&1` — if **`pipewire`**, treat as desktop audio, not scheduler TX.
+3. **Find the stream:** `wpctl status` → **Audio → Streams**. If **libcanberra** / **kded6** links to **USB PnP Sound Device** playback ports, inspect it: `wpctl inspect <stream-id>` and look for **`audio-volume-change`** / **`target.object`**.
+4. **Pulse view:** `pactl list sinks short` — a **RUNNING** **`alsa_output.usb-C-Media_…`** sink while idle is a smoking gun. `pactl get-default-sink` should not be a C-Media device for desktop use.
+5. **Apply the fix:** ensure **`EnableSoundFeedback false`** in **`~/.config/kcm_soundrc`** and **`Sounds` → `Enable=false`** in **`~/.config/kdeglobals`**, then **`killall kded6`**. Re-check **`wpctl status`** (no libcanberra stream) and DRA LEDs.
+6. **If LEDs stay wrong but `fuser` is empty** — **unplug/replug** that DRA’s USB cable to reset the adapter watchdog (hardware latch).
+7. **After PipeWire restart / reboot** — re-create **`shack_null`** and suspend both C-Media sinks if you use that pattern; confirm settings in step 5 still present (`kreadconfig6 --file kcm_soundrc --group General --key EnableSoundFeedback` → **`false`**).
+
+**Less reliable on PipeWire-pulse:** `pactl move-sink-input`, `pactl kill-sink-input` (often missing), `wpctl kill` (not in WirePlumber 0.5.x). Suspending the **Pulse sink index** from **`pactl list sinks short`** (e.g. `pactl suspend-sink 73 1`) can idle the sink but may not drop a **stuck libcanberra loop** — disable volume feedback (step 5) instead.
+
+Shorter notes: **plasmashell** / **libcanberra** after bench tests can leave COMM OK / HB active; default sink away from USB plus **EnableSoundFeedback false** prevents recurrence. Do not rely on **`sudo`** for bench tests — use udev + **`plugdev`** instead.
 
 ---
 
