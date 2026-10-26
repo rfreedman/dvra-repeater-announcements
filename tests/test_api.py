@@ -306,6 +306,18 @@ def test_installed_version_matches_pyproject():
     assert __version__ == pyproject["project"]["version"]
 
 
+def test_newsline_packages_are_declared_for_deploy():
+    """`uv sync --frozen` on the NUC only installs what pyproject.toml lists."""
+    tomllib = pytest.importorskip("tomllib")
+    from app.config import ROOT_DIR
+
+    deps = "\n".join(
+        tomllib.loads((ROOT_DIR / "pyproject.toml").read_text(encoding="utf-8"))["project"]["dependencies"]
+    )
+    for name in ("feedparser", "requests", "rapidfuzz", "faster-whisper", "stable-ts"):
+        assert name in deps, f"{name} must be a project dependency so deploy installs it"
+
+
 def test_voices_payload_includes_busy_caps(client):
     from app.config import MAX_BUSY_GIVE_UP_SECONDS, PTT_LEAD_SECONDS
 
