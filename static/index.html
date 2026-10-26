@@ -185,6 +185,12 @@
         </p>
 
         <div id="home-warnings" class="banner-warn hidden"></div>
+        <div id="skip-notice" class="banner-warn banner-drop hidden" role="status">
+          <span id="skip-notice-text"></span>
+          <button type="button" id="skip-notice-dismiss" class="ghost banner-dismiss">
+            Dismiss
+          </button>
+        </div>
         <div id="manual-trigger-drop" class="banner-warn banner-drop hidden" role="status">
           <span id="manual-trigger-drop-text"></span>
           <button type="button" id="manual-trigger-drop-dismiss" class="ghost banner-dismiss">
@@ -224,6 +230,7 @@
             </span>
           </div>
           <p class="next-run-name" id="next-run-name"></p>
+          <p class="exclusion-line" id="next-run-note" hidden></p>
           <p class="next-run-meta">
             <span id="next-run-when"></span>
             <span class="next-run-status" id="next-run-status"></span>
@@ -245,6 +252,34 @@
               </div>
             </div>
             <div id="clock-grid" class="clock-grid"></div>
+          </details>
+        </section>
+
+        <section class="panel" id="newsline-panel">
+          <details class="clock-fold">
+            <summary>
+              <h2 class="subhead">Amateur Radio Newsline</h2>
+            </summary>
+            <div class="toolbar">
+              <p class="lede tight" id="newsline-status">No report downloaded yet.</p>
+              <div class="toolbar-actions">
+                <button type="button" class="ghost small" id="newsline-check">Check for Newsline now</button>
+              </div>
+            </div>
+            <div class="controls" aria-label="Newsline download">
+              <div class="control">
+                <label class="label" for="news-check-start">Thursday check start</label>
+                <input id="news-check-start" type="time" value="12:00" />
+              </div>
+              <div class="control">
+                <label class="label" for="news-check-stop">Friday check stop</label>
+                <input id="news-check-stop" type="time" value="18:00" />
+              </div>
+              <div class="control">
+                <label class="label" for="repeater-timeout">Repeater timeout (seconds)</label>
+                <input id="repeater-timeout" type="number" min="30" max="600" step="1" value="180" />
+              </div>
+            </div>
           </details>
         </section>
 
@@ -323,6 +358,17 @@
           <p>
             Open <strong>New announcement</strong> and save the spoken text. The same text can be used
             by a baseline schedule, an overlay, or both. Timing does not live on the text.
+          </p>
+          <p>
+            Saving measures how long the text takes to play. The limit is the repeater timeout minus
+            2 seconds (178 seconds when the timeout is 180). A longer announcement is kept and marked
+            too long: shorten it and save again before it can be scheduled. A schedule that already
+            points at one plays the baseline for that slot instead, or stays silent if no baseline fits.
+          </p>
+          <p>
+            <strong>Amateur Radio Newsline</strong> is a library type that plays the current week's
+            report. Choose an existing spoken station ID, and optionally an opening and a closing.
+            A weekly schedule points at that item. Download times are on the home screen.
           </p>
 
           <h3>2. Fill the clock with a baseline</h3>
@@ -418,6 +464,43 @@
         </section>
 
         <section class="voice-row">
+          <label class="label" for="announcement-kind">Type</label>
+          <select id="announcement-kind">
+            <option value="tts">Spoken announcement</option>
+            <option value="newsline">Amateur Radio Newsline</option>
+          </select>
+        </section>
+
+        <div id="newsline-fields" class="hidden">
+          <section class="voice-row">
+            <label class="label" for="news-opening">Opening announcement (optional)</label>
+            <select id="news-opening"></select>
+          </section>
+          <section class="voice-row">
+            <label class="label" for="news-station">Station ID announcement</label>
+            <select id="news-station"></select>
+          </section>
+          <section class="voice-row">
+            <label class="label" for="news-closing">Closing announcement (optional)</label>
+            <select id="news-closing"></select>
+          </section>
+          <section class="voice-row">
+            <label class="label" for="news-gap">Seconds to unkey between pieces</label>
+            <input id="news-gap" type="number" min="0" max="30" step="0.5" value="2" />
+          </section>
+          <div class="script-meta">
+            <span id="newsline-play-status">Ready</span>
+          </div>
+          <div class="actions">
+            <button type="button" class="primary" id="newsline-play">Play</button>
+            <button type="button" class="ghost" id="newsline-stop" disabled>Stop</button>
+            <button type="button" class="ghost" id="newsline-reset">Reset</button>
+          </div>
+        </div>
+        <p id="length-warning" class="banner-warn hidden"></p>
+
+        <div id="spoken-fields">
+        <section class="voice-row">
           <label class="label" for="voice">Voice</label>
           <select id="voice"></select>
         </section>
@@ -452,6 +535,7 @@
           <button type="button" class="primary" id="speak">Speak</button>
           <button type="button" class="ghost" id="stop" disabled>Stop</button>
           <button type="button" class="ghost" id="reset">Reset</button>
+        </div>
         </div>
 
         <section class="controls" aria-label="Busy wait">
@@ -503,6 +587,7 @@
           <label class="label" for="sched-announcement">Announcement</label>
           <select id="sched-announcement"></select>
           <p class="lede tight" id="silence-hint">Choose “Silence” to occupy the slot without transmitting.</p>
+          <p id="schedule-invalid" class="banner-warn hidden"></p>
         </section>
 
         <div id="fields-overlay" class="kind-fields">

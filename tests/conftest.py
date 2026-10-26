@@ -106,11 +106,27 @@ def reset_login_limiter():
 
 
 @pytest.fixture(autouse=True)
+def no_newsline_poll(monkeypatch):
+    """Scheduler startup and settings saves must not fetch the Newsline feed."""
+    monkeypatch.setattr("app.newsline.poll.install_news_poll", lambda: None)
+    monkeypatch.setattr("app.newsline.poll.arm_next_poll", lambda **_kwargs: None)
+
+
+def _short_measure(announcement, timeout):
+    from app.spoken_length import apply_played_length
+
+    if announcement.kind != "tts":
+        return announcement
+    return apply_played_length(announcement, 1.0, timeout)
+
+
+@pytest.fixture(autouse=True)
 def no_pcm_warm(monkeypatch, tmp_path):
     from app.pcm_cache import PcmCache, set_pcm_cache
 
     set_pcm_cache(PcmCache(tmp_path / "pcm-cache"))
     monkeypatch.setattr("app.routes.announcements.warm_announcement", lambda announcement: None)
+    monkeypatch.setattr("app.routes.announcements.measure_announcement", _short_measure)
     monkeypatch.setattr("app.server.warm_all", lambda announcements=None: None)
     yield
     set_pcm_cache(None)

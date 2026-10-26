@@ -9,6 +9,32 @@ words once in the library, then point one or more schedules at that text.
 Open **New announcement** and save the spoken text. The same text can be used by
 a baseline schedule, an overlay, or both. Timing does not live on the text.
 
+## Spoken length
+
+When you save a spoken announcement, the app synthesizes it (including sentence
+pauses and `[pause]` tags) and stores how long the audio is. The limit is the
+**repeater timeout** minus 2 seconds. The default timeout is 180 seconds, so the
+limit is 178 seconds. The PTT lead after key-up sits inside that 2 second margin.
+
+If the audio is over the limit, the text is still saved, and the editor tells
+you the length, the limit, and to shorten it and save again. The announcement
+is marked too long. Shorten it under the limit and save again to clear the mark.
+Changing the repeater timeout on the home screen updates the mark from the stored
+length without synthesizing again.
+
+A too-long announcement cannot be chosen for a new or updated schedule. A
+schedule that already points at one is kept. When that slot comes due, that
+announcement is not played. The baseline that would have played is used instead.
+If that baseline is also too long, the next baseline in the rotation that fits
+is used. If none fit, the slot stays silent. The home screen, the schedule list,
+the schedule editor, the slot clock, and the upcoming line name the schedule,
+the announcement, its length, the limit, and what will play instead. A notice
+on the home screen names the same substitution when the fire happens.
+
+The same rule applies to an emergency. Amateur Radio Newsline uses this limit
+for its opening, station ID, and closing; see
+[Amateur Radio Newsline](arnewsline.md).
+
 ## 2. Fill the clock with a baseline
 
 Create a **Baseline** schedule and pick an announcement. That text plays in

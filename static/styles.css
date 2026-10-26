@@ -641,12 +641,24 @@ button:disabled {
   border: 1px solid var(--line);
 }
 
-#status.playing {
+#status.playing,
+#newsline-play-status.playing {
   color: var(--moss);
 }
 
-#status.error {
+#newsline-play-status {
+  flex: 1;
+  min-width: 0;
+}
+
+#status.error,
+#newsline-play-status.error {
   color: var(--danger);
+}
+
+#newsline-fields .actions {
+  margin-top: 16px;
+  margin-bottom: 8px;
 }
 
 .screen {
@@ -693,6 +705,10 @@ button:disabled {
 
 .lede.tight {
   margin: 0;
+}
+
+#newsline-status {
+  margin-bottom: 16px;
 }
 
 .editor-title {
@@ -866,6 +882,16 @@ button.small {
 
 .panel {
   margin: 28px 0;
+}
+
+.clock-fold {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px 18px;
+}
+
+.clock-fold > .controls {
+  margin-bottom: 0;
 }
 
 .clock-fold > summary {

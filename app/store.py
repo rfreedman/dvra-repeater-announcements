@@ -105,6 +105,15 @@ class AnnouncementStore:
         with _lock:
             document = self._read()
             users = [item.name for item in document.schedules if item.announcement_id == announcement_id]
+            for item in document.announcements:
+                if item.kind != "newsline":
+                    continue
+                if announcement_id in {
+                    item.opening_announcement_id,
+                    item.station_id_announcement_id,
+                    item.closing_announcement_id,
+                }:
+                    users.append(item.name)
             if users:
                 raise ValueError("Announcement is used by: " + ", ".join(users))
             kept = [item for item in document.announcements if item.id != announcement_id]

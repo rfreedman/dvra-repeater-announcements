@@ -65,7 +65,7 @@ def test_unauthenticated_api_is_rejected(users, admin_user):
         assert client.get("/api/health").status_code == 200
 
 
-def test_readonly_can_view_and_speak_but_not_mutate(readonly_client, store, monkeypatch):
+def test_readonly_can_view_and_speak_but_not_mutate(readonly_client, store, monkeypatch, tmp_path):
     from app.models import Announcement
 
     item = store.save_announcement(Announcement(name="ID", text="Hello."))
@@ -105,6 +105,11 @@ def test_readonly_can_view_and_speak_but_not_mutate(readonly_client, store, monk
     speak = readonly_client.post("/api/speak", json={"text": "preview only"})
     assert speak.status_code == 200
     assert speak.content == b"\x00\x00"
+    monkeypatch.setattr("app.newsline.preview.NEWSLINE_DIR", tmp_path)
+    monkeypatch.setattr("app.newsline.state.NEWSLINE_DIR", tmp_path)
+    newsline = readonly_client.post("/api/newsline/preview", json={})
+    assert newsline.status_code == 400
+    assert newsline.json()["detail"] == "No Newsline report is ready to play."
 
 
 def test_readonly_cannot_trigger(readonly_client, store, monkeypatch):

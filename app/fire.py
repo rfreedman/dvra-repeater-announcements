@@ -46,6 +46,7 @@ class LoadedFire:
     announcement: Announcement | None
     schedule: Schedule
     silence: bool
+    skipped_detail: str | None = None
 
 
 @dataclass
@@ -68,6 +69,7 @@ class FireDeps:
     clear_running: Callable[[], None] | None = None
     update_schedule: bool = True
     nonblocking_clear_wait: bool = False
+    not_ready_deadline: datetime | None = None
 
 
 class _RunningOnKeyRadio:
@@ -306,6 +308,86 @@ def _wait_clear_or_outcome(
     return "deferred"
 
 
+def _note_substitution(deps: FireDeps, loaded: LoadedFire) -> None:
+    if not loaded.skipped_detail:
+        return
+    log.info("Fire substituted; %s", loaded.skipped_detail)
+    from app.newsline.notices import record_skip_notice
+
+    record_skip_notice(loaded.skipped_detail, when=deps.now)
+
+
+def _newsline_not_ready(
+    deps: FireDeps,
+    ctx: FireContext,
+    announcement: Announcement,
+    label: str,
+) -> str | None:
+    from app.newsline.playlist import stories_ready
+    from app.newsline.state import load_state
+
+    if stories_ready(load_state().stories_dir()):
+        return None
+    deadline = deps.not_ready_deadline or ctx.deadline
+    if _wall_now(deps) >= deadline:
+        log.info("Fire dropped; %s; Newsline stories were not ready before %s", label, deadline.isoformat())
+        fire_trace("Fire dropped (newsline not ready) label=%s slot=%s", label, ctx.slot_key)
+        return "dropped"
+    retry_at = _wall_now(deps) + timedelta(seconds=announcement.busy_retry_seconds)
+    deps.schedule_defer(retry_at, replace(ctx, deadline=deadline, defer_kind="news_not_ready"))
+    log.info("Fire deferred; %s; Newsline stories not ready; retry at %s", label, retry_at.isoformat())
+    fire_trace("Fire deferred (newsline not ready) label=%s slot=%s", label, ctx.slot_key)
+    return "deferred"
+
+
+def _transmit_newsline(
+    deps: FireDeps,
+    ctx: FireContext,
+    announcement: Announcement,
+    schedule: Schedule,
+) -> str:
+    from app.newsline.playback import transmit_newsline
+    from app.newsline.playlist import build_playlist
+    from app.newsline.session import bulletin_session
+    from app.newsline.state import load_state
+    from app.store import get_store
+
+    stories = load_state().stories_dir()
+    if stories is None:
+        return "dropped"
+    try:
+        pieces = build_playlist(announcement, get_store().document(), stories)
+    except ValueError as exc:
+        log.info("Fire dropped; %s; %s", announcement.name, exc)
+        return "dropped"
+    if not pieces:
+        log.info("Fire dropped; %s; Newsline playlist is empty", announcement.name)
+        return "dropped"
+    bulletin_session.begin()
+    try:
+        outcome = transmit_newsline(
+            deps,
+            pieces,
+            bulletin=announcement,
+            schedule=schedule,
+            initial_deadline=ctx.deadline,
+        )
+    finally:
+        bulletin_session.end()
+    if outcome == "not_clear":
+        busy = _defer_or_drop_on_busy(deps, ctx, announcement, announcement.name, phase="before Newsline")
+        if busy:
+            return busy
+        if _wall_now(deps) >= ctx.deadline:
+            return "dropped"
+        delay = defer_retry_delay(deps.radio, announcement, kind="clear", clear_seconds=deps.dra_clear_seconds)
+        deps.schedule_defer(_wall_now(deps) + timedelta(seconds=delay), replace(ctx, defer_kind="clear"))
+        return "deferred"
+    if outcome == "dropped_usb":
+        return FIRE_OUTCOME_DROPPED_USB
+    return outcome
+
+
 def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
     loaded = deps.load()
     if loaded is None:
@@ -325,6 +407,11 @@ def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
         log.info("Fire skipped; announcement missing for schedule %s", schedule.id)
         return "missing"
 
+    if announcement.kind == "newsline":
+        outcome = _newsline_not_ready(deps, ctx, announcement, label)
+        if outcome:
+            return outcome
+
     outcome = _defer_or_drop_on_busy(
         deps, ctx, announcement, label, phase="at fire start"
     )
@@ -332,10 +419,32 @@ def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
         return outcome
 
     if not deps.playback_lock.acquire(blocking=False):
-        log.info("Fire skipped; %s; another announcement is playing", label)
-        fire_trace("Fire skipped_lock label=%s slot=%s", label, ctx.slot_key)
+        from app.newsline.session import bulletin_session
+
+        if bulletin_session.active and schedule.kind == "emergency":
+            bulletin_session.offer(announcement, schedule)
+            log.info("Emergency %s will play when the current Newsline piece finishes", label)
+            fire_trace("Emergency queued behind Newsline label=%s slot=%s", label, ctx.slot_key)
+            return "yielded"
+        if bulletin_session.active:
+            log.info("Fire dropped; %s; Newsline bulletin in progress", label)
+            fire_trace("Fire dropped (newsline preempt) label=%s slot=%s", label, ctx.slot_key)
+        else:
+            log.info("Fire skipped; %s; another announcement is playing", label)
+            fire_trace("Fire skipped_lock label=%s slot=%s", label, ctx.slot_key)
         return "skipped_lock"
     try:
+        if announcement.kind == "newsline":
+            outcome = _transmit_newsline(deps, ctx, announcement, schedule)
+            if outcome != "transmitted":
+                return outcome
+            if deps.update_schedule:
+                deps.mark_last_run(announcement.id, schedule.id, deps.now)
+                if schedule.kind == "baseline":
+                    deps.consume_baseline(schedule.id, ctx.slot_key)
+            _note_substitution(deps, loaded)
+            log.info("Fire transmitted; %s", label)
+            return "transmitted"
         chunks = materialize_chunks(deps.synthesize(announcement))
 
         outcome = _defer_or_drop_on_busy(
@@ -428,6 +537,7 @@ def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
             deps.mark_last_run(announcement.id, schedule.id, deps.now)
             if schedule.kind == "baseline":
                 deps.consume_baseline(schedule.id, ctx.slot_key)
+        _note_substitution(deps, loaded)
         log.info("Fire transmitted; %s", label)
         fire_trace("Fire transmitted label=%s slot=%s", label, ctx.slot_key)
         return "transmitted"

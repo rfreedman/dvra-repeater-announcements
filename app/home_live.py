@@ -21,6 +21,12 @@ from app.store import get_store
 
 log = logging.getLogger("app.home_live")
 
+
+def _skip_notice() -> dict[str, object] | None:
+    from app.newsline.notices import peek_skip_notice
+
+    return peek_skip_notice()
+
 _throttle_lock = threading.Lock()
 _last_throttled_publish_mono = 0.0
 THROTTLED_PUBLISH_INTERVAL_SECONDS = 1.0
@@ -49,6 +55,7 @@ def upcoming_for_document(
         "at": nxt.fire_at.isoformat(),
         "status": "waiting",
         "slot": nxt.slot.stamp,
+        "note": nxt.skipped_detail or nxt.warning,
     }
 
 
@@ -60,6 +67,7 @@ def build_home_live_status() -> dict[str, Any]:
         "upcoming": upcoming_for_document(document, get_running()),
         "pending_manual_triggers": pending_manual_triggers(),
         "manual_trigger_drop_notice": peek_manual_trigger_drop_notice(),
+        "skip_notice": _skip_notice(),
     }
 
 

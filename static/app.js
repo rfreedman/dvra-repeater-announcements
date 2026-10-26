@@ -5,6 +5,7 @@ const BACKGROUND_HEADERS = { "X-Background-Poll": "1" };
 
 // Poll / countdown (frontend). REST interval aligns with home status fallback when SSE is idle.
 const HOME_REST_POLL_MS = 15_000;
+const NEWSLINE_PROGRESS_POLL_MS = 1_000;
 const STATS_REST_POLL_MS = 15_000;
 const UPCOMING_SOON_MS = 15_000;
 const COUNTDOWN_TICK_MS = 1_000;
@@ -14,6 +15,11 @@ const DEFAULT_SLOT_HALF_WINDOW_MINUTES = 10;
 
 // Fallback when /api/voices has not loaded; app/config.py MAX_BUSY_GIVE_UP_SECONDS (600 s).
 const MANUAL_TRIGGER_FETCH_TIMEOUT_MS = 600_000;
+
+// Local Newsline preview: short beeps at simulated PTT key/unkey.
+const PTT_ENGAGE_HZ = 800;
+const PTT_RELEASE_HZ = 700;
+const PTT_TONE_SECONDS = 0.2;
 
 // Day/month labels and template priorities come from GET /api/meta (app/models.py).
 let scheduleMeta = null;
@@ -80,8 +86,10 @@ const nameEl = document.getElementById("name");
 let catalog = null;
 let player = null;
 let abort = null;
+let editorPlaying = false;
 let session = 0;
 let pollTimer = null;
+let newslinePollTimer = null;
 let statsTimer = null;
 let countdownTimer = null;
 let homeSseWanted = false;
@@ -204,6 +212,11 @@ function updateAuthChrome() {
   const shuffle = document.getElementById("baseline-randomize");
   shuffle.disabled = readOnly;
   shuffle.closest("label")?.classList.toggle("hidden", readOnly);
+  for (const id of ["newsline-check", "news-check-start", "news-check-stop", "repeater-timeout"]) {
+    const el = document.getElementById(id);
+    if (el) el.disabled = readOnly;
+  }
+  document.getElementById("newsline-check")?.classList.toggle("hidden", readOnly);
   applyEditorReadOnly();
 }
 
@@ -217,6 +230,12 @@ function announcementEditorControls() {
     document.getElementById("busy-retry"),
     document.getElementById("busy-giveup"),
     document.getElementById("reset"),
+    document.getElementById("announcement-kind"),
+    document.getElementById("news-opening"),
+    document.getElementById("news-station"),
+    document.getElementById("news-closing"),
+    document.getElementById("news-gap"),
+    document.getElementById("newsline-reset"),
   ];
 }
 
@@ -239,13 +258,14 @@ function scheduleEditorControls() {
 }
 
 function applyEditorReadOnly() {
-  const lockAnnouncement = readOnly;
+  const lockAnnouncement = readOnly || editorPlaying;
   for (const el of announcementEditorControls()) {
     if (!el) continue;
     el.disabled = lockAnnouncement;
   }
-  document.getElementById("speak").disabled = false;
-  document.getElementById("stop").disabled = !abort;
+  const save = document.getElementById("save-announcement");
+  if (save) save.disabled = lockAnnouncement;
+  setPlaybackButtons(editorPlaying);
   for (const el of scheduleEditorControls()) {
     if (!el) continue;
     el.disabled = readOnly;
@@ -675,6 +695,26 @@ async function dismissManualTriggerDrop() {
   renderManualTriggerDropNotice(null);
 }
 
+function setUpcomingNote(text) {
+  const note = document.getElementById("next-run-note");
+  if (!note) return;
+  note.hidden = !text;
+  note.textContent = text || "";
+}
+
+function renderSkipNotice(notice) {
+  const box = document.getElementById("skip-notice");
+  const text = document.getElementById("skip-notice-text");
+  if (!box || !text) return;
+  if (!notice || !notice.detail) {
+    box.classList.add("hidden");
+    text.textContent = "";
+    return;
+  }
+  text.textContent = notice.detail;
+  box.classList.remove("hidden");
+}
+
 function renderUpcoming() {
   const box = document.getElementById("next-run");
   if (!box) return;
@@ -683,6 +723,7 @@ function renderUpcoming() {
   const pending = !running ? primaryPendingManual() : null;
   if (!upcoming && !pending) {
     box.classList.add("hidden");
+    setUpcomingNote("");
     syncTriggerNowButtons();
     return;
   }
@@ -700,6 +741,7 @@ function renderUpcoming() {
     statusEl.classList.add("is-running");
     statusEl.classList.remove("is-deferred", "is-clear-hold");
     countEl.textContent = "Now";
+    setUpcomingNote("");
     return;
   }
 
@@ -750,6 +792,7 @@ function renderUpcoming() {
       const retryMs = (pending.retry_in_seconds ?? 0) * 1000;
       countEl.textContent = retryMs > 0 ? `Retry in ${formatCountdown(retryMs)}` : "Retrying…";
     }
+    setUpcomingNote("");
     return;
   }
 
@@ -764,6 +807,7 @@ function renderUpcoming() {
     return;
   }
   countEl.textContent = `in ${formatCountdown(at - (Date.now() + clockSkewMs))}`;
+  setUpcomingNote(upcoming.note || "");
 }
 
 function announcementIsPlaying() {
@@ -927,9 +971,10 @@ function fillAnnouncementSelect(selected, { allowSilence = false } = {}) {
     el.append(silence);
   }
   for (const item of announcements) {
+    if (item.too_long && item.id !== selected) continue;
     const option = document.createElement("option");
     option.value = item.id;
-    option.textContent = item.name;
+    option.textContent = item.too_long ? `${item.name} (too long)` : item.name;
     el.append(option);
   }
   if (selected === null || selected === "") {
@@ -1038,6 +1083,11 @@ function fillScheduleForm(schedule) {
   document.getElementById("range-all-slots").checked = !isCountdownKind(kind) || !(schedule?.slots || []).length;
   fillSlotChips(schedule?.slots || (kind === "weekly" ? ["21:00"] : kind === "monthly" ? ["19:00"] : ["12:00"]));
   fillAnnouncementSelect(schedule?.announcement_id ?? announcements[0]?.id, { allowSilence: kind !== "baseline" });
+  const invalid = document.getElementById("schedule-invalid");
+  if (invalid) {
+    invalid.textContent = schedule?.warning || "";
+    invalid.classList.toggle("hidden", !schedule?.warning);
+  }
   if (schedule && Object.prototype.hasOwnProperty.call(schedule, "announcement_id") && !schedule.announcement_id) {
     document.getElementById("sched-announcement").value = "";
   }
@@ -1058,6 +1108,13 @@ function renderClock(clock) {
     const fire = row.fire_at && row.fire_at !== row.slot_at ? ` → ${formatWhen(row.fire_at).split(", ")[1] || ""}` : "";
     label.textContent = `${row.label || "—"}${fire}`;
     cell.append(stamp, label);
+    if (row.warning) {
+      const note = document.createElement("span");
+      note.className = "exclusion-line";
+      note.textContent = row.warning;
+      cell.append(note);
+      cell.classList.add("has-warning");
+    }
     if (row.schedule_id) {
       cell.addEventListener("click", () => goToHash(`#/schedules/${row.schedule_id}`));
     }
@@ -1177,6 +1234,124 @@ function renderSchedules(rows) {
   }
 }
 
+function newslineCheckActive(newsline) {
+  if (!newsline) return false;
+  if (newsline.in_progress) return true;
+  return newsline.phase === "checking" || newsline.phase === "downloading" || newsline.phase === "splitting";
+}
+
+function syncNewslinePoll(newsline) {
+  if (newslineCheckActive(newsline)) {
+    if (!newslinePollTimer) {
+      newslinePollTimer = setInterval(
+        () => refreshHome({ background: true }).catch(() => {}),
+        NEWSLINE_PROGRESS_POLL_MS,
+      );
+    }
+    return;
+  }
+  if (newslinePollTimer) {
+    clearInterval(newslinePollTimer);
+    newslinePollTimer = null;
+  }
+}
+
+function renderNewsline(newsline) {
+  const status = document.getElementById("newsline-status");
+  if (!status) return;
+  syncNewslinePoll(newsline);
+  if (!newsline) {
+    status.textContent = "No report downloaded yet.";
+    return;
+  }
+  const working = newsline.working_report;
+  if (newsline.phase === "downloading") {
+    status.textContent = working
+      ? `Downloading Newsline report ${working}…`
+      : "Downloading the Newsline report…";
+    return;
+  }
+  if (newsline.phase === "splitting") {
+    status.textContent = working
+      ? `Processing Newsline report ${working}…`
+      : "Processing the Newsline report…";
+    return;
+  }
+  if (newsline.phase === "checking" || (newsline.in_progress && newsline.phase !== "idle")) {
+    status.textContent = "Checking for a new Newsline report…";
+    return;
+  }
+  if (newsline.error) {
+    status.textContent = `Last check failed: ${newsline.error}`;
+    return;
+  }
+  const unchanged = newsline.outcome === "current";
+  if (newsline.ready && newsline.report_number) {
+    status.textContent = unchanged
+      ? `No new Newsline report. Report ${newsline.report_number} is ready to play.`
+      : `Report ${newsline.report_number} is ready to play.`;
+    return;
+  }
+  if (newsline.report_number) {
+    status.textContent = unchanged
+      ? `No new Newsline report. Report ${newsline.report_number} is downloaded but not split yet.`
+      : `Report ${newsline.report_number} is downloaded but not split yet.`;
+    return;
+  }
+  status.textContent = "No report downloaded yet.";
+}
+
+function spokenAnnouncements() {
+  return announcements.filter((item) => (item.kind || "tts") === "tts" && !item.too_long);
+}
+
+function fillSpokenSelect(id, selected, { optional = false } = {}) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.replaceChildren();
+  if (optional) {
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = "None";
+    el.append(none);
+  }
+  for (const item of spokenAnnouncements()) {
+    const option = document.createElement("option");
+    option.value = item.id;
+    option.textContent = item.name;
+    el.append(option);
+  }
+  if (selected) {
+    const current = announcements.find((item) => item.id === selected);
+    if (current && ![...el.options].some((option) => option.value === selected)) {
+      const option = document.createElement("option");
+      option.value = current.id;
+      option.textContent = current.too_long ? `${current.name} (too long)` : current.name;
+      el.append(option);
+    }
+    el.value = selected;
+  }
+}
+
+function syncAnnouncementKind() {
+  const kind = document.getElementById("announcement-kind").value;
+  document.getElementById("newsline-fields").classList.toggle("hidden", kind !== "newsline");
+  document.getElementById("spoken-fields").classList.toggle("hidden", kind === "newsline");
+}
+
+function showLengthWarning(item) {
+  const box = document.getElementById("length-warning");
+  if (!box) return;
+  if (!item || !item.too_long) {
+    box.textContent = "";
+    box.classList.add("hidden");
+    return;
+  }
+  const limit = Math.max(0, Number(settings.repeater_timeout_seconds ?? 180) - 2);
+  box.textContent = `This announcement is ${Number(item.play_seconds).toFixed(1)} seconds, longer than the ${limit} second limit. Shorten it and save again.`;
+  box.classList.remove("hidden");
+}
+
 function renderLibrary(items) {
   const body = document.getElementById("library-rows");
   const empty = document.getElementById("library-empty");
@@ -1184,10 +1359,15 @@ function renderLibrary(items) {
   empty.classList.toggle("hidden", items.length > 0);
   for (const item of items) {
     const tr = document.createElement("tr");
-    const preview = (item.text || "").replace(/\s+/g, " ").slice(0, 90);
+    const preview = item.kind === "newsline"
+      ? "Amateur Radio Newsline"
+      : (item.text || "").replace(/\s+/g, " ").slice(0, 90);
+    if (item.too_long) tr.classList.add("has-warning");
     tr.innerHTML = `
       <td>${escapeHtml(item.name)}</td>
-      <td>${escapeHtml(preview)}${preview.length === 90 ? "…" : ""}</td>
+      <td>${escapeHtml(preview)}${item.kind !== "newsline" && preview.length === 90 ? "…" : ""}${
+        item.too_long ? `<div class="exclusion-line">Too long (${Number(item.play_seconds).toFixed(1)}s). Shorten it and save again.</div>` : ""
+      }</td>
       <td class="row-actions"></td>
     `;
     const del = document.createElement("button");
@@ -1252,6 +1432,7 @@ function applyHomeLiveStatus(payload) {
   }));
   renderUpcoming();
   renderManualTriggerDropNotice(payload.manual_trigger_drop_notice || null);
+  renderSkipNotice(payload.skip_notice || null);
   syncTriggerNowButtons();
 }
 
@@ -1273,6 +1454,7 @@ async function refreshHome({ background = false } = {}) {
     schedules = payload.schedules || [];
     settings = payload.settings || settings;
     triggerNowEnabled = Boolean(payload.trigger_now_enabled);
+    renderNewsline(payload.newsline || null);
     applyHomeLiveStatus(payload);
     const warn = document.getElementById("home-warnings");
     const notes = payload.warnings || [];
@@ -1284,6 +1466,12 @@ async function refreshHome({ background = false } = {}) {
     renderSchedules(payload.schedules || []);
     renderLibrary(announcements);
     document.getElementById("baseline-randomize").checked = Boolean(settings.baseline_randomize);
+    const startEl = document.getElementById("news-check-start");
+    const stopEl = document.getElementById("news-check-stop");
+    const timeoutEl = document.getElementById("repeater-timeout");
+    if (startEl) startEl.value = settings.news_check_start || "12:00";
+    if (stopEl) stopEl.value = settings.news_check_stop || "18:00";
+    if (timeoutEl) timeoutEl.value = String(settings.repeater_timeout_seconds ?? 180);
   } finally {
     homeBusy = false;
   }
@@ -1304,6 +1492,19 @@ function parseSseBlock(block) {
   }
 }
 
+function takeSseEvents(buffer) {
+  const events = [];
+  let splitAt = buffer.indexOf("\n\n");
+  while (splitAt >= 0) {
+    const block = buffer.slice(0, splitAt);
+    buffer = buffer.slice(splitAt + 2);
+    splitAt = buffer.indexOf("\n\n");
+    const parsed = parseSseBlock(block);
+    if (parsed) events.push(parsed);
+  }
+  return { buffer, events };
+}
+
 async function streamHomeLiveEvents(signal) {
   const res = await fetch("/api/events/home", {
     headers: BACKGROUND_HEADERS,
@@ -1320,18 +1521,14 @@ async function streamHomeLiveEvents(signal) {
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
-      let splitAt = buffer.indexOf("\n\n");
-      while (splitAt >= 0) {
-        const block = buffer.slice(0, splitAt);
-        buffer = buffer.slice(splitAt + 2);
-        const parsed = parseSseBlock(block);
-        if (!parsed) continue;
+      const homeEvents = takeSseEvents(buffer);
+      buffer = homeEvents.buffer;
+      for (const parsed of homeEvents.events) {
         if (parsed.event === "data_changed") {
           refreshHome({ background: true }).catch(() => {});
         } else if (parsed.event === "snapshot" || parsed.event === "status") {
           applyHomeLiveStatus(parsed.data);
         }
-        splitAt = buffer.indexOf("\n\n");
       }
     }
   } finally {
@@ -1399,16 +1596,12 @@ async function streamSystemStatsEvents(signal) {
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
-      let splitAt = buffer.indexOf("\n\n");
-      while (splitAt >= 0) {
-        const block = buffer.slice(0, splitAt);
-        buffer = buffer.slice(splitAt + 2);
-        const parsed = parseSseBlock(block);
-        if (!parsed) continue;
+      const statsEvents = takeSseEvents(buffer);
+      buffer = statsEvents.buffer;
+      for (const parsed of statsEvents.events) {
         if (parsed.event === "snapshot" || parsed.event === "stats") {
           renderSystemStats(parsed.data);
         }
-        splitAt = buffer.indexOf("\n\n");
       }
     }
   } finally {
@@ -1515,6 +1708,10 @@ function stopHomePolling() {
     clearInterval(pollTimer);
     pollTimer = null;
   }
+  if (newslinePollTimer) {
+    clearInterval(newslinePollTimer);
+    newslinePollTimer = null;
+  }
   if (countdownTimer) {
     clearInterval(countdownTimer);
     countdownTimer = null;
@@ -1551,9 +1748,26 @@ function updateDeliveryLabels() {
 }
 
 function setStatus(text, kind = "") {
-  const el = document.getElementById("status");
-  el.textContent = text;
-  el.className = kind;
+  for (const id of ["status", "newsline-play-status"]) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    el.textContent = text;
+    el.className = kind;
+  }
+}
+
+function setPlaybackButtons(playing) {
+  document.getElementById("speak").disabled = playing;
+  document.getElementById("stop").disabled = !playing;
+  const play = document.getElementById("newsline-play");
+  const stopNews = document.getElementById("newsline-stop");
+  if (play) play.disabled = playing;
+  if (stopNews) stopNews.disabled = !playing;
+}
+
+function setEditorPlaying(playing) {
+  editorPlaying = playing;
+  applyEditorReadOnly();
 }
 
 function showError(id, text) {
@@ -1636,8 +1850,15 @@ function blankAnnouncement() {
   const defaults = newAnnouncementDefaults();
   editingAnnouncementId = null;
   document.getElementById("announcement-title").textContent = "New announcement";
+  document.getElementById("announcement-kind").value = "tts";
   nameEl.value = "";
   textEl.value = defaultScript;
+  fillSpokenSelect("news-opening", "", { optional: true });
+  fillSpokenSelect("news-station", spokenAnnouncements()[0]?.id || "");
+  fillSpokenSelect("news-closing", "", { optional: true });
+  document.getElementById("news-gap").value = "2";
+  showLengthWarning(null);
+  syncAnnouncementKind();
   speedEl.value = String(defaults.speed);
   pauseEl.value = String(defaults.sentence_pause);
   document.getElementById("busy-retry").value = String(defaults.busy_retry_seconds);
@@ -1655,8 +1876,15 @@ async function loadAnnouncement(id) {
   document.getElementById("announcement-title").textContent = readOnly
     ? "View announcement"
     : "Edit announcement";
+  document.getElementById("announcement-kind").value = item.kind || "tts";
   nameEl.value = item.name || "";
   textEl.value = item.text || "";
+  fillSpokenSelect("news-opening", item.opening_announcement_id || "", { optional: true });
+  fillSpokenSelect("news-station", item.station_id_announcement_id || "");
+  fillSpokenSelect("news-closing", item.closing_announcement_id || "", { optional: true });
+  document.getElementById("news-gap").value = String(item.ptt_gap_seconds ?? 2);
+  showLengthWarning(item);
+  syncAnnouncementKind();
   document.getElementById("busy-retry").value = String(item.busy_retry_seconds ?? 5);
   document.getElementById("busy-giveup").value = String(item.busy_give_up_seconds ?? 45);
   speedEl.value = String(item.speed ?? 1);
@@ -1668,21 +1896,31 @@ async function loadAnnouncement(id) {
 
 async function saveAnnouncement() {
   showError("announcement-error", "");
+  const kind = document.getElementById("announcement-kind").value;
   const body = {
     name: nameEl.value.trim(),
-    text: textEl.value.trim(),
+    kind,
+    text: kind === "newsline" ? "Newsline" : textEl.value.trim(),
     voice: voiceEl.value,
     speed: Number(speedEl.value),
     sentence_pause: Number(pauseEl.value),
     busy_retry_seconds: Number(document.getElementById("busy-retry").value),
     busy_give_up_seconds: Number(document.getElementById("busy-giveup").value),
+    opening_announcement_id: document.getElementById("news-opening").value || null,
+    station_id_announcement_id: document.getElementById("news-station").value || null,
+    closing_announcement_id: document.getElementById("news-closing").value || null,
+    ptt_gap_seconds: Number(document.getElementById("news-gap").value),
   };
   if (!body.name) {
     showError("announcement-error", "Name is required.");
     return;
   }
-  if (!body.text) {
+  if (kind === "tts" && !textEl.value.trim()) {
     showError("announcement-error", "Announcement text is required.");
+    return;
+  }
+  if (kind === "newsline" && !body.station_id_announcement_id) {
+    showError("announcement-error", "Choose a station ID announcement.");
     return;
   }
   persist();
@@ -1694,6 +1932,15 @@ async function saveAnnouncement() {
   });
   if (!res.ok) {
     showError("announcement-error", await errorDetail(res));
+    return;
+  }
+  const saved = await res.json();
+  if (saved.too_long) {
+    showLengthWarning(saved);
+    showError(
+      "announcement-error",
+      `Saved, but it is too long to play (${Number(saved.play_seconds).toFixed(1)}s). Shorten it and save again.`,
+    );
     return;
   }
   clearEditorGuard();
@@ -1749,8 +1996,7 @@ async function speak() {
   abort = controller;
   const currentPlayer = new PcmPlayer();
   player = currentPlayer;
-  document.getElementById("speak").disabled = true;
-  document.getElementById("stop").disabled = false;
+  setEditorPlaying(true);
   setStatus("Preparing voice…");
   try {
     const res = await fetch("/api/speak", {
@@ -1777,17 +2023,145 @@ async function speak() {
     else setStatus(err.message || "Playback failed", "error");
   } finally {
     if (mySession !== session) return;
-    document.getElementById("speak").disabled = false;
-    document.getElementById("stop").disabled = true;
+    setEditorPlaying(false);
   }
 }
 
-function stop() {
-  const hadPlayback = Boolean(abort || player);
+function pttLeadSeconds() {
+  const raw = Number(catalog?.ptt_lead_seconds);
+  if (!Number.isFinite(raw) || raw <= 0) return 0;
+  return raw;
+}
+
+function newslineGapSeconds() {
+  const raw = Number(document.getElementById("news-gap")?.value);
+  if (!Number.isFinite(raw)) return 0;
+  return Math.min(30, Math.max(0, raw));
+}
+
+async function abortableWait(seconds, signal, ctx) {
+  if (!(seconds > 0)) return;
+  if (signal.aborted) throw new DOMException("Stopped", "AbortError");
+  if (ctx && ctx.state === "running") await ctx.suspend();
+  try {
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(resolve, seconds * 1000);
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(new DOMException("Stopped", "AbortError"));
+      };
+      if (signal.aborted) {
+        onAbort();
+        return;
+      }
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
+  } finally {
+    if (ctx && ctx.state === "suspended" && !signal.aborted) await ctx.resume();
+  }
+}
+
+function uint32be(bytes) {
+  return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(0);
+}
+
+function segmentDisplayName(name) {
+  const raw = String(name || "").trim();
+  return (raw || "Segment").replace(/\.mp3$/i, "");
+}
+
+function formatSegmentElapsed(seconds) {
+  const total = Math.max(0, Math.floor(Number(seconds) || 0));
+  const minutes = Math.floor(total / 60);
+  const secs = total % 60;
+  return `${minutes}:${String(secs).padStart(2, "0")}`;
+}
+
+function streamingPieceStatus(name, elapsedSeconds) {
+  return `Streaming… ${segmentDisplayName(name)} ${formatSegmentElapsed(elapsedSeconds)}`;
+}
+
+async function readExact(reader, leftover, size) {
+  let buffer = leftover;
+  while (buffer.length < size) {
+    const { done, value } = await reader.read();
+    if (done) {
+      if (!buffer.length) return { bytes: null, leftover: buffer };
+      throw new Error("Newsline preview ended in the middle of a piece");
+    }
+    const combined = new Uint8Array(buffer.length + value.length);
+    combined.set(buffer);
+    combined.set(value, buffer.length);
+    buffer = combined;
+  }
+  return { bytes: buffer.slice(0, size), leftover: buffer.slice(size) };
+}
+
+async function playNewsline() {
+  showError("announcement-error", "");
   cancelInFlight();
-  document.getElementById("speak").disabled = false;
-  document.getElementById("stop").disabled = true;
-  if (hadPlayback) setStatus("Stopped");
+  const mySession = session;
+  const controller = new AbortController();
+  abort = controller;
+  const currentPlayer = new PcmPlayer();
+  player = currentPlayer;
+  const leadSeconds = pttLeadSeconds();
+  const gapSeconds = newslineGapSeconds();
+  setEditorPlaying(true);
+  setStatus("Preparing Newsline…");
+  try {
+    const res = await fetch("/api/newsline/preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        opening_announcement_id: document.getElementById("news-opening").value || null,
+        station_id_announcement_id: document.getElementById("news-station").value || null,
+        closing_announcement_id: document.getElementById("news-closing").value || null,
+      }),
+      signal: controller.signal,
+    });
+    if (mySession !== session) return;
+    if (!res.ok) {
+      const detail = await errorDetail(res);
+      if (res.status === 400) {
+        showError("announcement-error", detail);
+        setStatus(detail, "error");
+        return;
+      }
+      throw new Error(detail);
+    }
+    const sampleRate = Number(res.headers.get("X-Sample-Rate") || "22050");
+    setStatus("Streaming…", "playing");
+    if (res.headers.get("X-Preview-Framing") !== "name32+length32") {
+      throw new Error("Restart the app to play Newsline with PTT gaps.");
+    }
+    await currentPlayer.playFramed(res.body, sampleRate, controller.signal, {
+      leadSeconds,
+      gapSeconds,
+    });
+    if (mySession !== session) return;
+    if (!controller.signal.aborted) setStatus("Done");
+  } catch (err) {
+    if (mySession !== session) return;
+    if (err.name === "AbortError" || controller.signal.aborted) setStatus("Stopped");
+    else setStatus(err.message || "Playback failed", "error");
+  } finally {
+    if (mySession !== session) return;
+    setEditorPlaying(false);
+  }
+}
+
+function stopEditorPlayback() {
+  const hadPlayback = Boolean(abort || player || editorPlaying);
+  if (!hadPlayback) return false;
+  cancelInFlight();
+  setEditorPlaying(false);
+  setStatus("Stopped");
+  return true;
+}
+
+function stop() {
+  stopEditorPlayback();
 }
 
 function cancelInFlight() {
@@ -1808,6 +2182,7 @@ class PcmPlayer {
     this.sources = [];
     this.stopped = false;
     this.reader = null;
+    this._segmentClock = null;
   }
 
   async play(stream, sampleRate, signal) {
@@ -1869,8 +2244,182 @@ class PcmPlayer {
     }
   }
 
+  async playTone(hz, seconds, signal) {
+    if (this.stopped || signal.aborted) return;
+    if (!this.ctx) this.ctx = new AudioContext();
+    if (this.ctx.state === "suspended") await this.ctx.resume();
+    if (this.stopped || signal.aborted) return;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = hz;
+    const now = this.ctx.currentTime;
+    const dur = Math.max(0.02, seconds);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.75, now + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    this.sources.push(osc);
+    osc.start(now);
+    osc.stop(now + dur + 0.01);
+    await new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", onAbort);
+        resolve();
+      };
+      const onAbort = () => {
+        if (settled) return;
+        settled = true;
+        try {
+          osc.stop();
+        } catch {
+          /* already stopped */
+        }
+        reject(new DOMException("Stopped", "AbortError"));
+      };
+      osc.onended = finish;
+      if (signal.aborted) {
+        onAbort();
+        return;
+      }
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
+  }
+
+  async playBuffer(bytes, sampleRate, signal) {
+    if (!bytes || !bytes.byteLength || this.stopped || signal.aborted) return;
+    if (!this.ctx) this.ctx = new AudioContext({ sampleRate });
+    if (this.ctx.state === "suspended") await this.ctx.resume();
+    if (this.stopped || signal.aborted) return;
+    const usable = bytes.byteLength - (bytes.byteLength % 2);
+    if (usable <= 0) return;
+    const int16 = new Int16Array(bytes.buffer, bytes.byteOffset, usable / 2);
+    const float32 = new Float32Array(int16.length);
+    for (let i = 0; i < int16.length; i += 1) float32[i] = int16[i] / 32768;
+    const buffer = this.ctx.createBuffer(1, float32.length, sampleRate);
+    buffer.copyToChannel(float32, 0);
+    const source = this.ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(this.ctx.destination);
+    this.sources.push(source);
+    await new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", onAbort);
+        resolve();
+      };
+      const onAbort = () => {
+        if (settled) return;
+        settled = true;
+        try {
+          source.stop();
+        } catch {
+          /* already stopped */
+        }
+        reject(new DOMException("Stopped", "AbortError"));
+      };
+      source.onended = finish;
+      if (signal.aborted) {
+        onAbort();
+        return;
+      }
+      signal.addEventListener("abort", onAbort, { once: true });
+      source.start();
+    });
+  }
+
+  async playFramed(stream, sampleRate, signal, { leadSeconds = 0, gapSeconds = 0 } = {}) {
+    if (!stream) return;
+    const reader = stream.getReader();
+    this.reader = reader;
+    const onAbort = () => this.stop();
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    try {
+      if (!this.ctx) this.ctx = new AudioContext({ sampleRate });
+      await this.ctx.resume();
+      let leftover = new Uint8Array(0);
+      const first = await readExact(reader, leftover, 4);
+      leftover = first.leftover;
+      let nextNameHeader = first.bytes;
+      while (nextNameHeader && !this.stopped && !signal.aborted) {
+        const nameLen = uint32be(nextNameHeader);
+        if (nameLen > 4096) throw new Error("Newsline preview piece name is too long");
+        const namePart = await readExact(reader, leftover, nameLen);
+        leftover = namePart.leftover;
+        if (!namePart.bytes) throw new Error("Newsline preview ended in the middle of a piece");
+        const label = new TextDecoder().decode(namePart.bytes);
+        const pcmHeader = await readExact(reader, leftover, 4);
+        leftover = pcmHeader.leftover;
+        if (!pcmHeader.bytes) throw new Error("Newsline preview ended in the middle of a piece");
+        const pcmLen = uint32be(pcmHeader.bytes);
+        const piece = await readExact(reader, leftover, pcmLen);
+        leftover = piece.leftover;
+        if (!piece.bytes) throw new Error("Newsline preview ended in the middle of a piece");
+        await this.playTone(PTT_ENGAGE_HZ, PTT_TONE_SECONDS, signal);
+        if (this.stopped || signal.aborted) return;
+        if (leadSeconds > 0) setStatus("PTT lead…", "playing");
+        await abortableWait(leadSeconds, signal, this.ctx);
+        if (this.stopped || signal.aborted) return;
+        this._startSegmentClock(label, signal);
+        try {
+          await this.playBuffer(piece.bytes, sampleRate, signal);
+        } finally {
+          this._stopSegmentClock();
+        }
+        if (this.stopped || signal.aborted) return;
+        await this.playTone(PTT_RELEASE_HZ, PTT_TONE_SECONDS, signal);
+        if (this.stopped || signal.aborted) return;
+        const following = await readExact(reader, leftover, 4);
+        leftover = following.leftover;
+        nextNameHeader = following.bytes;
+        if (nextNameHeader) {
+          if (gapSeconds > 0) setStatus("Unkey gap…", "playing");
+          await abortableWait(gapSeconds, signal, this.ctx);
+        }
+      }
+    } catch (err) {
+      if (this.stopped || signal.aborted || err.name === "AbortError" || err.name === "InvalidStateError") return;
+      throw err;
+    } finally {
+      this._stopSegmentClock();
+      signal.removeEventListener("abort", onAbort);
+      this._cancelReader();
+    }
+  }
+
+  _startSegmentClock(name, signal) {
+    this._stopSegmentClock();
+    const started = Date.now();
+    const tick = () => {
+      if (this.stopped || signal.aborted) {
+        this._stopSegmentClock();
+        return;
+      }
+      setStatus(streamingPieceStatus(name, (Date.now() - started) / 1000), "playing");
+    };
+    tick();
+    this._segmentClock = setInterval(tick, 1000);
+  }
+
+  _stopSegmentClock() {
+    if (this._segmentClock == null) return;
+    clearInterval(this._segmentClock);
+    this._segmentClock = null;
+  }
+
   stop() {
     this.stopped = true;
+    this._stopSegmentClock();
     this._cancelReader();
     for (const source of this.sources) {
       try {
@@ -1923,6 +2472,7 @@ async function route() {
     const auth = await refreshAuth();
     authReady = true;
     if (auth.needsSetup) {
+      stopEditorPlayback();
       stopHomePolling();
       stopStatsPolling();
       showScreen("view-setup");
@@ -1936,6 +2486,7 @@ async function route() {
       return;
     }
     if (!auth.authenticated) {
+      stopEditorPlayback();
       stopHomePolling();
       stopStatsPolling();
       showScreen("view-login");
@@ -1960,6 +2511,9 @@ async function route() {
       else if (editorKey.startsWith("ann")) showScreen("view-announcement");
       else if (editorKey.startsWith("sched")) showScreen("view-schedule");
       return;
+    }
+    if (String(editorKey || "").startsWith("ann") && nextKey !== editorKey) {
+      stopEditorPlayback();
     }
     const raw = (location.hash.replace(/^#/, "") || "/").split("?")[0];
     const parts = raw.split("/").filter(Boolean);
@@ -2101,6 +2655,10 @@ document.getElementById("save-schedule").addEventListener("click", () => {
 });
 document.getElementById("speak").addEventListener("click", speak);
 document.getElementById("stop").addEventListener("click", stop);
+document.getElementById("newsline-play").addEventListener("click", () => {
+  playNewsline().catch(() => {});
+});
+document.getElementById("newsline-stop").addEventListener("click", stop);
 document.getElementById("reset").addEventListener("click", () => {
   if (readOnly) return;
   localStorage.removeItem(PREFS_KEY);
@@ -2110,6 +2668,14 @@ document.getElementById("reset").addEventListener("click", () => {
     renderVoices(catalog.default_voice);
     updateDeliveryLabels();
   }
+});
+document.getElementById("newsline-reset").addEventListener("click", () => {
+  if (readOnly) return;
+  fillSpokenSelect("news-opening", "", { optional: true });
+  fillSpokenSelect("news-station", spokenAnnouncements()[0]?.id || "");
+  fillSpokenSelect("news-closing", "", { optional: true });
+  document.getElementById("news-gap").value = "2";
+  setStatus("Ready");
 });
 textEl.addEventListener("input", updateCount);
 speedEl.addEventListener("input", () => {
@@ -2145,6 +2711,48 @@ if (manualDropDismiss) {
   });
 }
 
+document.getElementById("announcement-kind").addEventListener("change", syncAnnouncementKind);
+
+async function saveNewslineSettings() {
+  if (readOnly) return;
+  await fetch("/api/settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      news_check_start: document.getElementById("news-check-start").value,
+      news_check_stop: document.getElementById("news-check-stop").value,
+      repeater_timeout_seconds: Number(document.getElementById("repeater-timeout").value),
+    }),
+  });
+  refreshHome();
+}
+
+for (const id of ["news-check-start", "news-check-stop", "repeater-timeout"]) {
+  document.getElementById(id).addEventListener("change", () => {
+    saveNewslineSettings().catch(() => {});
+  });
+}
+
+document.getElementById("newsline-check").addEventListener("click", async () => {
+  const status = document.getElementById("newsline-status");
+  if (status) status.textContent = "Checking for a new Newsline report…";
+  const res = await fetch("/api/newsline/check", { method: "POST" });
+  if (res.status === 409) {
+    status.textContent = "A Newsline check is already running.";
+    return;
+  }
+  if (!res.ok) {
+    document.getElementById("newsline-status").textContent = "Could not start the Newsline check.";
+    return;
+  }
+  await refreshHome();
+});
+
+document.getElementById("skip-notice-dismiss").addEventListener("click", async () => {
+  await fetch("/api/skip-notice/dismiss", { method: "POST" });
+  renderSkipNotice(null);
+});
+
 document.getElementById("baseline-randomize").addEventListener("change", async (event) => {
   if (readOnly) return;
   await fetch("/api/settings", {
@@ -2164,7 +2772,11 @@ window.addEventListener("hashchange", () => {
     if (!isBootScreenActive()) window.alert(err.message);
   });
 });
+window.addEventListener("pagehide", () => {
+  stopEditorPlayback();
+});
 window.addEventListener("beforeunload", (event) => {
+  stopEditorPlayback();
   if (!isEditorDirty()) return;
   event.preventDefault();
   event.returnValue = "";

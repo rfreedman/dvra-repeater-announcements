@@ -21,6 +21,7 @@ from app.pcm_cache import warm_all
 from app.radio import active_radio_mode_label
 from app.registry import get_registry
 from app.routes.announcements import router as announcements_router
+from app.routes.newsline import router as newsline_router
 from app.routes.auth import router as auth_router
 from app.routes.schedules import router as schedules_router
 from app.routes.speak import router as speak_router
@@ -58,6 +59,9 @@ async def _complete_startup(started: float, stats_stop: asyncio.Event) -> asynci
         await asyncio.to_thread(init_radio_at_startup)
         await asyncio.to_thread(get_registry().preload)
         await asyncio.to_thread(warm_all)
+        from app.newsline.poll import log_ffmpeg_status
+
+        log_ffmpeg_status()
         start_scheduler()
     except StartupError as exc:
         fail_startup(str(exc))
@@ -228,6 +232,7 @@ app.include_router(auth_router)
 app.include_router(speak_router)
 app.include_router(announcements_router)
 app.include_router(schedules_router)
+app.include_router(newsline_router)
 
 
 @app.get("/")

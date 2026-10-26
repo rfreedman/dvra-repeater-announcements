@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from datetime import date
 
-from pydantic import BaseModel, Field, field_validator
+from typing import Literal
+
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.config import (
     DEFAULT_BUSY_GIVE_UP_SECONDS,
@@ -40,6 +42,12 @@ class SpeakRequest(TtsSpeechParams):
         return normalize_announcement_text(value)
 
 
+class NewslinePreviewIn(BaseModel):
+    opening_announcement_id: str | None = None
+    station_id_announcement_id: str | None = None
+    closing_announcement_id: str | None = None
+
+
 class PrepareRequest(BaseModel):
     voice: str | None = None
 
@@ -70,7 +78,8 @@ class SchedulePatch(BaseModel):
 
 class AnnouncementIn(TtsSpeechParams):
     name: str
-    text: str = Field(..., min_length=1, max_length=MAX_TEXT_CHARS)
+    kind: Literal["tts", "newsline"] = "tts"
+    text: str = Field(default="", max_length=MAX_TEXT_CHARS)
     voice: str | None = None
     busy_retry_seconds: float = Field(
         default=DEFAULT_BUSY_RETRY_SECONDS, gt=0, le=MAX_BUSY_RETRY_SECONDS
@@ -78,16 +87,33 @@ class AnnouncementIn(TtsSpeechParams):
     busy_give_up_seconds: float = Field(
         default=DEFAULT_BUSY_GIVE_UP_SECONDS, gt=0, le=MAX_BUSY_GIVE_UP_SECONDS
     )
+    opening_announcement_id: str | None = None
+    station_id_announcement_id: str | None = None
+    closing_announcement_id: str | None = None
+    ptt_gap_seconds: float = Field(default=2.0, ge=0.0, le=30.0)
 
     @field_validator("text")
     @classmethod
-    def text_present(cls, value: str) -> str:
-        return normalize_announcement_text(value)
+    def strip_text(cls, value: str) -> str:
+        return value.strip()
+
+    @model_validator(mode="after")
+    def text_for_spoken(self) -> AnnouncementIn:
+        if self.kind == "tts":
+            self.text = normalize_announcement_text(self.text)
+        else:
+            self.text = ""
+            if not self.station_id_announcement_id:
+                raise ValueError("A station ID announcement is required")
+        return self
 
 
 class SettingsIn(BaseModel):
     slot_half_window_minutes: int | None = None
     baseline_randomize: bool | None = None
+    news_check_start: str | None = None
+    news_check_stop: str | None = None
+    repeater_timeout_seconds: int | None = None
 
 
 class LoginIn(BaseModel):

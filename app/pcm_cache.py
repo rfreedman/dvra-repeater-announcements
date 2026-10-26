@@ -170,16 +170,19 @@ def chunks_for_announcement(announcement: Announcement) -> list[PcmChunk]:
         return rendered
 
 
-def warm_announcement(announcement: Announcement) -> None:
+def warm_announcement(announcement: Announcement) -> list[PcmChunk] | None:
+    if announcement.kind != "tts" or not announcement.text.strip():
+        return None
     started = time.perf_counter()
     try:
-        chunks_for_announcement(announcement)
+        return chunks_for_announcement(announcement)
     except Exception:
         log.exception(
             "Failed to cache PCM for %s in %.1fs",
             announcement.name,
             time.perf_counter() - started,
         )
+        return None
 
 
 def warm_announcement_in_background(
@@ -200,10 +203,27 @@ def warm_announcement_in_background(
 def warm_all(announcements: list[Announcement] | None = None) -> None:
     from app.store import get_store
 
-    items = list(announcements if announcements is not None else get_store().list_announcements())
+    store = get_store()
+    document = store.document()
+    items = list(announcements if announcements is not None else document.announcements)
     started = time.perf_counter()
     log.info("Caching %s announcements", len(items))
     get_pcm_cache().prune({item.id for item in items})
+    from app.spoken_length import apply_played_length, pcm_duration_seconds
+
+    timeout = document.settings.repeater_timeout_seconds
     for item in items:
-        warm_announcement(item)
+        chunks = warm_announcement(item)
+        if item.kind != "tts" or item.play_seconds is not None or chunks is None:
+            continue
+        measured = apply_played_length(item, pcm_duration_seconds(chunks), timeout)
+        store.save_announcement(measured)
+        if measured.too_long:
+            log.warning(
+                "Announcement %s is %.1fs, over the repeater limit",
+                measured.name,
+                measured.play_seconds or 0,
+            )
+        else:
+            log.info("Timed %s at %.1fs", measured.name, measured.play_seconds or 0)
     log.info("Cached %s announcements in %.1fs", len(items), time.perf_counter() - started)

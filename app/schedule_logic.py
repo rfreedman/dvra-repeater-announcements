@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import calendar
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 
 from app.models import (
@@ -23,6 +23,7 @@ from app.models import (
     format_hhmm,
     parse_hhmm,
 )
+from app.spoken_length import blocks_playback, too_long_parts
 from app.slots import Slot, as_local, iter_day_slots, iter_slots, slot_from_parts, zone_for
 
 CONFLICT_HORIZON_DAYS = 70
@@ -36,6 +37,7 @@ class ResolvedSlot:
     announcement: Announcement | None
     source: str
     warning: str | None = None
+    skipped_detail: str | None = None
 
     @property
     def label(self) -> str:
@@ -179,12 +181,47 @@ def effective_baseline_order(document: StoreDocument) -> list[str]:
     return current + missing
 
 
+def _baseline_can_play(document: StoreDocument, schedule: Schedule) -> bool:
+    if schedule.is_silence:
+        return True
+    return not blocks_playback(document, document.announcement_by_id(schedule.announcement_id))
+
+
+def take_baseline(
+    document: StoreDocument,
+    order: list[str],
+    index: int,
+) -> tuple[Schedule | None, list[str], int]:
+    """The next playable baseline, and the rotation index after it is used.
+
+    Unplayable baselines are skipped. When every baseline can play, this advances
+    one step, including the shuffle at the end of a cycle.
+    """
+    if not order:
+        return None, order, index
+    count = len(order)
+    position = index % count
+    for _step in range(count):
+        schedule = document.schedule_by_id(order[position])
+        nxt = position + 1
+        wrapped = nxt >= count
+        if wrapped:
+            nxt = 0
+        if schedule is not None and _baseline_can_play(document, schedule):
+            new_order = list(order)
+            if wrapped and document.settings.baseline_randomize:
+                random.Random().shuffle(new_order)
+            return schedule, new_order, nxt
+        position = nxt
+    return None, order, index % count
+
+
 def peek_baseline(document: StoreDocument) -> Schedule | None:
     order = effective_baseline_order(document)
     if not order:
         return None
-    index = document.rotation.index % len(order)
-    return document.schedule_by_id(order[index])
+    schedule, _order, _index = take_baseline(document, order, document.rotation.index)
+    return schedule
 
 
 def next_rotation(document: StoreDocument, slot_key: str) -> tuple[list[str], int, str]:
@@ -198,14 +235,8 @@ def next_rotation(document: StoreDocument, slot_key: str) -> tuple[list[str], in
     order = effective_baseline_order(document)
     if not order:
         return [], 0, slot_key
-    index = document.rotation.index % len(order)
-    index += 1
-    if index >= len(order):
-        index = 0
-        if document.settings.baseline_randomize:
-            order = list(order)
-            random.Random().shuffle(order)
-    return order, index, slot_key
+    _schedule, new_order, index = take_baseline(document, order, document.rotation.index)
+    return new_order, index, slot_key
 
 
 def _resolved(slot: Slot, schedule: Schedule | None, document: StoreDocument) -> ResolvedSlot:
@@ -253,11 +284,54 @@ def _resolved(slot: Slot, schedule: Schedule | None, document: StoreDocument) ->
     )
 
 
+def _overlay_unplayable(document: StoreDocument, schedule: Schedule) -> bool:
+    if schedule.is_silence:
+        return False
+    announcement = document.announcement_by_id(schedule.announcement_id)
+    return announcement is None or blocks_playback(document, announcement)
+
+
+def _substitution(document: StoreDocument, skipped: Schedule, played: ResolvedSlot) -> ResolvedSlot:
+    parts = []
+    announcement = document.announcement_by_id(skipped.announcement_id)
+    if announcement is not None:
+        parts = too_long_parts(document, announcement)
+    reason = "; ".join(parts) if parts else f"{skipped.name} cannot play"
+    if played.announcement is not None:
+        instead = f"{played.announcement.name} will play instead."
+    else:
+        instead = "The slot will be silent. No valid baseline is available."
+    detail = f"{skipped.name} will not play — {reason}. {instead}"
+    return replace(played, skipped_detail=detail, warning=detail)
+
+
+def _annotate(document: StoreDocument, resolved: ResolvedSlot) -> ResolvedSlot:
+    if resolved.schedule is None or resolved.announcement is None:
+        return resolved
+    if resolved.announcement.kind != "newsline":
+        return resolved
+    parts = too_long_parts(document, resolved.announcement)
+    if not parts:
+        return resolved
+    if blocks_playback(document, resolved.announcement):
+        return resolved
+    detail = (
+        f"{resolved.schedule.name} plays, but "
+        + "; ".join(parts)
+        + " will be left out."
+    )
+    return replace(resolved, warning=detail)
+
+
 def resolve_slot(document: StoreDocument, slot: Slot) -> ResolvedSlot:
     winner, _ties = pick_overlay(document.schedules, slot)
-    if winner is not None:
-        return _resolved(slot, winner, document)
-    return _resolved(slot, peek_baseline(document), document)
+    skipped = winner if winner is not None and _overlay_unplayable(document, winner) else None
+    if winner is not None and skipped is None:
+        return _annotate(document, _resolved(slot, winner, document))
+    played = _resolved(slot, peek_baseline(document), document)
+    if skipped is None:
+        return played
+    return _substitution(document, skipped, played)
 
 
 def resolve_window(
@@ -272,17 +346,18 @@ def resolve_window(
     results: list[ResolvedSlot] = []
     for slot in iter_slots(after, until, zone):
         winner, _ties = pick_overlay(document.schedules, slot)
-        if winner is not None:
-            results.append(_resolved(slot, winner, document))
+        skipped = winner if winner is not None and _overlay_unplayable(document, winner) else None
+        if winner is not None and skipped is None:
+            results.append(_annotate(document, _resolved(slot, winner, document)))
             continue
         if not order:
-            results.append(_resolved(slot, None, document))
-            continue
-        baseline = document.schedule_by_id(order[index % len(order)])
-        results.append(_resolved(slot, baseline, document))
-        index += 1
-        if index >= len(order):
-            index = 0
+            played = _resolved(slot, None, document)
+        else:
+            baseline, order, index = take_baseline(document, order, index)
+            played = _resolved(slot, baseline, document)
+        if skipped is not None:
+            played = _substitution(document, skipped, played)
+        results.append(played)
     return results
 
 
@@ -506,12 +581,20 @@ def schedule_warning(
 ) -> str | None:
     if not schedule.enabled:
         return "Won't play — this schedule is disabled."
-    if schedule.kind != "baseline" and schedule.is_silence:
-        pass
-    elif document.announcement_by_id(schedule.announcement_id) is None:
-        return "Won't play — the announcement is missing."
-    elif not (document.announcement_by_id(schedule.announcement_id).text or "").strip():
-        return "Won't play — announcement text is empty."
+    if not (schedule.kind != "baseline" and schedule.is_silence):
+        announcement = document.announcement_by_id(schedule.announcement_id)
+        if announcement is None:
+            return "Won't play — the announcement is missing."
+        parts = too_long_parts(document, announcement)
+        if parts and (announcement.kind == "tts" or blocks_playback(document, announcement)):
+            return (
+                f"Won't play — {'; '.join(parts)}. "
+                "The baseline for that slot plays instead, or the slot stays silent if none fits."
+            )
+        if parts:
+            return f"Plays, but {'; '.join(parts)} will be left out."
+        if announcement.kind == "tts" and not (announcement.text or "").strip():
+            return "Won't play — announcement text is empty."
     zone = zone_for(document.settings.timezone)
     when = now or datetime.now(zone)
     if schedule.kind == "once" and schedule.on_date and schedule.on_date < when.date():
@@ -529,6 +612,10 @@ def document_warnings(document: StoreDocument) -> list[str]:
         warnings.append("Create at least one announcement, then a baseline schedule that uses it.")
     elif not document.enabled_baselines():
         warnings.append("Add an enabled baseline schedule. Empty slots stay silent until you do.")
+    for schedule in document.schedules:
+        warning = schedule_warning(schedule, document)
+        if warning and ("over the" in warning or "will be left out" in warning):
+            warnings.append(f"{schedule.name}: {warning}")
     return warnings
 
 

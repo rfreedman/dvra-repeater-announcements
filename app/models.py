@@ -10,14 +10,19 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from app.config import (
     DEFAULT_BUSY_GIVE_UP_SECONDS,
     DEFAULT_BUSY_RETRY_SECONDS,
+    DEFAULT_NEWS_CHECK_START,
+    DEFAULT_NEWS_CHECK_STOP,
+    DEFAULT_REPEATER_TIMEOUT_SECONDS,
     DEFAULT_SENTENCE_PAUSE,
     DEFAULT_SLOT_HALF_WINDOW_MINUTES,
     DEFAULT_SPEED,
     MAX_BUSY_GIVE_UP_SECONDS,
     MAX_BUSY_RETRY_SECONDS,
+    MAX_REPEATER_TIMEOUT_SECONDS,
     MAX_SENTENCE_PAUSE,
     MAX_SPEECH_SPEED,
     MAX_TEXT_CHARS,
+    MIN_REPEATER_TIMEOUT_SECONDS,
     MIN_SPEECH_SPEED,
     TIMEZONE,
 )
@@ -48,6 +53,7 @@ MONTH_LABELS = {
 }
 
 ScheduleKind = Literal["baseline", "weekly", "monthly", "once", "range", "monthly_range", "emergency"]
+AnnouncementKind = Literal["tts", "newsline"]
 OVERLAY_KINDS = frozenset({"weekly", "monthly", "once", "range", "monthly_range", "emergency"})
 DEFAULT_PRIORITY = {
     "baseline": 0,
@@ -152,11 +158,12 @@ def normalize_entity_name(value: str) -> str:
 
 
 class Announcement(BaseModel):
-    """Spoken text. Schedules point here; the text has no timing of its own."""
+    """Library item. Spoken text, or a Newsline bulletin that plays story audio."""
 
     id: str = Field(default_factory=new_id)
     name: str
-    text: str = Field(..., min_length=1, max_length=MAX_TEXT_CHARS)
+    kind: AnnouncementKind = "tts"
+    text: str = Field(default="", max_length=MAX_TEXT_CHARS)
     voice: str | None = None
     speed: float = Field(default=DEFAULT_SPEED, gt=MIN_SPEECH_SPEED, le=MAX_SPEECH_SPEED)
     sentence_pause: float = Field(
@@ -168,6 +175,12 @@ class Announcement(BaseModel):
     busy_give_up_seconds: float = Field(
         default=DEFAULT_BUSY_GIVE_UP_SECONDS, gt=0, le=MAX_BUSY_GIVE_UP_SECONDS
     )
+    play_seconds: float | None = None
+    too_long: bool = False
+    opening_announcement_id: str | None = None
+    station_id_announcement_id: str | None = None
+    closing_announcement_id: str | None = None
+    ptt_gap_seconds: float = Field(default=2.0, ge=0.0, le=30.0)
 
     @field_validator("name")
     @classmethod
@@ -176,8 +189,18 @@ class Announcement(BaseModel):
 
     @field_validator("text")
     @classmethod
-    def text_present(cls, value: str) -> str:
-        return normalize_announcement_text(value)
+    def strip_text(cls, value: str) -> str:
+        return value.strip()
+
+    @model_validator(mode="after")
+    def kind_fields(self) -> Announcement:
+        if self.kind == "newsline":
+            self.text = ""
+            if not self.station_id_announcement_id:
+                raise ValueError("A station ID announcement is required")
+            return self
+        self.text = normalize_announcement_text(self.text)
+        return self
 
 
 class Schedule(BaseModel):
@@ -326,12 +349,30 @@ class Settings(BaseModel):
     timezone: str = TIMEZONE
     slot_half_window_minutes: int = DEFAULT_SLOT_HALF_WINDOW_MINUTES
     baseline_randomize: bool = False
+    news_check_start: str = DEFAULT_NEWS_CHECK_START
+    news_check_stop: str = DEFAULT_NEWS_CHECK_STOP
+    repeater_timeout_seconds: int = DEFAULT_REPEATER_TIMEOUT_SECONDS
 
     @field_validator("slot_half_window_minutes")
     @classmethod
     def window_range(cls, value: int) -> int:
         if value < 0 or value > 29:
             raise ValueError("Slot window must be 0–29 minutes")
+        return value
+
+    @field_validator("news_check_start", "news_check_stop")
+    @classmethod
+    def clock_time(cls, value: str) -> str:
+        return format_hhmm(*parse_hhmm(value))
+
+    @field_validator("repeater_timeout_seconds")
+    @classmethod
+    def timeout_range(cls, value: int) -> int:
+        if value < MIN_REPEATER_TIMEOUT_SECONDS or value > MAX_REPEATER_TIMEOUT_SECONDS:
+            raise ValueError(
+                f"Repeater timeout must be {MIN_REPEATER_TIMEOUT_SECONDS}–"
+                f"{MAX_REPEATER_TIMEOUT_SECONDS} seconds"
+            )
         return value
 
 

@@ -32,6 +32,21 @@ from app.store import get_store
 router = APIRouter()
 
 
+def _newsline_status() -> dict[str, object]:
+    from app.newsline.poll import status_payload
+
+    return status_payload()
+
+
+def _recompute_lengths(store, timeout: int) -> None:
+    from app.spoken_length import recompute_too_long
+
+    for item in store.document().announcements:
+        updated = recompute_too_long(item, timeout)
+        if updated.too_long != item.too_long:
+            store.save_announcement(updated)
+
+
 def _validation_detail(exc: ValidationError) -> str:
     parts = []
     for err in exc.errors():
@@ -56,6 +71,16 @@ def _reject_schedule(schedule: Schedule, *, skip_id: str | None = None) -> None:
     document = store.document()
     if schedule.announcement_id and document.announcement_by_id(schedule.announcement_id) is None:
         raise HTTPException(status_code=400, detail="Announcement not found")
+    announcement = document.announcement_by_id(schedule.announcement_id)
+    if announcement is not None:
+        from app.spoken_length import blocks_playback, too_long_parts
+
+        if blocks_playback(document, announcement):
+            previous = document.schedule_by_id(skip_id) if skip_id else None
+            if previous is None or previous.announcement_id != schedule.announcement_id:
+                parts = too_long_parts(document, announcement)
+                detail = "; ".join(parts) or f"{announcement.name} cannot be scheduled"
+                raise HTTPException(status_code=400, detail=detail)
     if not offset_allowed(schedule.offset_minutes, document.settings.slot_half_window_minutes):
         raise HTTPException(
             status_code=400,
@@ -122,6 +147,12 @@ def put_settings(req: SettingsIn, _admin: AdminUser) -> dict[str, object]:
         data["slot_half_window_minutes"] = req.slot_half_window_minutes
     if req.baseline_randomize is not None:
         data["baseline_randomize"] = req.baseline_randomize
+    if req.news_check_start is not None:
+        data["news_check_start"] = req.news_check_start
+    if req.news_check_stop is not None:
+        data["news_check_stop"] = req.news_check_stop
+    if req.repeater_timeout_seconds is not None:
+        data["repeater_timeout_seconds"] = req.repeater_timeout_seconds
     try:
         settings = Settings.model_validate(data)
     except ValidationError as exc:
@@ -134,6 +165,10 @@ def put_settings(req: SettingsIn, _admin: AdminUser) -> dict[str, object]:
                 detail=f"{schedule.name} offset is outside the new slot window",
             )
     stored = store.save_settings(settings)
+    _recompute_lengths(store, stored.repeater_timeout_seconds)
+    from app.newsline.poll import arm_next_poll
+
+    arm_next_poll(immediate=False)
     sync_jobs()
     notify_home_data_changed()
     return stored.model_dump(mode="json")
@@ -162,6 +197,7 @@ def list_schedules(_user: AuthUser, clock_date: date | None = None) -> dict[str,
         "clock": _clock_payload(document, day),
         "schedules": rows,
         "trigger_now_enabled": config.TRIGGER_NOW,
+        "newsline": _newsline_status(),
     }
 
 
@@ -184,10 +220,16 @@ def create_schedule(req: ScheduleIn, _admin: AdminUser) -> dict[str, object]:
 
 @router.get("/api/schedules/{schedule_id}")
 def get_schedule(schedule_id: str, _user: AuthUser) -> dict[str, object]:
-    item = get_store().get_schedule(schedule_id)
+    store = get_store()
+    item = store.get_schedule(schedule_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Schedule not found")
-    return item.model_dump(mode="json")
+    document = store.document()
+    payload = item.model_dump(mode="json")
+    from app.schedule_logic import schedule_warning
+
+    payload["warning"] = schedule_warning(item, document)
+    return payload
 
 
 @router.put("/api/schedules/{schedule_id}")

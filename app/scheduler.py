@@ -247,6 +247,7 @@ def run_scheduled_fire(
             announcement=again.announcement,
             schedule=again.schedule,
             silence=again.source == "silence",
+            skipped_detail=again.skipped_detail,
         )
 
     def defer(run_at: datetime, fire_ctx: FireContext) -> None:
@@ -275,6 +276,7 @@ def run_scheduled_fire(
         ptt_lead_seconds=PTT_LEAD_SECONDS,
         set_running=_set_running,
         clear_running=_clear_running,
+        not_ready_deadline=slot.center + timedelta(minutes=document.settings.slot_half_window_minutes),
     )
     result = handle_fire(ctx, deps)
     sync_jobs()
@@ -343,6 +345,37 @@ def _run_manual_trigger_body(
         if current is None:
             return None
         item = store.get(current.announcement_id) if current.announcement_id else None
+        document = store.document()
+        from app.schedule_logic import peek_baseline
+        from app.spoken_length import blocks_playback, too_long_parts
+
+        if item is not None and blocks_playback(document, item):
+            baseline = peek_baseline(document)
+            fallback = (
+                document.announcement_by_id(baseline.announcement_id)
+                if baseline is not None and baseline.announcement_id
+                else None
+            )
+            reason = "; ".join(too_long_parts(document, item)) or f"{item.name} cannot play"
+            instead = (
+                f"{fallback.name} will play instead."
+                if fallback is not None
+                else "The slot will be silent. No valid baseline is available."
+            )
+            detail = f"{current.name} will not play — {reason}. {instead}"
+            if fallback is None or baseline is None:
+                return LoadedFire(
+                    announcement=None,
+                    schedule=current,
+                    silence=False,
+                    skipped_detail=detail,
+                )
+            return LoadedFire(
+                announcement=fallback,
+                schedule=baseline,
+                silence=False,
+                skipped_detail=detail,
+            )
         return LoadedFire(
             announcement=item,
             schedule=current,
@@ -545,6 +578,9 @@ def start_scheduler() -> None:
     _inhibit_idle_sleep()
     sync_jobs()
     start_cos_tracking()
+    from app.newsline.poll import install_news_poll
+
+    install_news_poll()
     log.info("Scheduler started")
 
 

@@ -111,7 +111,11 @@ Open [http://127.0.0.1:8000](http://127.0.0.1:8000). On first visit, create the 
 
 The home screen shows the next run, today’s half-hour slots, schedules, and the announcement library. **How to schedule** (in the header, and in [docs/how-to-schedule.md](docs/how-to-schedule.md)) is the operator guide.
 
-Write the spoken text under **New announcement**. Timing lives on **schedules**, which point at that text:
+Write the spoken text under **New announcement**. On save, the app measures how long that text takes to play. If it is longer than the repeater timeout minus 2 seconds (178 seconds at the default 180 second timeout), the text is kept and marked too long: it cannot be newly scheduled, and a schedule that already uses it plays the baseline for that slot instead. Shorten the text and save again to clear the mark. See [How to schedule](docs/how-to-schedule.md#spoken-length).
+
+An **Amateur Radio Newsline** item plays the current week's report (opening, stories, station ID, closing). A weekly schedule points at it. Download times and the repeater timeout are on the home screen. See [Amateur Radio Newsline](docs/arnewsline.md).
+
+Timing lives on **schedules**, which point at that text:
 
 - A **baseline** fills every hour and half-hour unless something else claims the slot. Several baselines take turns.
 - An **overlay** (weekly net, monthly net, event countdown, once, silence, or emergency) replaces the baseline for the slots it matches. You can slide an overlay a few minutes early or late inside the slot window; it still occupies that slot. Example: the 15:30 slot at −5 minutes fires at 15:25, and 15:30 stays silent.
@@ -379,7 +383,7 @@ Audio is produced one Piper sentence at a time and sent as it is ready.
 
 `GET /api/system/stats` returns `{"celsius", "thermal_state", "cpu_percent", "memory_percent"}` (authenticated). The UI uses `GET /api/events/stats` (SSE): an initial `snapshot` event, then `stats` events about every 15s from a single server broadcast (one sample shared across tabs). If the stream drops, the client falls back to REST polling every 15s. CPU% uses `psutil.cpu_percent(interval=None)` (average since the previous sample); memory uses psutil. Temperature is °C from Linux thermal sysfs, or macOS `ProcessInfo.thermalState` (`nominal` / `fair` / `serious` / `critical`) when Celsius is unavailable.
 
-`GET /api/schedules` returns upcoming fire, today’s slot clock, warnings, settings, and schedule rows. **Earlier today** on that clock is simulated from the current baseline rotation (not a play log); see [Today’s schedule grid vs what played](docs/how-to-schedule.md#todays-schedule-grid-vs-what-played). Announcements are `GET/POST /api/announcements` and `PUT/DELETE /api/announcements/{id}`. Schedules are `GET/POST /api/schedules` and `PUT/PATCH/DELETE /api/schedules/{id}`. `PUT /api/settings` updates baseline shuffle and the slot window.
+`GET /api/schedules` returns upcoming fire, today’s slot clock, warnings, settings, Newsline status, and schedule rows. **Earlier today** on that clock is simulated from the current baseline rotation (not a play log); see [Today’s schedule grid vs what played](docs/how-to-schedule.md#todays-schedule-grid-vs-what-played). Announcements are `GET/POST /api/announcements` and `PUT/DELETE /api/announcements/{id}`. Schedules are `GET/POST /api/schedules` and `PUT/PATCH/DELETE /api/schedules/{id}`. `PUT /api/settings` updates baseline shuffle, the slot window, the Thursday–Friday Newsline check times, and the repeater timeout. `POST /api/newsline/check` starts one Newsline download (admin). `POST /api/newsline/preview` streams the latest split report for the editor Play button.
 
 ```bash
 uv run pytest -q

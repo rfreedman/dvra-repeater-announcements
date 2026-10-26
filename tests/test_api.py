@@ -307,10 +307,11 @@ def test_installed_version_matches_pyproject():
 
 
 def test_voices_payload_includes_busy_caps(client):
-    from app.config import MAX_BUSY_GIVE_UP_SECONDS
+    from app.config import MAX_BUSY_GIVE_UP_SECONDS, PTT_LEAD_SECONDS
 
     payload = client.get("/api/voices").json()
     assert payload["max_busy_give_up_seconds"] == MAX_BUSY_GIVE_UP_SECONDS
+    assert payload["ptt_lead_seconds"] == PTT_LEAD_SECONDS
 
 
 def test_meta_returns_calendar_labels_and_default_priorities(client):
