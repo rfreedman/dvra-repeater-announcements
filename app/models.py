@@ -52,13 +52,14 @@ MONTH_LABELS = {
     12: "December",
 }
 
-ScheduleKind = Literal["baseline", "weekly", "monthly", "once", "range", "monthly_range", "emergency"]
+ScheduleKind = Literal["baseline", "weekly", "monthly", "single_day", "once", "range", "monthly_range", "emergency"]
 AnnouncementKind = Literal["tts", "newsline"]
-OVERLAY_KINDS = frozenset({"weekly", "monthly", "once", "range", "monthly_range", "emergency"})
+OVERLAY_KINDS = frozenset({"weekly", "monthly", "single_day", "once", "range", "monthly_range", "emergency"})
 DEFAULT_PRIORITY = {
     "baseline": 0,
     "weekly": 50,
     "monthly": 50,
+    "single_day": 50,
     "once": 50,
     "range": 20,
     "monthly_range": 20,
@@ -265,9 +266,10 @@ class Schedule(BaseModel):
             self.event_date = None
             self.event_slot = None
             self.days_before = None
-        elif self.kind == "once":
+        elif self.kind in ("single_day", "once"):
+            self.kind = "single_day"
             if self.on_date is None:
-                raise ValueError("A one-time schedule needs a date")
+                raise ValueError("A single day schedule needs a date")
             self.slots = normalize_slots(self.slots, required=True)
             self.days = []
             self.occurrence = None

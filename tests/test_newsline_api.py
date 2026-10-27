@@ -46,6 +46,38 @@ def test_newsline_item_requires_a_station_id_and_protects_it(client):
     assert removed.status_code == 409
 
 
+def test_schedule_list_keeps_a_newsline_announcement(client):
+    station = client.post(
+        "/api/announcements",
+        json={"name": "Station ID", "text": "This is the station."},
+    ).json()
+    news = client.post(
+        "/api/announcements",
+        json={
+            "name": "News",
+            "kind": "newsline",
+            "station_id_announcement_id": station["id"],
+        },
+    ).json()
+    created = client.post(
+        "/api/schedules",
+        json={
+            "name": "Newsline Test (Single Day)",
+            "kind": "single_day",
+            "announcement_id": news["id"],
+            "on_date": "2026-10-26",
+            "slots": ["17:30"],
+            "priority": 500,
+        },
+    )
+    assert created.status_code == 200
+    assert created.json()["announcement_id"] == news["id"]
+    rows = client.get("/api/schedules").json()["schedules"]
+    row = next(item for item in rows if item["name"] == "Newsline Test (Single Day)")
+    assert row["announcement_id"] == news["id"]
+    assert row["announcement_name"] == "News"
+
+
 def test_newsline_download_times_round_trip(client):
     saved = client.put(
         "/api/settings",

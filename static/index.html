@@ -12,7 +12,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/static/styles.css" />
@@ -229,7 +229,10 @@
               </svg>
             </span>
           </div>
-          <p class="next-run-name" id="next-run-name"></p>
+          <div class="next-run-identity">
+            <p class="next-run-line" id="next-run-schedule-line"></p>
+            <p class="next-run-line" id="next-run-announcement-line"></p>
+          </div>
           <p class="exclusion-line" id="next-run-note" hidden></p>
           <p class="next-run-meta">
             <span id="next-run-when"></span>
@@ -299,7 +302,7 @@
                   <button type="button" data-template="monthly">Monthly</button>
                   <button type="button" data-template="range">Event countdown</button>
                   <button type="button" data-template="monthly_range">Monthly countdown</button>
-                  <button type="button" data-template="once">Once</button>
+                  <button type="button" data-template="single_day">Single Day</button>
                   <button type="button" data-template="silence">Silence</button>
                   <button type="button" data-template="emergency">Emergency</button>
                 </div>
@@ -411,7 +414,7 @@
               Choose the event (for example the 1st Wednesday at 19:00) and how many days before
               that event the promo should start. Skip months if needed.
             </li>
-            <li><strong>Once</strong> — selected slots on a single date.</li>
+            <li><strong>Single Day</strong> — selected slots on a single date.</li>
             <li>
               <strong>Silence</strong> — occupy a slot and transmit nothing (for example while a net is
               already on the air).
@@ -578,7 +581,7 @@
             <option value="monthly">Monthly</option>
             <option value="range">Event countdown</option>
             <option value="monthly_range">Monthly countdown</option>
-            <option value="once">Once</option>
+            <option value="single_day">Single Day</option>
             <option value="emergency">Emergency</option>
           </select>
         </section>

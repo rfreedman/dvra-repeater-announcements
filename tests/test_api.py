@@ -41,6 +41,26 @@ def test_empty_store_lists_nothing(client, store):
     assert any("baseline" in item.lower() for item in payload["warnings"])
 
 
+def test_expired_single_day_schedule_removed_on_home_list(client, store):
+    announcement, _baseline = _seed_baseline(store)
+    single_day = store.save_schedule(
+        Schedule.model_validate(
+            {
+                "name": "Old single day",
+                "kind": "single_day",
+                "announcement_id": announcement.id,
+                "on_date": date(2020, 1, 1),
+                "slots": ["12:00"],
+            }
+        )
+    )
+    assert single_day.id in {item.id for item in store.list_schedules()}
+    payload = client.get("/api/schedules").json()
+    names = {row["name"] for row in payload["schedules"]}
+    assert "Old single day" not in names
+    assert single_day.id not in {item.id for item in store.list_schedules()}
+
+
 def test_create_announcement_and_baseline(client, store):
     created = client.post(
         "/api/announcements",

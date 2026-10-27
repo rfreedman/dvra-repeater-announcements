@@ -4,8 +4,11 @@ import json
 import os
 import subprocess
 import tempfile
+import wave
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+import numpy as np
 
 from app.newsline.engine.models import WordTiming
 
@@ -46,11 +49,25 @@ def _decode_to_wav(
     return out
 
 
+def pcm_float32_from_wav(wav_path: Path) -> np.ndarray:
+    """16 kHz mono 16-bit WAV as float32 in [-1, 1] for Whisper (skip PyAV decode)."""
+    with wave.open(str(wav_path), "rb") as w:
+        if w.getnchannels() != 1 or w.getsampwidth() != 2:
+            raise ValueError(
+                f"expected mono 16-bit WAV, got {w.getnchannels()}ch "
+                f"{w.getsampwidth() * 8}-bit"
+            )
+        if w.getframerate() != 16000:
+            raise ValueError(f"expected 16 kHz WAV, got {w.getframerate()} Hz")
+        raw = w.readframes(w.getnframes())
+    return np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
+
+
 def _words_from_model(
     model: WhisperModel, wav_path: Path, *, time_offset: float = 0.0
 ) -> list[WordTiming]:
     segments, _info = model.transcribe(
-        str(wav_path),
+        pcm_float32_from_wav(wav_path),
         word_timestamps=True,
         language="en",
         vad_filter=True,

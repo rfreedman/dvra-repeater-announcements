@@ -56,9 +56,9 @@ const TEMPLATES = {
     days_before: 7,
     offset_minutes: 0,
   },
-  once: {
-    name: "Once",
-    kind: "once",
+  single_day: {
+    name: "Single Day",
+    kind: "single_day",
     slots: ["12:00"],
     offset_minutes: 0,
   },
@@ -695,6 +695,34 @@ async function dismissManualTriggerDrop() {
   renderManualTriggerDropNotice(null);
 }
 
+function scheduleNameFor(row) {
+  if (row?.schedule_name) return row.schedule_name;
+  if (!row?.schedule_id) return "";
+  const found = schedules.find((item) => item.schedule_id === row.schedule_id);
+  return found?.name || "";
+}
+
+function fillUpcomingLine(lineId, label, value) {
+  const line = document.getElementById(lineId);
+  if (!line) return;
+  const labelEl = document.createElement("span");
+  labelEl.className = "next-run-label";
+  labelEl.textContent = label;
+  const valueEl = document.createElement("span");
+  valueEl.className = "next-run-value";
+  valueEl.textContent = value;
+  line.replaceChildren(labelEl, document.createTextNode(" "), valueEl);
+}
+
+function fillUpcomingIdentity(row) {
+  fillUpcomingLine("next-run-schedule-line", "Schedule:", scheduleNameFor(row) || "—");
+  fillUpcomingLine(
+    "next-run-announcement-line",
+    "Announcement:",
+    row?.announcement_name || "Untitled",
+  );
+}
+
 function setUpcomingNote(text) {
   const note = document.getElementById("next-run-note");
   if (!note) return;
@@ -735,7 +763,7 @@ function renderUpcoming() {
 
   if (running && upcoming) {
     if (kicker) kicker.textContent = "Next run";
-    document.getElementById("next-run-name").textContent = upcoming.announcement_name || "Untitled";
+    fillUpcomingIdentity(upcoming);
     whenEl.textContent = upcoming.at ? formatWhen(upcoming.at) : "—";
     statusEl.textContent = "Running";
     statusEl.classList.add("is-running");
@@ -747,7 +775,7 @@ function renderUpcoming() {
 
   if (pending) {
     if (kicker) kicker.textContent = "Trigger now";
-    document.getElementById("next-run-name").textContent = pending.announcement_name || "Untitled";
+    fillUpcomingIdentity(pending);
     statusEl.classList.remove("is-running");
     if (pending.phase === "in_progress") {
       statusEl.textContent = "Trigger in progress";
@@ -797,7 +825,7 @@ function renderUpcoming() {
   }
 
   if (kicker) kicker.textContent = "Next run";
-  document.getElementById("next-run-name").textContent = upcoming.announcement_name || "Untitled";
+  fillUpcomingIdentity(upcoming);
   whenEl.textContent = upcoming.at ? formatWhen(upcoming.at) : "—";
   statusEl.textContent = "Waiting";
   statusEl.classList.remove("is-running", "is-deferred", "is-clear-hold");
@@ -868,10 +896,10 @@ function renderPriorityDefaults() {
   const el = document.getElementById("priority-defaults");
   if (!el || !scheduleMeta) return;
   const priorities = scheduleMeta.default_priority;
-  const standard = [priorities.weekly, priorities.monthly, priorities.once];
+  const standard = [priorities.weekly, priorities.monthly, priorities.single_day ?? priorities.once];
   const standardText = standard.every((value) => value === standard[0])
-    ? `weekly/monthly/once ${standard[0]}`
-    : `weekly ${priorities.weekly}, monthly ${priorities.monthly}, once ${priorities.once}`;
+    ? `weekly/monthly/single day ${standard[0]}`
+    : `weekly ${priorities.weekly}, monthly ${priorities.monthly}, single day ${priorities.single_day ?? priorities.once}`;
   const countdownText =
     priorities.range === priorities.monthly_range
       ? String(priorities.range)
@@ -964,6 +992,12 @@ function fillEventSlotSelect(selected) {
 function fillAnnouncementSelect(selected, { allowSilence = false } = {}) {
   const el = document.getElementById("sched-announcement");
   el.replaceChildren();
+  if (selected === undefined) {
+    const pick = document.createElement("option");
+    pick.value = "__pick__";
+    pick.textContent = "Choose an announcement…";
+    el.append(pick);
+  }
   if (allowSilence) {
     const silence = document.createElement("option");
     silence.value = "";
@@ -974,10 +1008,17 @@ function fillAnnouncementSelect(selected, { allowSilence = false } = {}) {
     if (item.too_long && item.id !== selected) continue;
     const option = document.createElement("option");
     option.value = item.id;
-    option.textContent = item.too_long ? `${item.name} (too long)` : item.name;
+    const newsline = item.kind === "newsline";
+    option.textContent = newsline
+      ? `${item.name} (Newsline)`
+      : item.too_long
+        ? `${item.name} (too long)`
+        : item.name;
     el.append(option);
   }
-  if (selected === null || selected === "") {
+  if (selected === undefined) {
+    el.value = "__pick__";
+  } else if (selected === null || selected === "") {
     el.value = "";
   } else if (selected) {
     el.value = selected;
@@ -1004,19 +1045,24 @@ function syncKindFields() {
   document.getElementById("fields-overlay").classList.toggle("hidden", !overlay);
   document.getElementById("fields-weekly").classList.toggle("hidden", kind !== "weekly");
   document.getElementById("fields-monthly").classList.toggle("hidden", !isMonthlyKind(kind));
-  document.getElementById("fields-once").classList.toggle("hidden", kind !== "once");
+  document.getElementById("fields-once").classList.toggle("hidden", kind !== "single_day" && kind !== "once");
   document.getElementById("fields-range").classList.toggle("hidden", kind !== "range");
   document.getElementById("fields-days-before").classList.toggle("hidden", kind !== "monthly_range");
   document.getElementById("fields-event-end").classList.toggle("hidden", !isCountdownKind(kind));
   const showSlots =
     kind === "weekly" ||
     kind === "monthly" ||
+    kind === "single_day" ||
     kind === "once" ||
     (isCountdownKind(kind) && !document.getElementById("range-all-slots").checked);
   document.getElementById("fields-slots").classList.toggle("hidden", !showSlots);
   document.getElementById("field-priority").classList.toggle("hidden", kind === "baseline" || kind === "emergency");
   document.getElementById("silence-hint").classList.toggle("hidden", kind === "baseline");
-  fillAnnouncementSelect(document.getElementById("sched-announcement").value, { allowSilence: kind !== "baseline" });
+  const currentAnnouncement = document.getElementById("sched-announcement").value;
+  fillAnnouncementSelect(
+    currentAnnouncement === "__pick__" ? undefined : currentAnnouncement,
+    { allowSilence: kind !== "baseline" },
+  );
   const windowMin = settings.slot_half_window_minutes ?? DEFAULT_SLOT_HALF_WINDOW_MINUTES;
   const offset = document.getElementById("sched-offset");
   offset.min = String(-windowMin);
@@ -1043,7 +1089,7 @@ function readSchedulePayload() {
     payload.occurrence = Number(document.getElementById("monthly-occurrence").value);
     payload.skip_months = [...document.getElementById("monthly-skip").querySelectorAll("input:checked")].map((el) => Number(el.value));
   }
-  if (kind === "once") payload.on_date = document.getElementById("once-date").value || null;
+  if (kind === "single_day" || kind === "once") payload.on_date = document.getElementById("once-date").value || null;
   if (kind === "range") {
     payload.start_date = document.getElementById("range-start").value || null;
     payload.event_date = document.getElementById("range-event-date").value || null;
@@ -1056,6 +1102,7 @@ function readSchedulePayload() {
   const needSlots =
     kind === "weekly" ||
     kind === "monthly" ||
+    kind === "single_day" ||
     kind === "once" ||
     (isCountdownKind(kind) && !document.getElementById("range-all-slots").checked);
   payload.slots = needSlots
@@ -1082,7 +1129,13 @@ function fillScheduleForm(schedule) {
   fillEventSlotSelect(schedule?.event_slot || "19:00");
   document.getElementById("range-all-slots").checked = !isCountdownKind(kind) || !(schedule?.slots || []).length;
   fillSlotChips(schedule?.slots || (kind === "weekly" ? ["21:00"] : kind === "monthly" ? ["19:00"] : ["12:00"]));
-  fillAnnouncementSelect(schedule?.announcement_id ?? announcements[0]?.id, { allowSilence: kind !== "baseline" });
+  const hasAnnouncementKey = Boolean(schedule && Object.prototype.hasOwnProperty.call(schedule, "announcement_id"));
+  const selectedAnnouncement = hasAnnouncementKey
+    ? schedule.announcement_id
+    : kind === "baseline"
+      ? announcements[0]?.id
+      : undefined;
+  fillAnnouncementSelect(selectedAnnouncement, { allowSilence: kind !== "baseline" });
   const invalid = document.getElementById("schedule-invalid");
   if (invalid) {
     invalid.textContent = schedule?.warning || "";
@@ -1952,6 +2005,10 @@ async function saveSchedule() {
   const body = readSchedulePayload();
   if (!body.name) {
     showError("schedule-error", "Name is required.");
+    return;
+  }
+  if (document.getElementById("sched-announcement").value === "__pick__") {
+    showError("schedule-error", "Pick an announcement.");
     return;
   }
   if (body.kind === "baseline" && !body.announcement_id) {

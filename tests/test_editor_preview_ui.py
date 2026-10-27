@@ -33,6 +33,32 @@ def test_newsline_preview_uses_a_lower_tone_for_ptt_release():
     assert 'X-Preview-Framing") !== "name32+length32"' in source
 
 
+def test_next_run_names_the_schedule_when_it_differs_from_the_announcement():
+    source = APP_JS.read_text(encoding="utf-8")
+    html = (APP_JS.parent / "index.html").read_text(encoding="utf-8")
+    css = (APP_JS.parent / "styles.css").read_text(encoding="utf-8")
+    assert "function fillUpcomingIdentity(row)" in source
+    assert "fillUpcomingIdentity(upcoming)" in source
+    assert "fillUpcomingLine(" in source
+    assert 'labelEl.className = "next-run-label"' in source
+    assert 'valueEl.className = "next-run-value"' in source
+    assert 'id="next-run-schedule-line"' in html
+    assert 'id="next-run-announcement-line"' in html
+    assert ".next-run-value" in css
+    label_css = css.split(".next-run-label", 1)[1].split("}", 1)[0]
+    value_css = css.split(".next-run-value", 1)[1].split("}", 1)[0]
+    status_css = css.split(".next-run-status {", 1)[1].split("}", 1)[0]
+    countdown_css = css.split(".next-run-countdown", 1)[1].split("}", 1)[0]
+    assert "color: var(--copper)" in label_css and "color: var(--copper)" in status_css
+    assert "font-size: 0.78rem" in label_css and "font-size: 0.78rem" in status_css
+    assert "color: var(--ink)" in value_css and "color: var(--ink)" in countdown_css
+    assert "font-size: 1.05rem" in value_css and "font-size: 1.05rem" in countdown_css
+    assert "wght@400;500;600;700" in html
+    assert "${item.name} (Newsline)" in source
+    assert 'pick.value = "__pick__"' in source
+    assert "Pick an announcement." in source
+
+
 def test_newsline_status_shows_segment_name_and_elapsed_clock():
     source = APP_JS.read_text(encoding="utf-8")
     assert "function streamingPieceStatus(name, elapsedSeconds)" in source

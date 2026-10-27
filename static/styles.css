@@ -294,10 +294,33 @@ body {
   stop-color: var(--led-edge);
 }
 
-.next-run-name {
-  font-size: 1.15rem;
-  font-weight: 500;
+.next-run-identity {
   margin: 0 0 8px;
+}
+
+.next-run-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+}
+
+.next-run-line + .next-run-line {
+  margin-top: 4px;
+}
+
+.next-run-label {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.78rem;
+  color: var(--copper);
+}
+
+.next-run-value {
+  color: var(--ink);
+  font-size: 1.05rem;
+  font-weight: normal;
 }
 
 .next-run-meta {

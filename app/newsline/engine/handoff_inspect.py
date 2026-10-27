@@ -30,6 +30,7 @@ from app.newsline.engine.silence_cuts import (
 from app.newsline.engine.silence_cuts import (
     extend_through_speech as _extend_through_speech,
 )
+from app.newsline.engine.transcribe import pcm_float32_from_wav
 from app.newsline.engine.verify_fulltext import speakable_line_token_lists
 
 _MIN_MATCH = 86.0
@@ -115,7 +116,7 @@ def transcribe_handoff_window(
         wav = Path(td) / "win.wav"
         _decode_window_wav(audio, t0, t1, wav)
         segments, _info = model.transcribe(
-            str(wav),
+            pcm_float32_from_wav(wav),
             word_timestamps=True,
             language="en",
             vad_filter=False,
