@@ -19,8 +19,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install PortAudio (sounddevice)
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libportaudio2
+      - name: Install system packages
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libportaudio2 ffmpeg
 
       - name: Install uv
         uses: astral-sh/setup-uv@v10.3.2

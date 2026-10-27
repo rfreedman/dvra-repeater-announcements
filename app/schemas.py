@@ -64,7 +64,6 @@ class ScheduleIn(BaseModel):
     days: list[str] = Field(default_factory=list)
     occurrence: int | None = None
     skip_months: list[int] = Field(default_factory=list)
-    on_date: date | None = None
     start_date: date | None = None
     event_date: date | None = None
     days_before: int | None = None

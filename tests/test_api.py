@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import date, datetime
 
 import pytest
@@ -41,24 +42,40 @@ def test_empty_store_lists_nothing(client, store):
     assert any("baseline" in item.lower() for item in payload["warnings"])
 
 
-def test_expired_single_day_schedule_removed_on_home_list(client, store):
-    announcement, _baseline = _seed_baseline(store)
-    single_day = store.save_schedule(
-        Schedule.model_validate(
+def test_once_and_single_day_schedules_are_dropped_on_read(store):
+    announcement, baseline = _seed_baseline(store)
+    raw = json.loads(store.path.read_text(encoding="utf-8"))
+    raw["schedules"].extend(
+        [
             {
+                "id": "deadonce",
+                "name": "Old once",
+                "enabled": True,
+                "kind": "once",
+                "announcement_id": announcement.id,
+                "slots": ["12:00"],
+                "days": [],
+                "priority": 50,
+            },
+            {
+                "id": "deadsingle",
                 "name": "Old single day",
+                "enabled": True,
                 "kind": "single_day",
                 "announcement_id": announcement.id,
-                "on_date": date(2020, 1, 1),
                 "slots": ["12:00"],
-            }
-        )
+                "days": [],
+                "priority": 50,
+            },
+        ]
     )
-    assert single_day.id in {item.id for item in store.list_schedules()}
-    payload = client.get("/api/schedules").json()
-    names = {row["name"] for row in payload["schedules"]}
-    assert "Old single day" not in names
-    assert single_day.id not in {item.id for item in store.list_schedules()}
+    store.path.write_text(json.dumps(raw), encoding="utf-8")
+    ids = {item.id for item in store.list_schedules()}
+    assert baseline.id in ids
+    assert "deadonce" not in ids
+    assert "deadsingle" not in ids
+    saved = json.loads(store.path.read_text(encoding="utf-8"))
+    assert all(row.get("kind") not in {"once", "single_day"} for row in saved["schedules"])
 
 
 def test_create_announcement_and_baseline(client, store):

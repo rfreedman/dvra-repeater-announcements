@@ -8,7 +8,6 @@ from app.schedule_logic import (
     find_conflicts,
     next_rotation,
     overlay_matches,
-    prune_expired_once_schedules,
     resolve_slot,
     resolve_window,
     summarize,
@@ -297,7 +296,7 @@ def test_rotation_does_not_advance_twice_for_the_same_slot():
     assert (order2, index2) == (order, index)
 
 
-def test_single_day_newsline_overlay_plays_the_newsline_item():
+def test_weekly_newsline_overlay_plays_the_newsline_item():
     station = _ann(id="sid", name="Station ID")
     news = _ann(
         id="news",
@@ -309,10 +308,10 @@ def test_single_day_newsline_overlay_plays_the_newsline_item():
     tech = _ann(id="tech", name="Tech Net Pre-Announcement")
     overlay = Schedule.model_validate(
         {
-            "name": "Newsline Test (Single Day)",
-            "kind": "single_day",
+            "name": "Newsline Test",
+            "kind": "weekly",
             "announcement_id": "news",
-            "on_date": "2026-10-26",
+            "days": ["mon"],
             "slots": ["17:30"],
             "priority": 500,
         }
@@ -327,62 +326,16 @@ def test_single_day_newsline_overlay_plays_the_newsline_item():
     assert resolved.source == "overlay"
     assert resolved.announcement.id == "news"
     assert resolved.announcement.name == "News"
-    assert resolved.schedule.name == "Newsline Test (Single Day)"
-
-
-def test_legacy_once_kind_migrates_to_single_day():
-    legacy = Schedule.model_validate(
-        {
-            "name": "Legacy once",
-            "kind": "once",
-            "announcement_id": "a1",
-            "on_date": "2026-10-26",
-            "slots": ["17:30"],
-        }
-    )
-    assert legacy.kind == "single_day"
-
-
-def test_prune_expired_once_schedules_keeps_today_even_after_last_run():
-    ann = _ann(id="a1")
-    once_yesterday = Schedule.model_validate(
-        {
-            "name": "Past single day",
-            "kind": "single_day",
-            "announcement_id": "a1",
-            "on_date": "2026-10-25",
-            "slots": ["17:30"],
-        }
-    )
-    once_today = Schedule.model_validate(
-        {
-            "name": "Today single day",
-            "kind": "single_day",
-            "announcement_id": "a1",
-            "on_date": "2026-10-26",
-            "slots": ["17:00", "17:30"],
-            "last_run_at": "2026-10-26T17:00:00-04:00",
-        }
-    )
-    document = _doc(
-        ann,
-        schedules=[_baseline("a1", id="s1"), once_yesterday, once_today],
-    )
-    now = datetime(2026, 10, 26, 17, 15, tzinfo=TZ)
-    updated, removed = prune_expired_once_schedules(document, now)
-    assert removed == [once_yesterday.id]
-    remaining_ids = {item.id for item in updated.schedules}
-    assert once_today.id in remaining_ids
-    assert once_yesterday.id not in remaining_ids
+    assert resolved.schedule.name == "Newsline Test"
 
 
 def test_offset_example_is_fifteen_twenty_five_not_fifteen_ten():
     overlay = Schedule.model_validate(
         {
             "name": "Shifted",
-            "kind": "single_day",
+            "kind": "weekly",
             "announcement_id": "a2",
-            "on_date": "2026-09-01",
+            "days": ["tue"],
             "slots": ["15:30"],
             "offset_minutes": -5,
         }

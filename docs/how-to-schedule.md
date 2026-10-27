@@ -66,9 +66,6 @@ time).
 - **Monthly countdown** — the same until-event rule, repeating each month.
   Choose the event (for example the 1st Wednesday at 19:00) and how many days
   before that event the promo should start. Skip months if needed.
-- **Single Day** — selected slots on a single date. After that date (station
-  timezone), the schedule is removed from the list automatically; use the
-  transmission log if you need a record of what aired.
 - **Silence** — occupy a slot and transmit nothing (for example while a net is
   already on the air).
 - **Emergency** — wins every slot until you turn it off. It does not interrupt a
@@ -79,7 +76,7 @@ schedule to whatever the operators will recognize.
 
 ## 4. When two overlays want the same slot
 
-The higher priority wins. Defaults: emergency 100, weekly/monthly/single day 50, event
+The higher priority wins. Defaults: emergency 100, weekly/monthly 50, event
 countdown 20. A Sunday 21:00 net therefore beats a week-long meeting promo on
 that one slot. Two overlays of the same priority on the same slot cannot both be
 saved.

@@ -62,10 +62,10 @@ def test_schedule_list_keeps_a_newsline_announcement(client):
     created = client.post(
         "/api/schedules",
         json={
-            "name": "Newsline Test (Single Day)",
-            "kind": "single_day",
+            "name": "Newsline Test",
+            "kind": "weekly",
             "announcement_id": news["id"],
-            "on_date": "2026-10-26",
+            "days": ["mon"],
             "slots": ["17:30"],
             "priority": 500,
         },
@@ -73,7 +73,7 @@ def test_schedule_list_keeps_a_newsline_announcement(client):
     assert created.status_code == 200
     assert created.json()["announcement_id"] == news["id"]
     rows = client.get("/api/schedules").json()["schedules"]
-    row = next(item for item in rows if item["name"] == "Newsline Test (Single Day)")
+    row = next(item for item in rows if item["name"] == "Newsline Test")
     assert row["announcement_id"] == news["id"]
     assert row["announcement_name"] == "News"
 

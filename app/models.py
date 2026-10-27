@@ -52,15 +52,13 @@ MONTH_LABELS = {
     12: "December",
 }
 
-ScheduleKind = Literal["baseline", "weekly", "monthly", "single_day", "once", "range", "monthly_range", "emergency"]
+ScheduleKind = Literal["baseline", "weekly", "monthly", "range", "monthly_range", "emergency"]
 AnnouncementKind = Literal["tts", "newsline"]
-OVERLAY_KINDS = frozenset({"weekly", "monthly", "single_day", "once", "range", "monthly_range", "emergency"})
+OVERLAY_KINDS = frozenset({"weekly", "monthly", "range", "monthly_range", "emergency"})
 DEFAULT_PRIORITY = {
     "baseline": 0,
     "weekly": 50,
     "monthly": 50,
-    "single_day": 50,
-    "once": 50,
     "range": 20,
     "monthly_range": 20,
     "emergency": 100,
@@ -220,7 +218,6 @@ class Schedule(BaseModel):
     days: list[str] = Field(default_factory=list)
     occurrence: int | None = None
     skip_months: list[int] = Field(default_factory=list)
-    on_date: date | None = None
     start_date: date | None = None
     event_date: date | None = None
     event_slot: str | None = None
@@ -248,7 +245,6 @@ class Schedule(BaseModel):
             self.days = []
             self.occurrence = None
             self.skip_months = []
-            self.on_date = None
             self.start_date = None
             self.event_date = None
             self.event_slot = None
@@ -261,19 +257,6 @@ class Schedule(BaseModel):
         elif self.kind == "monthly":
             self._require_monthly_weekday()
             self.slots = normalize_slots(self.slots, required=True)
-            self.on_date = None
-            self.start_date = None
-            self.event_date = None
-            self.event_slot = None
-            self.days_before = None
-        elif self.kind in ("single_day", "once"):
-            self.kind = "single_day"
-            if self.on_date is None:
-                raise ValueError("A single day schedule needs a date")
-            self.slots = normalize_slots(self.slots, required=True)
-            self.days = []
-            self.occurrence = None
-            self.skip_months = []
             self.start_date = None
             self.event_date = None
             self.event_slot = None
@@ -290,7 +273,6 @@ class Schedule(BaseModel):
             self.days = []
             self.occurrence = None
             self.skip_months = []
-            self.on_date = None
             self.days_before = None
         elif self.kind == "monthly_range":
             self._require_monthly_weekday()
@@ -304,7 +286,6 @@ class Schedule(BaseModel):
                 raise ValueError("Event slot must be on the hour or half-hour")
             self.event_slot = format_hhmm(*parse_hhmm(self.event_slot))
             self.slots = normalize_slots(self.slots, required=False)
-            self.on_date = None
             self.start_date = None
             self.event_date = None
         else:
@@ -312,7 +293,6 @@ class Schedule(BaseModel):
             self.days = []
             self.occurrence = None
             self.skip_months = []
-            self.on_date = None
             self.start_date = None
             self.event_date = None
             self.event_slot = None
@@ -324,7 +304,6 @@ class Schedule(BaseModel):
     def _clear_monthly_and_dates(self) -> None:
         self.occurrence = None
         self.skip_months = []
-        self.on_date = None
         self.start_date = None
         self.event_date = None
         self.event_slot = None

@@ -516,9 +516,6 @@ def sync_jobs() -> None:
     scheduler = get_scheduler()
     if scheduler is None:
         return
-    removed = get_store().prune_expired_once_schedules()
-    if removed:
-        log.info("Removed expired Once schedule(s): %s", ", ".join(removed))
     document = get_store().document()
     zone = zone_for(document.settings.timezone)
     now = datetime.now(zone)

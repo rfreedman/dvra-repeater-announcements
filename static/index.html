@@ -302,7 +302,6 @@
                   <button type="button" data-template="monthly">Monthly</button>
                   <button type="button" data-template="range">Event countdown</button>
                   <button type="button" data-template="monthly_range">Monthly countdown</button>
-                  <button type="button" data-template="single_day">Single Day</button>
                   <button type="button" data-template="silence">Silence</button>
                   <button type="button" data-template="emergency">Emergency</button>
                 </div>
@@ -414,7 +413,6 @@
               Choose the event (for example the 1st Wednesday at 19:00) and how many days before
               that event the promo should start. Skip months if needed.
             </li>
-            <li><strong>Single Day</strong> — selected slots on a single date.</li>
             <li>
               <strong>Silence</strong> — occupy a slot and transmit nothing (for example while a net is
               already on the air).
@@ -581,7 +579,6 @@
             <option value="monthly">Monthly</option>
             <option value="range">Event countdown</option>
             <option value="monthly_range">Monthly countdown</option>
-            <option value="single_day">Single Day</option>
             <option value="emergency">Emergency</option>
           </select>
         </section>
@@ -616,11 +613,6 @@
           <label class="label">Skip months</label>
           <p class="lede tight">Checked months are skipped (baseline plays instead).</p>
           <div id="monthly-skip" class="day-chips"></div>
-        </div>
-
-        <div id="fields-once" class="kind-fields hidden">
-          <label class="label" for="once-date">Date</label>
-          <input id="once-date" type="date" />
         </div>
 
         <div id="fields-range" class="kind-fields hidden">

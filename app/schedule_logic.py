@@ -81,8 +81,6 @@ def overlay_matches(schedule: Schedule, slot: Slot) -> bool:
         weekday = DAY_NAMES.index(schedule.days[0])
         wanted = nth_weekday_date(slot.day.year, slot.day.month, weekday, schedule.occurrence or 1)
         return slot.day == wanted
-    if schedule.kind in ("single_day", "once"):
-        return slot.day == schedule.on_date and stamp in schedule.slots
     if schedule.kind == "range":
         return _range_matches(schedule, slot)
     if schedule.kind == "monthly_range":
@@ -419,10 +417,6 @@ def offset_allowed(offset_minutes: int, window: int) -> bool:
     return -window <= offset_minutes <= window
 
 
-def _short_date(value: date) -> str:
-    return f"{value.strftime('%b')} {value.day}, {value.year}"
-
-
 def _month_day(value: date) -> str:
     return f"{value.strftime('%b')} {value.day}"
 
@@ -545,9 +539,6 @@ def summarize(schedule: Schedule) -> str:
         if schedule.skip_months:
             extra = f", except {_join_en([MONTH_LABELS[month] for month in schedule.skip_months])}"
         return f"{_slot_phrase(schedule.slots)} on the {occ} {weekday} of every month{offset}{extra}{silence}"
-    if schedule.kind in ("single_day", "once"):
-        when = _short_date(schedule.on_date) if schedule.on_date else "single day"
-        return f"{_slot_phrase(schedule.slots)} on {when}{offset}{silence}"
     if schedule.kind == "range":
         start = _month_day(schedule.start_date) if schedule.start_date else "?"
         event_day = _month_day(schedule.event_date) if schedule.event_date else "?"
@@ -574,31 +565,6 @@ def summarize(schedule: Schedule) -> str:
     return schedule.kind
 
 
-def once_schedule_is_expired(schedule: Schedule, today: date) -> bool:
-    """True when a single day overlay's date is before today (station calendar day)."""
-    return schedule.kind in ("single_day", "once") and schedule.on_date is not None and schedule.on_date < today
-
-
-def prune_expired_once_schedules(
-    document: StoreDocument,
-    now: datetime | None = None,
-) -> tuple[StoreDocument, list[str]]:
-    """Drop Single Day schedules whose ``on_date`` is before today. Returns (document, removed ids)."""
-    zone = zone_for(document.settings.timezone)
-    when = now or datetime.now(zone)
-    today = as_local(when, zone).date()
-    removed: list[str] = []
-    kept: list[Schedule] = []
-    for schedule in document.schedules:
-        if once_schedule_is_expired(schedule, today):
-            removed.append(schedule.id)
-        else:
-            kept.append(schedule)
-    if not removed:
-        return document, []
-    return document.model_copy(update={"schedules": kept}), removed
-
-
 def schedule_warning(
     schedule: Schedule,
     document: StoreDocument,
@@ -622,8 +588,6 @@ def schedule_warning(
             return "Won't play — announcement text is empty."
     zone = zone_for(document.settings.timezone)
     when = now or datetime.now(zone)
-    if schedule.kind in ("single_day", "once") and schedule.on_date and schedule.on_date < when.date():
-        return "Won't play — the date has already passed."
     if schedule.kind == "range" and schedule.event_date and schedule.event_date < when.date():
         return "Won't play — the event date has already passed."
     if schedule.kind == "baseline" and not schedule.enabled:

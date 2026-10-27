@@ -15,8 +15,9 @@ from app.models import (
 from app.schedule_logic import (
     effective_baseline_order,
     next_rotation,
-    prune_expired_once_schedules as drop_expired_once_from_document,
 )
+
+_DROPPED_SCHEDULE_KINDS = frozenset({"once", "single_day"})
 
 _lock = threading.Lock()
 _store: AnnouncementStore | None = None
@@ -70,7 +71,21 @@ class AnnouncementStore:
         raw = read_versioned_json(self.path, version=2, kind="announcements")
         if raw is None:
             return empty_document()
-        return StoreDocument.model_validate(raw)
+        schedules = raw.get("schedules")
+        dropped = False
+        if isinstance(schedules, list):
+            kept = [
+                item
+                for item in schedules
+                if not (isinstance(item, dict) and item.get("kind") in _DROPPED_SCHEDULE_KINDS)
+            ]
+            if len(kept) != len(schedules):
+                raw = {**raw, "schedules": kept}
+                dropped = True
+        document = StoreDocument.model_validate(raw)
+        if dropped:
+            self._write(document)
+        return document
 
     def _write(self, document: StoreDocument) -> None:
         write_json_atomic(self.path, document.model_dump(mode="json"))
@@ -149,17 +164,6 @@ class AnnouncementStore:
             updated = _refresh_rotation(updated)
             self._write(updated)
             return schedule
-
-    def prune_expired_once_schedules(self) -> list[str]:
-        """Remove Once overlays whose date is before today in the station timezone."""
-        with _lock:
-            document = self._read()
-            updated, removed = drop_expired_once_from_document(document)
-            if not removed:
-                return []
-            updated = _refresh_rotation(updated)
-            self._write(updated)
-            return removed
 
     def delete_schedule(self, schedule_id: str) -> bool:
         with _lock:

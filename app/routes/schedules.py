@@ -177,9 +177,6 @@ def put_settings(req: SettingsIn, _admin: AdminUser) -> dict[str, object]:
 @router.get("/api/schedules")
 def list_schedules(_user: AuthUser, clock_date: date | None = None) -> dict[str, object]:
     store = get_store()
-    if store.prune_expired_once_schedules():
-        sync_jobs()
-        notify_home_data_changed()
     document = store.document()
     now = datetime.now(ZoneInfo(document.settings.timezone))
     day = clock_date or now.date()

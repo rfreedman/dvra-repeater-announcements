@@ -56,12 +56,6 @@ const TEMPLATES = {
     days_before: 7,
     offset_minutes: 0,
   },
-  single_day: {
-    name: "Single Day",
-    kind: "single_day",
-    slots: ["12:00"],
-    offset_minutes: 0,
-  },
   silence: {
     name: "Silence",
     kind: "weekly",
@@ -246,7 +240,6 @@ function scheduleEditorControls() {
     document.getElementById("sched-announcement"),
     document.getElementById("sched-offset"),
     document.getElementById("monthly-occurrence"),
-    document.getElementById("once-date"),
     document.getElementById("range-start"),
     document.getElementById("range-event-date"),
     document.getElementById("days-before"),
@@ -896,10 +889,10 @@ function renderPriorityDefaults() {
   const el = document.getElementById("priority-defaults");
   if (!el || !scheduleMeta) return;
   const priorities = scheduleMeta.default_priority;
-  const standard = [priorities.weekly, priorities.monthly, priorities.single_day ?? priorities.once];
+  const standard = [priorities.weekly, priorities.monthly];
   const standardText = standard.every((value) => value === standard[0])
-    ? `weekly/monthly/single day ${standard[0]}`
-    : `weekly ${priorities.weekly}, monthly ${priorities.monthly}, single day ${priorities.single_day ?? priorities.once}`;
+    ? `weekly/monthly ${standard[0]}`
+    : `weekly ${priorities.weekly}, monthly ${priorities.monthly}`;
   const countdownText =
     priorities.range === priorities.monthly_range
       ? String(priorities.range)
@@ -1045,15 +1038,12 @@ function syncKindFields() {
   document.getElementById("fields-overlay").classList.toggle("hidden", !overlay);
   document.getElementById("fields-weekly").classList.toggle("hidden", kind !== "weekly");
   document.getElementById("fields-monthly").classList.toggle("hidden", !isMonthlyKind(kind));
-  document.getElementById("fields-once").classList.toggle("hidden", kind !== "single_day" && kind !== "once");
   document.getElementById("fields-range").classList.toggle("hidden", kind !== "range");
   document.getElementById("fields-days-before").classList.toggle("hidden", kind !== "monthly_range");
   document.getElementById("fields-event-end").classList.toggle("hidden", !isCountdownKind(kind));
   const showSlots =
     kind === "weekly" ||
     kind === "monthly" ||
-    kind === "single_day" ||
-    kind === "once" ||
     (isCountdownKind(kind) && !document.getElementById("range-all-slots").checked);
   document.getElementById("fields-slots").classList.toggle("hidden", !showSlots);
   document.getElementById("field-priority").classList.toggle("hidden", kind === "baseline" || kind === "emergency");
@@ -1089,7 +1079,6 @@ function readSchedulePayload() {
     payload.occurrence = Number(document.getElementById("monthly-occurrence").value);
     payload.skip_months = [...document.getElementById("monthly-skip").querySelectorAll("input:checked")].map((el) => Number(el.value));
   }
-  if (kind === "single_day" || kind === "once") payload.on_date = document.getElementById("once-date").value || null;
   if (kind === "range") {
     payload.start_date = document.getElementById("range-start").value || null;
     payload.event_date = document.getElementById("range-event-date").value || null;
@@ -1102,8 +1091,6 @@ function readSchedulePayload() {
   const needSlots =
     kind === "weekly" ||
     kind === "monthly" ||
-    kind === "single_day" ||
-    kind === "once" ||
     (isCountdownKind(kind) && !document.getElementById("range-all-slots").checked);
   payload.slots = needSlots
     ? [...document.getElementById("slot-chips").querySelectorAll("input:checked")].map((el) => el.value)
@@ -1122,7 +1109,6 @@ function fillScheduleForm(schedule) {
   fillDayChips(document.getElementById("monthly-weekday"), schedule?.days?.[0] || "wed", { exclusive: true });
   document.getElementById("monthly-occurrence").value = String(schedule?.occurrence || 1);
   fillMonthSkip(document.getElementById("monthly-skip"), schedule?.skip_months || []);
-  document.getElementById("once-date").value = schedule?.on_date || "";
   document.getElementById("range-start").value = schedule?.start_date || "";
   document.getElementById("range-event-date").value = schedule?.event_date || "";
   document.getElementById("days-before").value = String(schedule?.days_before ?? 7);
