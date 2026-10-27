@@ -215,7 +215,7 @@ body {
 }
 
 .next-run {
-  margin: 0 0 18px;
+  margin: 18px 0 18px;
   padding: 16px 18px;
   border: 1px solid var(--line);
   border-radius: 14px;
