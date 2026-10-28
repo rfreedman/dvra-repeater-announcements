@@ -118,7 +118,7 @@ An **Amateur Radio Newsline** item plays the current week's report (opening, sto
 Timing lives on **schedules**, which point at that text:
 
 - A **baseline** fills every hour and half-hour unless something else claims the slot. Several baselines take turns.
-- An **overlay** (weekly net, monthly net, event countdown, once, silence, or emergency) replaces the baseline for the slots it matches. You can slide an overlay a few minutes early or late inside the slot window; it still occupies that slot. Example: the 15:30 slot at −5 minutes fires at 15:25, and 15:30 stays silent.
+- An **overlay** (weekly net, monthly net, event countdown, silence, or emergency) replaces the baseline for the slots it matches. You can slide an overlay a few minutes early or late inside the slot window; it still occupies that slot. Example: the 15:30 slot at −5 minutes fires at 15:25, and 15:30 stays silent.
 
 Scheduled playback uses the configured **radio backend** (`TTS_RADIO_BACKEND`: **stub** by default, or **dra** for DRA-36M PTT/COS/USB audio on the NUC). The Speak button is preview only (default output, no PTT). See [final hardware](docs/final-hardware/README.md), [radio backend protocol](docs/radio-backend.md), and configuration below.
 

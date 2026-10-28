@@ -17,8 +17,6 @@ from app.schedule_logic import (
     next_rotation,
 )
 
-_DROPPED_SCHEDULE_KINDS = frozenset({"once", "single_day"})
-
 _lock = threading.Lock()
 _store: AnnouncementStore | None = None
 
@@ -71,21 +69,7 @@ class AnnouncementStore:
         raw = read_versioned_json(self.path, version=2, kind="announcements")
         if raw is None:
             return empty_document()
-        schedules = raw.get("schedules")
-        dropped = False
-        if isinstance(schedules, list):
-            kept = [
-                item
-                for item in schedules
-                if not (isinstance(item, dict) and item.get("kind") in _DROPPED_SCHEDULE_KINDS)
-            ]
-            if len(kept) != len(schedules):
-                raw = {**raw, "schedules": kept}
-                dropped = True
-        document = StoreDocument.model_validate(raw)
-        if dropped:
-            self._write(document)
-        return document
+        return StoreDocument.model_validate(raw)
 
     def _write(self, document: StoreDocument) -> None:
         write_json_atomic(self.path, document.model_dump(mode="json"))

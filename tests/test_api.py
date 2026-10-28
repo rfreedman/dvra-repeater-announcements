@@ -41,43 +41,6 @@ def test_empty_store_lists_nothing(client, store):
     assert payload["clock"]
     assert any("baseline" in item.lower() for item in payload["warnings"])
 
-
-def test_once_and_single_day_schedules_are_dropped_on_read(store):
-    announcement, baseline = _seed_baseline(store)
-    raw = json.loads(store.path.read_text(encoding="utf-8"))
-    raw["schedules"].extend(
-        [
-            {
-                "id": "deadonce",
-                "name": "Old once",
-                "enabled": True,
-                "kind": "once",
-                "announcement_id": announcement.id,
-                "slots": ["12:00"],
-                "days": [],
-                "priority": 50,
-            },
-            {
-                "id": "deadsingle",
-                "name": "Old single day",
-                "enabled": True,
-                "kind": "single_day",
-                "announcement_id": announcement.id,
-                "slots": ["12:00"],
-                "days": [],
-                "priority": 50,
-            },
-        ]
-    )
-    store.path.write_text(json.dumps(raw), encoding="utf-8")
-    ids = {item.id for item in store.list_schedules()}
-    assert baseline.id in ids
-    assert "deadonce" not in ids
-    assert "deadsingle" not in ids
-    saved = json.loads(store.path.read_text(encoding="utf-8"))
-    assert all(row.get("kind") not in {"once", "single_day"} for row in saved["schedules"])
-
-
 def test_create_announcement_and_baseline(client, store):
     created = client.post(
         "/api/announcements",
