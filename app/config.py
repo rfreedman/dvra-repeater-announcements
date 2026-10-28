@@ -113,7 +113,7 @@ PCM_CACHE_DIR = Path(os.environ.get("TTS_PCM_CACHE_DIR", DATA_DIR / "pcm")).expa
 LOG_DIR = Path(os.environ.get("TTS_LOG_DIR", DATA_DIR / "logs")).expanduser()
 LOG_KEEP_DAYS = int(os.environ.get("TTS_LOG_KEEP_DAYS", "30"))
 TIMEZONE = os.environ.get("TTS_TIMEZONE", "America/New_York")
-PTT_LEAD_SECONDS = float(os.environ.get("TTS_PTT_LEAD_SECONDS", "0.4"))
+PTT_LEAD_SECONDS = float(os.environ.get("TTS_PTT_LEAD_SECONDS", "1"))
 
 def radio_backend() -> str:
     return os.environ.get("TTS_RADIO_BACKEND", "stub").strip().lower()
