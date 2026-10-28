@@ -59,6 +59,35 @@ def test_next_run_names_the_schedule_when_it_differs_from_the_announcement():
     assert "Pick an announcement." in source
 
 
+def test_new_forms_leave_name_days_and_slots_empty():
+    source = APP_JS.read_text(encoding="utf-8")
+    html = (APP_JS.parent / "index.html").read_text(encoding="utf-8")
+    assert 'id="name" type="text" maxlength="120" />' in html
+    assert 'id="sched-name" type="text" maxlength="120" />' in html
+    assert 'placeholder="Station ID"' not in html
+    assert 'placeholder="Weekly"' not in html
+    templates = source.split("const TEMPLATES = {", 1)[1].split("};", 1)[0]
+    assert "name:" not in templates
+    assert "days:" not in templates
+    assert "slots:" not in templates
+    assert "event_slot:" not in templates
+    filler = source.split("function fillScheduleForm(schedule)", 1)[1].split(
+        "function renderClock", 1
+    )[0]
+    assert '|| ["sun"]' not in filler
+    assert '|| "wed"' not in filler
+    assert '|| "19:00"' not in filler
+    assert '["21:00"]' not in filler
+    assert "Choose a slot…" in source
+    assert "fillEventSlotSelect(schedule?.event_slot)" in filler
+    assert "fillSlotChips(schedule?.slots || [])" in filler
+    assert "announcements[0]" not in filler
+    select_fn = source.split("function fillAnnouncementSelect", 1)[1].split(
+        "function isCountdownKind", 1
+    )[0]
+    assert "announcements[0]" not in select_fn
+
+
 def test_newsline_status_shows_segment_name_and_elapsed_clock():
     source = APP_JS.read_text(encoding="utf-8")
     assert "function streamingPieceStatus(name, elapsedSeconds)" in source

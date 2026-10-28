@@ -25,50 +25,23 @@ const PTT_TONE_SECONDS = 0.2;
 let scheduleMeta = null;
 
 const TEMPLATES = {
-  baseline: { name: "Baseline", kind: "baseline", offset_minutes: 0 },
-  weekly: {
-    name: "Weekly",
-    kind: "weekly",
-    days: ["sun"],
-    slots: ["21:00"],
-    offset_minutes: -5,
-  },
+  baseline: { kind: "baseline", offset_minutes: 0 },
+  weekly: { kind: "weekly", offset_minutes: 0 },
   monthly: {
-    name: "Monthly",
     kind: "monthly",
-    days: ["wed"],
     occurrence: 1,
-    slots: ["19:00"],
-    offset_minutes: -5,
+    offset_minutes: 0,
     skip_months: [],
   },
-  range: {
-    name: "Event countdown",
-    kind: "range",
-    offset_minutes: 0,
-  },
+  range: { kind: "range", offset_minutes: 0 },
   monthly_range: {
-    name: "Monthly countdown",
     kind: "monthly_range",
-    days: ["wed"],
     occurrence: 1,
-    event_slot: "19:00",
     days_before: 7,
     offset_minutes: 0,
   },
-  silence: {
-    name: "Silence",
-    kind: "weekly",
-    days: ["sun"],
-    slots: ["21:30"],
-    offset_minutes: 0,
-    announcement_id: null,
-  },
-  emergency: {
-    name: "Emergency",
-    kind: "emergency",
-    offset_minutes: 0,
-  },
+  silence: { kind: "weekly", offset_minutes: 0, announcement_id: null },
+  emergency: { kind: "emergency", offset_minutes: 0 },
 };
 
 const voiceEl = document.getElementById("voice");
@@ -973,13 +946,20 @@ function fillSlotChips(selected) {
 function fillEventSlotSelect(selected) {
   const el = document.getElementById("range-event-slot");
   el.replaceChildren();
+  if (!selected) {
+    const pick = document.createElement("option");
+    pick.value = "";
+    pick.textContent = "Choose a slot…";
+    el.append(pick);
+  }
   for (const stamp of slotStamps()) {
     const option = document.createElement("option");
     option.value = stamp;
     option.textContent = stamp;
-    option.selected = stamp === (selected || "19:00");
+    option.selected = stamp === selected;
     el.append(option);
   }
+  if (!selected) el.value = "";
 }
 
 function fillAnnouncementSelect(selected, { allowSilence = false } = {}) {
@@ -1015,8 +995,6 @@ function fillAnnouncementSelect(selected, { allowSilence = false } = {}) {
     el.value = "";
   } else if (selected) {
     el.value = selected;
-  } else if (announcements[0]) {
-    el.value = announcements[0].id;
   }
 }
 
@@ -1105,22 +1083,18 @@ function fillScheduleForm(schedule) {
   document.getElementById("sched-enabled").checked = schedule?.enabled !== false;
   document.getElementById("sched-offset").value = String(schedule?.offset_minutes ?? 0);
   document.getElementById("sched-priority").value = String(editorPriority(schedule, kind));
-  fillDayChips(document.getElementById("weekly-days"), schedule?.days || ["sun"]);
-  fillDayChips(document.getElementById("monthly-weekday"), schedule?.days?.[0] || "wed", { exclusive: true });
+  fillDayChips(document.getElementById("weekly-days"), schedule?.days || []);
+  fillDayChips(document.getElementById("monthly-weekday"), schedule?.days?.[0] || "", { exclusive: true });
   document.getElementById("monthly-occurrence").value = String(schedule?.occurrence || 1);
   fillMonthSkip(document.getElementById("monthly-skip"), schedule?.skip_months || []);
   document.getElementById("range-start").value = schedule?.start_date || "";
   document.getElementById("range-event-date").value = schedule?.event_date || "";
   document.getElementById("days-before").value = String(schedule?.days_before ?? 7);
-  fillEventSlotSelect(schedule?.event_slot || "19:00");
+  fillEventSlotSelect(schedule?.event_slot);
   document.getElementById("range-all-slots").checked = !isCountdownKind(kind) || !(schedule?.slots || []).length;
-  fillSlotChips(schedule?.slots || (kind === "weekly" ? ["21:00"] : kind === "monthly" ? ["19:00"] : ["12:00"]));
+  fillSlotChips(schedule?.slots || []);
   const hasAnnouncementKey = Boolean(schedule && Object.prototype.hasOwnProperty.call(schedule, "announcement_id"));
-  const selectedAnnouncement = hasAnnouncementKey
-    ? schedule.announcement_id
-    : kind === "baseline"
-      ? announcements[0]?.id
-      : undefined;
+  const selectedAnnouncement = hasAnnouncementKey ? schedule.announcement_id : undefined;
   fillAnnouncementSelect(selectedAnnouncement, { allowSilence: kind !== "baseline" });
   const invalid = document.getElementById("schedule-invalid");
   if (invalid) {
