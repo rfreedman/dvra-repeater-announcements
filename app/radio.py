@@ -102,17 +102,16 @@ def transmit(
         if dra is not None:
             dra.begin_usb_transmit()
         try:
-            if dra is not None and lead > 0:
-                radio.set_ptt(True)
-                play_dra_lead_silence(
-                    device_indices=dra.audio_device_indices,
-                    channel=dra._usb_channel,
-                    lead_seconds=lead,
-                    should_abort=dra._transmit_abort.is_set,
-                    register_aplay_proc=dra._register_aplay_proc,
-                )
-            # radio.set_ptt(True)
+            radio.set_ptt(True)
             try:
+                if dra is not None and lead > 0:
+                    play_dra_lead_silence(
+                        device_indices=dra.audio_device_indices,
+                        channel=dra._usb_channel,
+                        lead_seconds=lead,
+                        should_abort=dra._transmit_abort.is_set,
+                        register_aplay_proc=dra._register_aplay_proc,
+                    )
                 play_on_dra(chunks, lead_seconds=0)
             finally:
                 radio.set_ptt(False)

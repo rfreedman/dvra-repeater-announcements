@@ -75,8 +75,8 @@ def test_transmit_uses_usb_lead_on_dra(monkeypatch):
         clear_seconds=0,
     )
     assert events == [
-        ("usb_lead", 0.6),
         ("ptt", True),
+        ("usb_lead", 0.6),
         ("play_lead", 0),
         ("ptt", False),
     ]

@@ -457,7 +457,7 @@ def play_dra_lead_silence(
     should_abort: Callable[[], bool] | None = None,
     register_aplay_proc: Callable[[subprocess.Popen[bytes]], None] | None = None,
 ) -> None:
-    """Stream USB silence with PTT off so COMM OK / heartbeat is up before keying."""
+    """Stream USB silence after PTT so COMM OK / heartbeat is up before speech."""
     if lead_seconds <= 0 or not device_indices:
         return
     for index in device_indices:
