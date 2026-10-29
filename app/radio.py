@@ -88,6 +88,8 @@ def transmit(
     lead = PTT_LEAD_SECONDS if lead_seconds is None else lead_seconds
     play_on_dra = getattr(radio, "play_transmit_audio", None)
 
+    log.info(f"radio.py transmit: play_on_dra = {play_on_dra}")
+
     if channel_blocks_transmit(radio, clear_seconds=clear_seconds):
         raise ChannelBusyError("channel busy immediately before PTT")
 
@@ -105,6 +107,7 @@ def transmit(
             radio.set_ptt(True)
             try:
                 if dra is not None and lead > 0:
+                    log.info(f"radio.py transmit: playing lead silence with play_dre_lead_silence")
                     play_dra_lead_silence(
                         device_indices=dra.audio_device_indices,
                         channel=dra._usb_channel,
@@ -112,7 +115,12 @@ def transmit(
                         should_abort=dra._transmit_abort.is_set,
                         register_aplay_proc=dra._register_aplay_proc,
                     )
+
+                # TODO: Fix This - RAF
+                log.info(f"radio.py transmit: playing chunks with lead_seconds = 0")
+                # noinspection PyCallingNonCallable
                 play_on_dra(chunks, lead_seconds=0)
+
             finally:
                 radio.set_ptt(False)
         except TransmitAbortError:
@@ -128,6 +136,7 @@ def transmit(
                 dra.end_usb_transmit()
         return
 
+    # play locally, not on-air
     radio.set_ptt(True)
     try:
         if lead > 0:
