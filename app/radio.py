@@ -107,7 +107,7 @@ def transmit(
             radio.set_ptt(True)
             try:
                 if dra is not None and lead > 0:
-                    log.info(f"radio.py transmit: playing lead silence with play_dre_lead_silence")
+                    log.info(f"radio.py transmit: playing lead silence with play_dre_lead_silence and lead_seconds = %s", lead_seconds)
                     play_dra_lead_silence(
                         device_indices=dra.audio_device_indices,
                         channel=dra._usb_channel,
