@@ -8,15 +8,11 @@ import feedparser
 import requests
 from feedparser import FeedParserDict
 
-# Official ARNewsline RSS Feed URL
-FEED_URL: str = "https://www.arnewsline.org/?format=rss"
+from app.newsline.download import FEED_URL, entry_download_urls
 
 # Project-root audio/ directory (script lives in src/app.newsline.engine/)
 _PROJECT_ROOT: Path = Path(__file__).resolve().parents[2]
 DOWNLOAD_DIR: str = str(_PROJECT_ROOT / "audio")
-
-# Squarespace site files for official scripts (nsln####.txt)
-SCRIPT_URL_TEMPLATE: str = "https://www.arnewsline.org/s/nsln{report_number}.txt"
 
 REPORT_NUMBER_RE: re.Pattern[str] = re.compile(r"Report\s*(\d+)", re.IGNORECASE)
 
@@ -158,18 +154,21 @@ def _ensure_report_files(
     need_txt = not os.path.exists(txt_path)
 
     print(f"Episode: {entry.title}")
+    audio_url, script_url = entry_download_urls(entry)
     if need_mp3:
-        if not getattr(entry, "enclosures", None):
-            print(f"Entry has no audio enclosure: {entry.title!r}")
+        if not audio_url:
+            print(f"Entry has no audio URL: {entry.title!r}")
             return mp3_path, txt_path, False
         print("Downloading MP3...")
-        if not download_file(entry.enclosures[0].href, mp3_path):
+        if not download_file(audio_url, mp3_path):
             return mp3_path, txt_path, False
     else:
         print(f"Already have MP3: {mp3_path}")
 
     if need_txt:
-        script_url = SCRIPT_URL_TEMPLATE.format(report_number=report_number)
+        if not script_url:
+            print(f"Entry has no SCRIPT download link: {entry.title!r}")
+            return mp3_path, txt_path, False
         print("Downloading script...")
         if not download_file(script_url, txt_path):
             return mp3_path, txt_path, False

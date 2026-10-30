@@ -26,3 +26,5 @@ requirements.txt
 
 # Playwright MCP session snapshots and console logs
 .playwright-mcp/
+
+app/.cache

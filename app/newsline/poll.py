@@ -11,7 +11,7 @@ from apscheduler.triggers.date import DateTrigger
 
 from app.config import NEWSLINE_DIR
 from app.newsline.decode import ffmpeg_available
-from app.newsline.download import download_file, fetch_feed, latest_report, script_url
+from app.newsline.download import download_file, fetch_feed, latest_report
 from app.newsline.split_job import SplitError, split_report
 from app.newsline.state import NewsState, load_state, save_state
 from app.newsline.window import next_anchor_after, success_in_window, window_for
@@ -134,7 +134,7 @@ def run_check(*, manual: bool, root=None) -> NewsState:
             log.info("Newsline audio already on disk: %s", audio)
         if not transcript.is_file():
             log.info("Downloading Newsline report %s script", number)
-            download_file(script_url(number), transcript)
+            download_file(report.script_url, transcript)
         else:
             log.info("Newsline script already on disk: %s", transcript)
         state.phase = "splitting"

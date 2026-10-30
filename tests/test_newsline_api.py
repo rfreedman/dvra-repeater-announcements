@@ -103,6 +103,7 @@ def test_manual_check_runs_outside_the_window_without_the_network(monkeypatch, s
     class Report:
         report_number = 2554
         audio_url = "http://example.invalid/Report2554.mp3"
+        script_url = "http://example.invalid/nsln2554.txt"
 
     monkeypatch.setattr("app.newsline.poll.ffmpeg_available", lambda: True)
     monkeypatch.setattr("app.newsline.poll.fetch_feed", lambda: calls.__setitem__("feed", calls["feed"] + 1))
@@ -130,6 +131,7 @@ def test_check_reports_download_and_processing_then_an_unchanged_report(monkeypa
     class Report:
         report_number = 2557
         audio_url = "http://example.invalid/Report2557.mp3"
+        script_url = "http://example.invalid/NSLN2557.txt"
 
     monkeypatch.setattr("app.newsline.state.NEWSLINE_DIR", tmp_path)
     monkeypatch.setattr("app.newsline.poll.ffmpeg_available", lambda: True)
