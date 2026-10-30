@@ -1,0 +1,16 @@
+---
+description: Stay inside this project for files, data, and logs unless the user says otherwise
+alwaysApply: true
+---
+
+# Stay inside this project
+
+Runtime data, reports, stories, logs, and configs for this app live **in this project** (typically `data/`).
+
+Unless the user explicitly points elsewhere:
+
+- Do **not** search, read, or glob outside the workspace.
+- Do **not** look in home-directory downloads, other repos, caches, or the rest of the disk.
+- Do **not** fetch files or data from the network to inspect a local problem.
+
+Use the repo, its `data/` tree, and tools scoped to the workspace. If something is missing here, say so and ask — do not go looking off-project.
