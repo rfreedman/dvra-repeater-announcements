@@ -735,7 +735,7 @@ function renderUpcoming() {
     statusEl.classList.add("is-running");
     statusEl.classList.remove("is-deferred", "is-clear-hold");
     countEl.textContent = "Now";
-    setUpcomingNote("");
+    setUpcomingNote(upcoming.note || "");
     return;
   }
 

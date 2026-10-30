@@ -323,21 +323,13 @@ def _newsline_not_ready(
     announcement: Announcement,
     label: str,
 ) -> str | None:
-    from app.newsline.playlist import stories_ready
-    from app.newsline.state import load_state
+    from app.newsline.playlist import newsline_unavailable_reason
 
-    if stories_ready(load_state().stories_dir()):
+    if newsline_unavailable_reason() is None:
         return None
-    deadline = deps.not_ready_deadline or ctx.deadline
-    if _wall_now(deps) >= deadline:
-        log.info("Fire dropped; %s; Newsline stories were not ready before %s", label, deadline.isoformat())
-        fire_trace("Fire dropped (newsline not ready) label=%s slot=%s", label, ctx.slot_key)
-        return "dropped"
-    retry_at = _wall_now(deps) + timedelta(seconds=announcement.busy_retry_seconds)
-    deps.schedule_defer(retry_at, replace(ctx, deadline=deadline, defer_kind="news_not_ready"))
-    log.info("Fire deferred; %s; Newsline stories not ready; retry at %s", label, retry_at.isoformat())
-    fire_trace("Fire deferred (newsline not ready) label=%s slot=%s", label, ctx.slot_key)
-    return "deferred"
+    log.info("Fire dropped; %s; Newsline is not available", label)
+    fire_trace("Fire dropped (newsline not ready) label=%s slot=%s", label, ctx.slot_key)
+    return "dropped"
 
 
 def _transmit_newsline(
@@ -403,6 +395,7 @@ def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
             deps.mark_last_run(None, schedule.id, deps.now)
         log.info("Fire skipped; %s; silence occupies slot %s", label, ctx.slot_key)
         return "silence"
+    _note_substitution(deps, loaded)
     if announcement is None:
         log.info("Fire skipped; announcement missing for schedule %s", schedule.id)
         return "missing"
@@ -442,7 +435,6 @@ def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
                 deps.mark_last_run(announcement.id, schedule.id, deps.now)
                 if schedule.kind == "baseline":
                     deps.consume_baseline(schedule.id, ctx.slot_key)
-            _note_substitution(deps, loaded)
             log.info("Fire transmitted; %s", label)
             return "transmitted"
         chunks = materialize_chunks(deps.synthesize(announcement))
@@ -537,7 +529,6 @@ def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
             deps.mark_last_run(announcement.id, schedule.id, deps.now)
             if schedule.kind == "baseline":
                 deps.consume_baseline(schedule.id, ctx.slot_key)
-        _note_substitution(deps, loaded)
         log.info("Fire transmitted; %s", label)
         fire_trace("Fire transmitted label=%s slot=%s", label, ctx.slot_key)
         return "transmitted"

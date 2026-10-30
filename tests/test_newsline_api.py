@@ -311,3 +311,34 @@ def test_manual_check_refuses_a_second_run(client, monkeypatch):
     second = client.post("/api/newsline/check")
     assert second.status_code == 409
     release.set()
+
+
+def test_failed_check_is_unavailable_even_when_last_week_files_exist(tmp_path, monkeypatch):
+    from app.newsline.playlist import newsline_unavailable_reason, stories_ready
+
+    monkeypatch.setattr("app.newsline.state.NEWSLINE_DIR", tmp_path)
+    stories = tmp_path / "2556" / "stories"
+    stories.mkdir(parents=True)
+    (stories / "2556_01_story.mp3").write_bytes(b"mp3")
+    state = NewsState(report_number=2556, split_ok=True, error="split failed")
+    assert stories_ready(state.stories_dir(tmp_path))
+    assert newsline_unavailable_reason(state) == "Newsline is not available"
+
+
+def test_ready_report_is_available(tmp_path, monkeypatch):
+    from app.newsline.playlist import newsline_unavailable_reason
+
+    monkeypatch.setattr("app.newsline.state.NEWSLINE_DIR", tmp_path)
+    stories = tmp_path / "2557" / "stories"
+    stories.mkdir(parents=True)
+    (stories / "2557_01_story.mp3").write_bytes(b"mp3")
+    state = NewsState(report_number=2557, split_ok=True, error=None)
+    assert newsline_unavailable_reason(state) is None
+
+
+def test_missing_stories_are_unavailable(tmp_path, monkeypatch):
+    from app.newsline.playlist import newsline_unavailable_reason
+
+    monkeypatch.setattr("app.newsline.state.NEWSLINE_DIR", tmp_path)
+    state = NewsState(report_number=2557, split_ok=True, error=None)
+    assert newsline_unavailable_reason(state) == "Newsline is not available"

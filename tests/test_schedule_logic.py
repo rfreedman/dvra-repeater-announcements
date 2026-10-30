@@ -10,6 +10,7 @@ from app.schedule_logic import (
     overlay_matches,
     resolve_slot,
     resolve_window,
+    schedule_warning,
     summarize,
 )
 from app.slots import Slot, slot_from_parts, zone_for
@@ -296,7 +297,11 @@ def test_rotation_does_not_advance_twice_for_the_same_slot():
     assert (order2, index2) == (order, index)
 
 
-def test_weekly_newsline_overlay_plays_the_newsline_item():
+def test_weekly_newsline_overlay_plays_the_newsline_item(monkeypatch):
+    monkeypatch.setattr(
+        "app.newsline.playlist.newsline_unavailable_reason",
+        lambda state=None: None,
+    )
     station = _ann(id="sid", name="Station ID")
     news = _ann(
         id="news",
@@ -327,6 +332,47 @@ def test_weekly_newsline_overlay_plays_the_newsline_item():
     assert resolved.announcement.id == "news"
     assert resolved.announcement.name == "News"
     assert resolved.schedule.name == "Newsline Test"
+
+
+def test_unavailable_newsline_overlay_plays_the_baseline_instead(monkeypatch):
+    monkeypatch.setattr(
+        "app.newsline.playlist.newsline_unavailable_reason",
+        lambda state=None: "Newsline is not available",
+    )
+    station = _ann(id="sid", name="Station ID")
+    news = _ann(
+        id="news",
+        name="News",
+        kind="newsline",
+        text="",
+        station_id_announcement_id="sid",
+    )
+    tech = _ann(id="tech", name="Tech Net Pre-Announcement")
+    overlay = Schedule.model_validate(
+        {
+            "name": "Newsline Test",
+            "kind": "weekly",
+            "announcement_id": "news",
+            "days": ["mon"],
+            "slots": ["17:30"],
+            "priority": 500,
+        }
+    )
+    document = _doc(
+        station,
+        news,
+        tech,
+        schedules=[_baseline("tech", id="s1"), overlay],
+    )
+    resolved = resolve_slot(document, _slot(date(2026, 10, 26), "17:30"))
+    assert resolved.announcement is not None
+    assert resolved.announcement.id == "tech"
+    assert resolved.skipped_detail is not None
+    assert "Newsline is not available" in resolved.skipped_detail
+    assert "Tech Net Pre-Announcement will play instead" in resolved.skipped_detail
+    warning = schedule_warning(overlay, document)
+    assert warning is not None
+    assert "Newsline is not available" in warning
 
 
 def test_offset_example_is_fifteen_twenty_five_not_fifteen_ten():

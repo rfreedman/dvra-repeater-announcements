@@ -346,17 +346,22 @@ def _run_manual_trigger_body(
             return None
         item = store.get(current.announcement_id) if current.announcement_id else None
         document = store.document()
-        from app.schedule_logic import peek_baseline
-        from app.spoken_length import blocks_playback, too_long_parts
+        from app.schedule_logic import announcement_cannot_play, peek_baseline
+        from app.spoken_length import too_long_parts
 
-        if item is not None and blocks_playback(document, item):
+        if item is not None and announcement_cannot_play(document, item):
             baseline = peek_baseline(document)
             fallback = (
                 document.announcement_by_id(baseline.announcement_id)
                 if baseline is not None and baseline.announcement_id
                 else None
             )
-            reason = "; ".join(too_long_parts(document, item)) or f"{item.name} cannot play"
+            from app.newsline.playlist import newsline_unavailable_reason
+
+            if item.kind == "newsline" and newsline_unavailable_reason():
+                reason = "Newsline is not available"
+            else:
+                reason = "; ".join(too_long_parts(document, item)) or f"{item.name} cannot play"
             instead = (
                 f"{fallback.name} will play instead."
                 if fallback is not None

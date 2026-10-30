@@ -41,7 +41,7 @@ Point a weekly schedule (Friday is typical) at the Newsline item. Playback order
 
 Between pieces the radio stays unkeyed for at least the item's **PTT gap** (default 2 seconds). A full bulletin is about 17 minutes plus the short spoken parts and those gaps, so it finishes before the next half-hour slot when the channel stays clear.
 
-If this week's stories are not ready when a scheduled fire runs, the app waits and retries at the announcement's busy-retry interval until the slot window ends, then drops the fire and logs it. Other schedules can still fire during that wait. A manual trigger has no slot window, so the same wait uses the announcement's busy give-up.
+If the latest report failed to download or process, or the story files are missing, that slot does not play Newsline. The baseline that would have played if the Newsline schedule were not there is used instead, or the slot stays silent if none fits. Last week's files are not used after a failed check. The home screen says Newsline is not available and names what plays instead. A manual trigger of that schedule does the same.
 
 If the channel is busy before the first piece, that wait is limited by the slot window and the busy give-up, the same as any other announcement. Once the first piece has started, the bulletin finishes every remaining piece even if that runs past the slot, the original give-up, or another schedule.
 

@@ -36,12 +36,14 @@ def upcoming_for_document(
     document: StoreDocument, running: RunningTransmission | None
 ) -> dict[str, object] | None:
     if running:
+        notice = _skip_notice()
         return {
             "announcement_id": running.get("announcement_id"),
             "announcement_name": running.get("announcement_name"),
             "schedule_id": running.get("schedule_id"),
             "at": running.get("started_at"),
             "status": "running",
+            "note": notice.get("detail") if notice else None,
         }
     now = datetime.now(ZoneInfo(document.settings.timezone))
     nxt = next_transmission(document, now)

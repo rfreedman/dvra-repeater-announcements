@@ -179,10 +179,29 @@ def effective_baseline_order(document: StoreDocument) -> list[str]:
     return current + missing
 
 
+def _newsline_blocks_slot(announcement: Announcement | None) -> bool:
+    if announcement is None or announcement.kind != "newsline":
+        return False
+    from app.newsline.playlist import newsline_unavailable_reason
+
+    return newsline_unavailable_reason() is not None
+
+
+def announcement_cannot_play(
+    document: StoreDocument, announcement: Announcement | None
+) -> bool:
+    """True when this item must not own the slot (length, missing ID, or no Newsline)."""
+    if blocks_playback(document, announcement):
+        return True
+    return _newsline_blocks_slot(announcement)
+
+
 def _baseline_can_play(document: StoreDocument, schedule: Schedule) -> bool:
     if schedule.is_silence:
         return True
-    return not blocks_playback(document, document.announcement_by_id(schedule.announcement_id))
+    return not announcement_cannot_play(
+        document, document.announcement_by_id(schedule.announcement_id)
+    )
 
 
 def take_baseline(
@@ -286,15 +305,21 @@ def _overlay_unplayable(document: StoreDocument, schedule: Schedule) -> bool:
     if schedule.is_silence:
         return False
     announcement = document.announcement_by_id(schedule.announcement_id)
-    return announcement is None or blocks_playback(document, announcement)
+    return announcement is None or announcement_cannot_play(document, announcement)
+
+
+def _skip_reason(document: StoreDocument, skipped: Schedule) -> str:
+    announcement = document.announcement_by_id(skipped.announcement_id)
+    if announcement is not None and _newsline_blocks_slot(announcement):
+        return "Newsline is not available"
+    parts = too_long_parts(document, announcement) if announcement is not None else []
+    if parts:
+        return "; ".join(parts)
+    return f"{skipped.name} cannot play"
 
 
 def _substitution(document: StoreDocument, skipped: Schedule, played: ResolvedSlot) -> ResolvedSlot:
-    parts = []
-    announcement = document.announcement_by_id(skipped.announcement_id)
-    if announcement is not None:
-        parts = too_long_parts(document, announcement)
-    reason = "; ".join(parts) if parts else f"{skipped.name} cannot play"
+    reason = _skip_reason(document, skipped)
     if played.announcement is not None:
         instead = f"{played.announcement.name} will play instead."
     else:
@@ -576,6 +601,11 @@ def schedule_warning(
         announcement = document.announcement_by_id(schedule.announcement_id)
         if announcement is None:
             return "Won't play — the announcement is missing."
+        if _newsline_blocks_slot(announcement):
+            return (
+                "Won't play — Newsline is not available. "
+                "The baseline for that slot plays instead, or the slot stays silent if none fits."
+            )
         parts = too_long_parts(document, announcement)
         if parts and (announcement.kind == "tts" or blocks_playback(document, announcement)):
             return (

@@ -110,7 +110,7 @@ def test_gap_unkeys_and_lead_runs_for_each_piece(tmp_path, monkeypatch):
     assert ptt == [("ptt", True), ("ptt", False), ("ptt", True), ("ptt", False)]
 
 
-def test_not_ready_defers_until_the_slot_window_without_the_lock(monkeypatch):
+def test_unavailable_newsline_does_not_defer_when_load_still_returns_it(monkeypatch):
     radio = StubRadio()
     deferred: list[datetime] = []
     lock = __import__("threading").Lock()
@@ -122,8 +122,10 @@ def test_not_ready_defers_until_the_slot_window_without_the_lock(monkeypatch):
         days=["fri"],
         slots=["18:00"],
     )
-    monkeypatch.setattr("app.newsline.playlist.stories_ready", lambda _path: False)
-    monkeypatch.setattr("app.newsline.state.load_state", lambda root=None: type("S", (), {"stories_dir": lambda self: None})())
+    monkeypatch.setattr(
+        "app.newsline.playlist.newsline_unavailable_reason",
+        lambda state=None: "Newsline is not available",
+    )
     ctx = FireContext(
         announcement_id=bulletin.id,
         schedule_id=schedule.id,
@@ -131,7 +133,6 @@ def test_not_ready_defers_until_the_slot_window_without_the_lock(monkeypatch):
         fired_at=NOW,
         deadline=NOW + timedelta(minutes=5),
     )
-    window_end = NOW + timedelta(minutes=10)
 
     def load():
         return LoadedFire(announcement=bulletin, schedule=schedule, silence=False)
@@ -143,22 +144,85 @@ def test_not_ready_defers_until_the_slot_window_without_the_lock(monkeypatch):
         sleep=lambda _seconds: None,
         defer=lambda when, _ctx: deferred.append(when),
         lock=lock,
-        deadline=window_end,
+        deadline=NOW + timedelta(minutes=10),
     )
     deps.load = load
-    assert handle_fire(ctx, deps) == "deferred"
-    assert deferred == [NOW + timedelta(seconds=bulletin.busy_retry_seconds)]
+    assert handle_fire(ctx, deps) == "dropped"
+    assert deferred == []
     assert not lock.locked()
 
-    late = FireContext(
-        announcement_id=bulletin.id,
-        schedule_id=schedule.id,
-        slot_key=ctx.slot_key,
-        fired_at=NOW,
-        deadline=window_end,
+
+def test_unavailable_newsline_slot_transmits_the_baseline(monkeypatch):
+    from app.newsline.notices import clear_skip_notice, peek_skip_notice
+    from app.schedule_logic import resolve_slot
+    from app.slots import slot_from_parts
+
+    monkeypatch.setattr(
+        "app.newsline.playlist.newsline_unavailable_reason",
+        lambda state=None: "Newsline is not available",
     )
-    deps.now = window_end
-    assert handle_fire(late, deps) == "dropped"
+    radio = StubRadio()
+    played: list[str] = []
+    lock = __import__("threading").Lock()
+    station = Announcement(name="Station ID", text="id")
+    news = Announcement(
+        name="News",
+        kind="newsline",
+        station_id_announcement_id=station.id,
+        text="",
+    )
+    tech = Announcement(name="Tech Net Pre-Announcement", text="net")
+    overlay = Schedule(
+        name="Newsline Test",
+        kind="weekly",
+        announcement_id=news.id,
+        days=["fri"],
+        slots=["18:00"],
+    )
+    baseline = Schedule(name="Baseline ID", kind="baseline", announcement_id=tech.id)
+    document = StoreDocument(
+        announcements=[station, news, tech],
+        schedules=[baseline, overlay],
+    )
+    slot = slot_from_parts(NOW.date(), "18:00", ZONE)
+    assert slot is not None
+
+    def load():
+        again = resolve_slot(document, slot)
+        assert again.schedule is not None
+        return LoadedFire(
+            announcement=again.announcement,
+            schedule=again.schedule,
+            silence=False,
+            skipped_detail=again.skipped_detail,
+        )
+
+    deps = _deps(
+        radio,
+        synthesize=lambda _item: _pcm(),
+        play=lambda _chunks: played.append("play"),
+        sleep=lambda _seconds: None,
+        defer=lambda _when, _ctx: None,
+        lock=lock,
+    )
+    deps.load = load
+    ctx = FireContext(
+        announcement_id=news.id,
+        schedule_id=overlay.id,
+        slot_key=slot.key,
+        fired_at=NOW,
+        deadline=NOW + timedelta(minutes=5),
+    )
+    clear_skip_notice()
+    try:
+        assert handle_fire(ctx, deps) == "transmitted"
+        assert played == ["play"]
+        notice = peek_skip_notice()
+        assert notice is not None
+        assert "Newsline is not available" in str(notice["detail"])
+        assert "Tech Net Pre-Announcement will play instead" in str(notice["detail"])
+    finally:
+        clear_skip_notice()
 
 
 def test_emergency_during_a_piece_plays_before_the_next_piece(tmp_path, monkeypatch):

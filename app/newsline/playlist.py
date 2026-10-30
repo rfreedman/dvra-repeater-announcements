@@ -30,6 +30,21 @@ def stories_ready(stories_dir: Path | None) -> bool:
     return any(not path.name.endswith("station-id.mp3") for path in story_files(stories_dir))
 
 
+def newsline_unavailable_reason(state=None) -> str | None:
+    """Why the bulletin must not air, or ``None`` if it may.
+
+    A failed latest check blocks even when last week's files are still on disk.
+    """
+    from app.newsline.state import load_state
+
+    current = load_state() if state is None else state
+    if current.error:
+        return "Newsline is not available"
+    if not stories_ready(current.stories_dir()):
+        return "Newsline is not available"
+    return None
+
+
 def build_playlist(
     bulletin: Announcement,
     document: StoreDocument,
