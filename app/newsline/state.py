@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -13,6 +13,8 @@ from app.store import write_json_atomic
 
 class NewsState(BaseModel):
     report_number: int | None = None
+    # Friday the script names as the intended release, not the download day.
+    release_friday: date | None = None
     split_ok: bool = False
     completed_at: datetime | None = None
     error: str | None = None
@@ -22,6 +24,8 @@ class NewsState(BaseModel):
     working_report: int | None = None
     # "new" after a split, "current" when a check finds that report already split.
     last_outcome: str | None = None
+    # Downloaded this report but split failed; scheduled checks skip it.
+    split_failed_report: int | None = None
 
     def stories_dir(self, root: Path | None = None) -> Path | None:
         if self.report_number is None or not self.split_ok:

@@ -734,7 +734,9 @@ function renderUpcoming() {
     statusEl.textContent = "Running";
     statusEl.classList.add("is-running");
     statusEl.classList.remove("is-deferred", "is-clear-hold");
-    countEl.textContent = "Now";
+    const played = elapsedSecondsSince(upcoming.at);
+    countEl.textContent =
+      played == null ? "Now" : `Now ${formatSegmentElapsed(played)}`;
     setUpcomingNote(upcoming.note || "");
     return;
   }
@@ -1269,6 +1271,17 @@ function syncNewslinePoll(newsline) {
   }
 }
 
+function elapsedSecondsSince(iso) {
+  const started = Date.parse(iso);
+  if (Number.isNaN(started)) return null;
+  return Math.max(0, (Date.now() + clockSkewMs - started) / 1000);
+}
+
+function newslineElapsedSuffix(seconds) {
+  if (seconds == null || !Number.isFinite(Number(seconds))) return "";
+  return ` ${formatSegmentElapsed(seconds)}`;
+}
+
 function renderNewsline(newsline) {
   const status = document.getElementById("newsline-status");
   if (!status) return;
@@ -1278,20 +1291,24 @@ function renderNewsline(newsline) {
     return;
   }
   const working = newsline.working_report;
+  const elapsed = newslineElapsedSuffix(newsline.elapsed_seconds);
   if (newsline.phase === "downloading") {
-    status.textContent = working
+    const head = working
       ? `Downloading Newsline report ${working}…`
       : "Downloading the Newsline report…";
+    status.textContent = `${head}${elapsed}`;
     return;
   }
   if (newsline.phase === "splitting") {
-    status.textContent = working
+    const head = working
       ? `Processing Newsline report ${working}…`
       : "Processing the Newsline report…";
+    const step = newsline.step ? ` ${newsline.step}` : "";
+    status.textContent = `${head}${step}${elapsed}`;
     return;
   }
   if (newsline.phase === "checking" || (newsline.in_progress && newsline.phase !== "idle")) {
-    status.textContent = "Checking for a new Newsline report…";
+    status.textContent = `Checking for a new Newsline report…${elapsed}`;
     return;
   }
   if (newsline.error) {

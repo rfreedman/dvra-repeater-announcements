@@ -10,7 +10,9 @@ The checks stop when a newly published report is downloaded and split successful
 
 If the feed is still the previous report, the app logs that the new episode is not out yet and keeps checking. A failed split does not erase a report that already split successfully.
 
-**Check for Newsline now** runs the same download and split once, including outside the Thursday–Friday window. It does not change the hourly schedule. If a check or split is already running, the button reports that and does not start a second one. The request returns immediately. The home status line shows checking, then downloading and processing while a new report is fetched and split, then the report number when that finishes. When the feed has no newer report, the line says so and keeps the current report number. A failure is shown on that line. The action is written to the log.
+If a new report downloads but processing fails, hourly checks keep looking at the feed but do not retry that report. **Check for Newsline now** deletes that report's audio, script, stories, and splitter cache, then downloads again. A later report on the feed is still downloaded and split.
+
+**Check for Newsline now** runs the same download and split once, including outside the Thursday–Friday window. It does not change the hourly schedule. If a check or split is already running, the button reports that and does not start a second one. The request returns immediately. The home status line shows checking, then downloading and processing while a new report is fetched and split, with the current processing step and elapsed time, then the report number when that finishes. When the feed has no newer report, the line says so and keeps the current report number. A failure is shown on that line. The action is written to the log.
 
 ## Files
 
@@ -19,7 +21,7 @@ Reports live under `data/arnewsline/`:
 - `state.json` — the report number, recorded only after a successful split
 - `{report number}/Report{number}.mp3` and `nsln{number}.txt` — the downloaded episode
 - `{report number}/stories/` — the split story files, including a zero-byte `*station-id.mp3` marker where the script has an identification break
-- `cache/` — alignment cache for the splitter
+- `cache/` — alignment cache used only while splitting; that report's entries are removed when the split finishes (success or failure)
 
 Stories are packed so each file stays under the repeater timeout minus 2 seconds (178 seconds when the timeout is 180).
 
@@ -41,7 +43,7 @@ Point a weekly schedule (Friday is typical) at the Newsline item. Playback order
 
 Between pieces the radio stays unkeyed for at least the item's **PTT gap** (default 2 seconds). A full bulletin is about 17 minutes plus the short spoken parts and those gaps, so it finishes before the next half-hour slot when the channel stays clear.
 
-If the latest report failed to download or process, or the story files are missing, that slot does not play Newsline. The baseline that would have played if the Newsline schedule were not there is used instead, or the slot stays silent if none fits. Last week's files are not used after a failed check. The home screen says Newsline is not available and names what plays instead. A manual trigger of that schedule does the same.
+If the latest report failed to download or process, or the story files are missing, that slot does not play Newsline. The baseline that would have played if the Newsline schedule were not there is used instead, or the slot stays silent if none fits. Last week's files are not used after a failed check. A bulletin airs only from the Thursday before the Friday named in its script through the following Thursday; after that, last week's files are not used even when they are still on disk. The home screen says Newsline is not available and names what plays instead. A manual trigger of that schedule does the same.
 
 If the channel is busy before the first piece, that wait is limited by the slot window and the busy give-up, the same as any other announcement. Once the first piece has started, the bulletin finishes every remaining piece even if that runs past the slot, the original give-up, or another schedule.
 

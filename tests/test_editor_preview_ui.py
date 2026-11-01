@@ -88,6 +88,20 @@ def test_new_forms_leave_name_days_and_slots_empty():
     assert "announcements[0]" not in select_fn
 
 
+def test_newsline_home_status_shows_processing_step_and_elapsed():
+    source = APP_JS.read_text(encoding="utf-8")
+    assert "function newslineElapsedSuffix(seconds)" in source
+    assert "newsline.step" in source
+    assert "newsline.elapsed_seconds" in source
+    assert "`${head}${step}${elapsed}`" in source
+
+
+def test_running_now_shows_elapsed_clock():
+    source = APP_JS.read_text(encoding="utf-8")
+    assert "function elapsedSecondsSince(iso)" in source
+    assert "Now ${formatSegmentElapsed(played)}" in source
+
+
 def test_newsline_status_shows_segment_name_and_elapsed_clock():
     source = APP_JS.read_text(encoding="utf-8")
     assert "function streamingPieceStatus(name, elapsedSeconds)" in source

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 from app.models import Announcement, StoreDocument
+from app.newsline.release import friday_from_script, in_air_window, station_today
 
 log = logging.getLogger("app.newsline")
 
@@ -30,17 +32,25 @@ def stories_ready(stories_dir: Path | None) -> bool:
     return any(not path.name.endswith("station-id.mp3") for path in story_files(stories_dir))
 
 
-def newsline_unavailable_reason(state=None) -> str | None:
+def newsline_unavailable_reason(state=None, *, today: date | None = None) -> str | None:
     """Why the bulletin must not air, or ``None`` if it may.
 
-    A failed latest check blocks even when last week's files are still on disk.
+    A failed latest check, missing stories, or a report whose intended Friday
+    is outside the air window (Thursday of that week through the following
+    Thursday) all block playback. Last week's files are not used after that.
     """
     from app.newsline.state import load_state
 
     current = load_state() if state is None else state
     if current.error:
         return "Newsline is not available"
-    if not stories_ready(current.stories_dir()):
+    stories = current.stories_dir()
+    if not stories_ready(stories):
+        return "Newsline is not available"
+    friday = current.release_friday
+    if friday is None and stories is not None and current.report_number is not None:
+        friday = friday_from_script(stories.parent / f"nsln{current.report_number}.txt")
+    if friday is None or not in_air_window(friday, today if today is not None else station_today()):
         return "Newsline is not available"
     return None
 

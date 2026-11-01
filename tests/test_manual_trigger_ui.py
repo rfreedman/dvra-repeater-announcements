@@ -5,6 +5,7 @@ Opt-in: ``uv run playwright install chromium`` then ``uv run pytest -m e2e``.
 
 from __future__ import annotations
 
+import re
 import socket
 import threading
 import time
@@ -88,7 +89,7 @@ def test_trigger_in_flight_shows_running(page: Page, live_server):
     _login(page, base_url)
     page.locator("[data-trigger-now]").click()
     expect(page.locator("#next-run-status")).to_have_text("Running", timeout=5_000)
-    expect(page.locator("#next-run-countdown")).to_have_text("Now")
+    expect(page.locator("#next-run-countdown")).to_have_text(re.compile(r"^Now( \d+:\d{2})?$"))
     expect(page.locator("[data-trigger-now]")).to_have_text("Playing")
 
 

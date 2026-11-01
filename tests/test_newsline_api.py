@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import threading
+from datetime import date
 
 import pytest
 
 from app.audio import PcmChunk
 from app.models import Announcement
 from app.newsline.poll import run_check
+from app.newsline.split_job import SplitError
 from app.newsline.preview import (
     PreviewError,
     frame_named_piece,
@@ -111,7 +113,13 @@ def test_manual_check_runs_outside_the_window_without_the_network(monkeypatch, s
 
     def download(_url, dest):
         calls["download"] += 1
-        dest.write_bytes(b"audio")
+        if dest.suffix == ".txt":
+            dest.write_text(
+                "Amateur Radio Newsline Report 2554 for Friday, October 9th, 2026\n",
+                encoding="utf-8",
+            )
+        else:
+            dest.write_bytes(b"audio")
 
     def split(**_kwargs):
         calls["split"] += 1
@@ -122,6 +130,7 @@ def test_manual_check_runs_outside_the_window_without_the_network(monkeypatch, s
     assert calls == {"feed": 1, "download": 2, "split": 1}
     assert state.split_ok
     assert state.report_number == 2554
+    assert state.release_friday == date(2026, 10, 9)
     assert (tmp_path / "2554" / "stories").is_dir() or state.error is None
 
 
@@ -144,13 +153,25 @@ def test_check_reports_download_and_processing_then_an_unchanged_report(monkeypa
         assert current.phase == "downloading"
         assert current.working_report == 2557
         assert current.report_number is None
-        dest.write_bytes(b"audio")
+        if dest.suffix == ".txt":
+            dest.write_text(
+                "Amateur Radio Newsline Report 2557 for Friday, October 30th, 2026\n",
+                encoding="utf-8",
+            )
+        else:
+            dest.write_bytes(b"audio")
 
     def split(**_kwargs):
         calls["split"] += 1
         current = load_state(tmp_path)
         assert current.phase == "splitting"
         assert current.working_report == 2557
+        from app.newsline.poll import status_payload
+
+        payload = status_payload()
+        assert payload["step"] == "Processing"
+        assert payload["elapsed_seconds"] is not None
+        assert payload["elapsed_seconds"] >= 0
 
     monkeypatch.setattr("app.newsline.poll.download_file", download)
     monkeypatch.setattr("app.newsline.poll.split_report", split)
@@ -161,6 +182,7 @@ def test_check_reports_download_and_processing_then_an_unchanged_report(monkeypa
     assert first.phase == "idle"
     assert first.working_report is None
     assert first.report_number == 2557
+    assert first.release_friday == date(2026, 10, 30)
     monkeypatch.setattr("app.newsline.poll.check_in_progress", lambda: False)
     second = run_check(manual=True, root=tmp_path)
     assert calls["split"] == 1
@@ -173,6 +195,8 @@ def test_check_reports_download_and_processing_then_an_unchanged_report(monkeypa
     assert payload["outcome"] == "current"
     assert payload["working_report"] is None
     assert payload["in_progress"] is False
+    assert payload["step"] is None
+    assert payload["elapsed_seconds"] is None
 
 
 def test_status_keeps_the_real_phase_while_a_check_is_running(monkeypatch, tmp_path):
@@ -332,8 +356,201 @@ def test_ready_report_is_available(tmp_path, monkeypatch):
     stories = tmp_path / "2557" / "stories"
     stories.mkdir(parents=True)
     (stories / "2557_01_story.mp3").write_bytes(b"mp3")
-    state = NewsState(report_number=2557, split_ok=True, error=None)
-    assert newsline_unavailable_reason(state) is None
+    state = NewsState(
+        report_number=2557,
+        split_ok=True,
+        error=None,
+        release_friday=date(2026, 10, 30),
+    )
+    assert newsline_unavailable_reason(state, today=date(2026, 10, 30)) is None
+
+
+def _plant_cache(root, number):
+    align = root / "cache" / "forced_align"
+    slices = root / "cache" / "slices"
+    align.mkdir(parents=True, exist_ok=True)
+    slices.mkdir(parents=True, exist_ok=True)
+    align_file = align / f"Report{number}_base_en_abc.json"
+    slice_file = slices / f"{number:04d}_01_story_small_en_qa.json"
+    align_file.write_text("{}", encoding="utf-8")
+    slice_file.write_text("{}", encoding="utf-8")
+    return align_file, slice_file
+
+
+def _script_for(number, friday):
+    return f"Amateur Radio Newsline Report {number} for Friday, {friday}\n"
+
+
+def _stub_feed(monkeypatch, number, *, split=None, download=None):
+    class Report:
+        report_number = number
+        audio_url = f"http://example.invalid/Report{number}.mp3"
+        script_url = f"http://example.invalid/nsln{number}.txt"
+
+    monkeypatch.setattr("app.newsline.poll.ffmpeg_available", lambda: True)
+    monkeypatch.setattr("app.newsline.poll.fetch_feed", lambda: None)
+    monkeypatch.setattr("app.newsline.poll.latest_report", lambda _feed: Report())
+    if download is not None:
+        monkeypatch.setattr("app.newsline.poll.download_file", download)
+    if split is not None:
+        monkeypatch.setattr("app.newsline.poll.split_report", split)
+
+
+def _write_download(_url, dest, number, friday):
+    if dest.suffix == ".txt":
+        dest.write_text(_script_for(number, friday), encoding="utf-8")
+    else:
+        dest.write_bytes(b"audio")
+
+
+def test_failed_split_is_not_retried_on_the_next_scheduled_check(monkeypatch, store, tmp_path):
+    calls = {"download": 0, "split": 0}
+    last_week = NewsState(report_number=2556, split_ok=True, release_friday=date(2026, 10, 23))
+    save_state(last_week, tmp_path)
+    kept_align, kept_slice = _plant_cache(tmp_path, 2556)
+
+    def download(_url, dest):
+        calls["download"] += 1
+        _write_download(_url, dest, 2557, "October 30th, 2026")
+
+    def split(**_kwargs):
+        calls["split"] += 1
+        _plant_cache(tmp_path, 2557)
+        raise SplitError("align failed")
+
+    _stub_feed(monkeypatch, 2557, download=download, split=split)
+    first = run_check(manual=False, root=tmp_path)
+    assert first.split_failed_report == 2557
+    assert first.report_number == 2556
+    assert first.split_ok
+    assert first.error == "align failed"
+    assert calls == {"download": 2, "split": 1}
+    assert not (tmp_path / "cache" / "forced_align" / "Report2557_base_en_abc.json").exists()
+    assert not (tmp_path / "cache" / "slices" / "2557_01_story_small_en_qa.json").exists()
+    assert kept_align.is_file()
+    assert kept_slice.is_file()
+
+    second = run_check(manual=False, root=tmp_path)
+    assert calls == {"download": 2, "split": 1}
+    assert second.split_failed_report == 2557
+    assert second.report_number == 2556
+    assert second.error == "align failed"
+
+
+def test_manual_check_redownloads_after_a_failed_split(monkeypatch, store, tmp_path):
+    calls = {"download": 0, "split": 0}
+    save_state(
+        NewsState(
+            report_number=2556,
+            split_ok=True,
+            split_failed_report=2557,
+            error="align failed",
+            release_friday=date(2026, 10, 23),
+        ),
+        tmp_path,
+    )
+    folder = tmp_path / "2557"
+    folder.mkdir(parents=True)
+    (folder / "Report2557.mp3").write_bytes(b"stale")
+    (folder / "nsln2557.txt").write_text("stale", encoding="utf-8")
+    (folder / "stories").mkdir()
+    (folder / "stories" / "2557_01.mp3").write_bytes(b"stale")
+    failed_align, failed_slice = _plant_cache(tmp_path, 2557)
+    kept_align, kept_slice = _plant_cache(tmp_path, 2556)
+
+    def download(_url, dest):
+        calls["download"] += 1
+        assert not dest.exists()
+        _write_download(_url, dest, 2557, "October 30th, 2026")
+
+    def split(**_kwargs):
+        calls["split"] += 1
+        _plant_cache(tmp_path, 2557)
+
+    _stub_feed(monkeypatch, 2557, download=download, split=split)
+    state = run_check(manual=True, root=tmp_path)
+    assert calls == {"download": 2, "split": 1}
+    assert state.split_ok
+    assert state.report_number == 2557
+    assert state.split_failed_report is None
+    assert state.error is None
+    assert not failed_align.exists()
+    assert not failed_slice.exists()
+    assert kept_align.is_file()
+    assert kept_slice.is_file()
+    assert (tmp_path / "2557" / "Report2557.mp3").read_bytes() == b"audio"
+
+
+def test_newer_report_downloads_after_a_failed_split(monkeypatch, store, tmp_path):
+    calls = {"download": 0, "split": 0}
+    save_state(
+        NewsState(
+            report_number=2556,
+            split_ok=True,
+            split_failed_report=2557,
+            error="align failed",
+            release_friday=date(2026, 10, 23),
+        ),
+        tmp_path,
+    )
+    _plant_cache(tmp_path, 2557)
+
+    def download(_url, dest):
+        calls["download"] += 1
+        _write_download(_url, dest, 2558, "November 6th, 2026")
+
+    def split(**_kwargs):
+        calls["split"] += 1
+
+    _stub_feed(monkeypatch, 2558, download=download, split=split)
+    state = run_check(manual=False, root=tmp_path)
+    assert calls == {"download": 2, "split": 1}
+    assert state.report_number == 2558
+    assert state.split_failed_report is None
+    assert state.error is None
+    assert not (tmp_path / "cache" / "forced_align" / "Report2557_base_en_abc.json").exists()
+    assert not (tmp_path / "cache" / "slices" / "2557_01_story_small_en_qa.json").exists()
+
+
+def test_successful_split_clears_that_report_cache(monkeypatch, store, tmp_path):
+    kept_align, kept_slice = _plant_cache(tmp_path, 2556)
+
+    def download(_url, dest):
+        _write_download(_url, dest, 2557, "October 30th, 2026")
+
+    def split(**_kwargs):
+        _plant_cache(tmp_path, 2557)
+
+    _stub_feed(monkeypatch, 2557, download=download, split=split)
+    state = run_check(manual=True, root=tmp_path)
+    assert state.split_ok
+    assert state.report_number == 2557
+    assert not (tmp_path / "cache" / "forced_align" / "Report2557_base_en_abc.json").exists()
+    assert not (tmp_path / "cache" / "slices" / "2557_01_story_small_en_qa.json").exists()
+    assert kept_align.is_file()
+    assert kept_slice.is_file()
+
+
+def test_download_failure_is_retried_on_the_next_scheduled_check(monkeypatch, store, tmp_path):
+    calls = {"download": 0, "split": 0}
+
+    def download(_url, dest):
+        calls["download"] += 1
+        raise OSError("network down")
+
+    def split(**_kwargs):
+        calls["split"] += 1
+
+    _stub_feed(monkeypatch, 2557, download=download, split=split)
+    first = run_check(manual=False, root=tmp_path)
+    assert first.split_failed_report is None
+    assert first.error == "network down"
+    assert calls == {"download": 1, "split": 0}
+
+    second = run_check(manual=False, root=tmp_path)
+    assert calls["download"] == 2
+    assert calls["split"] == 0
+    assert second.split_failed_report is None
 
 
 def test_missing_stories_are_unavailable(tmp_path, monkeypatch):

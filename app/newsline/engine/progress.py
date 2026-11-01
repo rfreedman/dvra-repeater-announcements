@@ -8,12 +8,17 @@ from __future__ import annotations
 
 import contextlib
 import sys
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
 
 _log_path: Path | None = None
 _log_fp = None
+
+_ui_lock = threading.Lock()
+_ui_step: str | None = None
+_ui_started: float | None = None
 
 
 def set_log_file(path: Path | None) -> None:
@@ -60,12 +65,42 @@ def format_elapsed(seconds: float) -> str:
     return f"{minutes}m {secs:.1f}s"
 
 
+def begin_ui_progress(step: str) -> None:
+    """Start the home-panel timer for a Newsline check."""
+    global _ui_step, _ui_started
+    with _ui_lock:
+        _ui_step = step
+        _ui_started = time.perf_counter()
+
+
+def set_ui_step(step: str) -> None:
+    global _ui_step
+    with _ui_lock:
+        _ui_step = step
+
+
+def end_ui_progress() -> None:
+    global _ui_step, _ui_started
+    with _ui_lock:
+        _ui_step = None
+        _ui_started = None
+
+
+def ui_snapshot() -> dict[str, object]:
+    with _ui_lock:
+        step = _ui_step
+        started = _ui_started
+    elapsed = None if started is None else round(time.perf_counter() - started, 1)
+    return {"step": step, "elapsed_seconds": elapsed}
+
+
 class PhaseTimer:
     """Track elapsed time for a named phase."""
 
     def __init__(self, name: str) -> None:
         self.name = name
         self.t0 = time.perf_counter()
+        set_ui_step(name)
         log(f"{name} …")
 
     def done(self, detail: str = "") -> float:
@@ -77,4 +112,5 @@ class PhaseTimer:
 
 def progress(current: int, total: int, label: str) -> None:
     """Log ``current/total`` step (1-based current)."""
+    set_ui_step(f"[{current}/{total}] {label}")
     log(f"  [{current}/{total}] {label}")

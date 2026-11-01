@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
+import shutil
 import threading
 from datetime import datetime, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from apscheduler.triggers.date import DateTrigger
@@ -12,6 +14,8 @@ from apscheduler.triggers.date import DateTrigger
 from app.config import NEWSLINE_DIR
 from app.newsline.decode import ffmpeg_available
 from app.newsline.download import download_file, fetch_feed, latest_report
+from app.newsline.engine.progress import begin_ui_progress, end_ui_progress, set_ui_step, ui_snapshot
+from app.newsline.release import parse_release_friday
 from app.newsline.split_job import SplitError, split_report
 from app.newsline.state import NewsState, load_state, save_state
 from app.newsline.window import next_anchor_after, success_in_window, window_for
@@ -66,6 +70,36 @@ def _mark_current(state: NewsState) -> None:
     state.last_outcome = "current"
 
 
+def _news_root(root=None) -> Path:
+    return root if root is not None else NEWSLINE_DIR
+
+
+def _clear_report_cache(root, number: int) -> None:
+    """Remove splitter cache for one report. Playback does not use these files."""
+    cache = _news_root(root) / "cache"
+    prefixes = (f"Report{number}_", f"{number:04d}_")
+    removed = 0
+    for folder in (cache / "forced_align", cache / "slices"):
+        if not folder.is_dir():
+            continue
+        for path in folder.iterdir():
+            if path.is_file() and path.name.startswith(prefixes):
+                path.unlink(missing_ok=True)
+                removed += 1
+    if removed:
+        log.info("Cleared Newsline split cache for report %s", number)
+
+
+def _remove_report_files(folder: Path, number: int) -> None:
+    for name in (f"Report{number}.mp3", f"nsln{number}.txt"):
+        path = folder / name
+        if path.is_file():
+            path.unlink()
+    stories = folder / "stories"
+    if stories.is_dir():
+        shutil.rmtree(stories)
+
+
 def _settings_now() -> tuple[datetime, str, str, int, ZoneInfo]:
     document = get_store().document()
     zone = zone_for(document.settings.timezone)
@@ -88,6 +122,9 @@ def run_check(*, manual: bool, root=None) -> NewsState:
     state.last_check_at = now
     _store(state, root)
     log.info("Newsline check started (manual=%s)", manual)
+    begin_ui_progress("Checking the Newsline feed")
+    downloaded = False
+    number: int | None = None
     try:
         if not ffmpeg_available():
             raise OSError("ffmpeg and ffprobe are required")
@@ -120,45 +157,91 @@ def run_check(*, manual: bool, root=None) -> NewsState:
             log.info("Newsline report %s is already split", number)
             _mark_current(state)
             return state
-        folder = (root or NEWSLINE_DIR) / str(number)
+        if not manual and state.split_failed_report == number:
+            log.info(
+                "Newsline report %s already failed to split; not retrying until a newer report or a manual check",
+                number,
+            )
+            return state
+        if state.split_failed_report is not None and state.split_failed_report != number:
+            _clear_report_cache(root, state.split_failed_report)
+            state.split_failed_report = None
+        folder = _news_root(root) / str(number)
         folder.mkdir(parents=True, exist_ok=True)
         audio = folder / f"Report{number}.mp3"
         transcript = folder / f"nsln{number}.txt"
+        if manual and (
+            state.split_failed_report == number
+            or audio.is_file()
+            or transcript.is_file()
+            or (folder / "stories").exists()
+        ):
+            log.info("Manual Newsline check will re-download report %s", number)
+            _remove_report_files(folder, number)
+            _clear_report_cache(root, number)
+            if state.split_failed_report == number:
+                state.split_failed_report = None
         state.working_report = number
         state.phase = "downloading"
         _store(state, root)
         if not audio.is_file():
+            set_ui_step(f"Downloading report {number} audio")
             log.info("Downloading Newsline report %s audio", number)
             download_file(report.audio_url, audio)
         else:
             log.info("Newsline audio already on disk: %s", audio)
         if not transcript.is_file():
+            set_ui_step(f"Downloading report {number} script")
             log.info("Downloading Newsline report %s script", number)
             download_file(report.script_url, transcript)
         else:
             log.info("Newsline script already on disk: %s", transcript)
+        downloaded = True
         state.phase = "splitting"
+        set_ui_step("Processing")
         _store(state, root)
-        split_report(
-            audio=audio,
-            transcript=transcript,
-            output_dir=folder / "stories",
-            cache_dir=(root or NEWSLINE_DIR) / "cache",
-            repeater_timeout=timeout,
+        try:
+            split_report(
+                audio=audio,
+                transcript=transcript,
+                output_dir=folder / "stories",
+                cache_dir=_news_root(root) / "cache",
+                repeater_timeout=timeout,
+            )
+        finally:
+            _clear_report_cache(root, number)
+        friday = (
+            parse_release_friday(transcript.read_text(encoding="utf-8", errors="replace"))
+            if transcript.is_file()
+            else None
         )
+        if friday is None:
+            log.warning(
+                "Newsline report %s script has no intended Friday; it will not air",
+                number,
+            )
         state.report_number = number
+        state.release_friday = friday
         state.split_ok = True
+        state.split_failed_report = None
         state.completed_at = _settings_now()[0]
         state.error = None
         state.last_outcome = "new"
         log.info("Newsline report %s is ready", number)
     except (OSError, SplitError, ValueError) as exc:
+        if downloaded and number is not None:
+            state.split_failed_report = number
+            _clear_report_cache(root, number)
         state.error = str(exc)
         log.warning("Newsline check failed: %s", exc)
     except Exception as exc:
+        if downloaded and number is not None:
+            state.split_failed_report = number
+            _clear_report_cache(root, number)
         state.error = str(exc)
         log.exception("Newsline check failed")
     finally:
+        end_ui_progress()
         state.phase = "idle"
         state.working_report = None
         state.last_check_at = _settings_now()[0]
@@ -248,6 +331,7 @@ def status_payload() -> dict[str, object]:
         from app.newsline.playlist import stories_ready
 
         ready = stories_ready(stories)
+    progress = ui_snapshot()
     return {
         "report_number": state.report_number,
         "split_ok": state.split_ok,
@@ -259,4 +343,6 @@ def status_payload() -> dict[str, object]:
         "in_progress": check_in_progress(),
         "working_report": state.working_report,
         "outcome": state.last_outcome,
+        "step": progress["step"],
+        "elapsed_seconds": progress["elapsed_seconds"],
     }
