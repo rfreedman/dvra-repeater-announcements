@@ -11,8 +11,8 @@ from app.config import (
     MAX_BUSY_GIVE_UP_SECONDS,
     PTT_LEAD_SECONDS,
 )
-from app.engines.base import VoiceInfo
-from app.engines.piper import PiperEngine
+from app.tts.base import VoiceInfo
+from app.tts.piper import PiperEngine
 
 
 class EngineRegistry:

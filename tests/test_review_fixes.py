@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.auth import BACKGROUND_POLL_HEADER
-from app.engines.piper import PiperEngine
+from app.tts.piper import PiperEngine
 from app.server import app
 from app.store import DataFileError
 from app.users import UserStore

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.engines.piper import FEATURED_VOICES, PiperEngine, load_featured_voices, set_featured_voices
+from app.tts.piper import FEATURED_VOICES, PiperEngine, load_featured_voices, set_featured_voices
 
 
 @dataclass
@@ -92,8 +92,8 @@ def _stub_piper(monkeypatch, voices_dir: Path, fail_ids: set[str] | None = None)
         loads.append(voice_id)
         return _FakeVoice(Path(path))
 
-    monkeypatch.setattr("app.engines.piper.download_voice", fake_download)
-    monkeypatch.setattr("app.engines.piper.PiperVoice.load", fake_load)
+    monkeypatch.setattr("app.tts.piper.download_voice", fake_download)
+    monkeypatch.setattr("app.tts.piper.PiperVoice.load", fake_load)
     return loads, downloads
 
 
@@ -142,7 +142,7 @@ def test_load_featured_voices_missing_file(tmp_path: Path):
 
 
 def test_preload_loads_featured_and_local_voices_including_high(featured, tmp_path: Path, monkeypatch):
-    monkeypatch.setattr("app.engines.piper.piper_quality_allowed", lambda _voice_id: True)
+    monkeypatch.setattr("app.tts.piper.piper_quality_allowed", lambda _voice_id: True)
     (tmp_path / "custom-local.onnx").write_bytes(b"onnx")
     (tmp_path / "en_US-lessac-high.onnx").write_bytes(b"onnx")
     loads, downloads = _stub_piper(monkeypatch, tmp_path)
@@ -172,7 +172,7 @@ def test_preload_loads_featured_and_local_voices_including_high(featured, tmp_pa
 
 def test_medium_qualities_excludes_high_from_list_and_preload(featured, tmp_path: Path, monkeypatch):
     monkeypatch.setattr(
-        "app.engines.piper.piper_quality_allowed",
+        "app.tts.piper.piper_quality_allowed",
         lambda voice_id: voice_id.endswith("-medium"),
     )
     (tmp_path / "custom-local.onnx").write_bytes(b"onnx")
@@ -194,7 +194,7 @@ def test_medium_qualities_excludes_high_from_list_and_preload(featured, tmp_path
 
 
 def test_preload_continues_when_one_voice_fails(featured, tmp_path: Path, monkeypatch):
-    monkeypatch.setattr("app.engines.piper.piper_quality_allowed", lambda _voice_id: True)
+    monkeypatch.setattr("app.tts.piper.piper_quality_allowed", lambda _voice_id: True)
     loads, _downloads = _stub_piper(monkeypatch, tmp_path, fail_ids={"en_US-amy-medium"})
     engine = PiperEngine(voices_dir=tmp_path)
 
@@ -288,9 +288,9 @@ def test_custom_url_download_when_missing(tmp_path: Path, monkeypatch):
             fetched.append((url, dest.name))
             dest.write_bytes(b"onnx-bytes" if dest.name.endswith(".onnx") else b"{}")
 
-        monkeypatch.setattr("app.engines.piper._download_url_to_file", fake_download)
-        monkeypatch.setattr("app.engines.piper.PiperVoice.load", lambda p: _FakeVoice(Path(p)))
-        monkeypatch.setattr("app.engines.piper.piper_quality_allowed", lambda _id: True)
+        monkeypatch.setattr("app.tts.piper._download_url_to_file", fake_download)
+        monkeypatch.setattr("app.tts.piper.PiperVoice.load", lambda p: _FakeVoice(Path(p)))
+        monkeypatch.setattr("app.tts.piper.piper_quality_allowed", lambda _id: True)
 
         engine = PiperEngine(voices_dir=tmp_path / "piper")
         engine.prepare("norman")
@@ -331,7 +331,7 @@ def test_non_pattern_id_without_url_fails(tmp_path: Path, monkeypatch):
     previous = FEATURED_VOICES
     set_featured_voices(voices)
     try:
-        monkeypatch.setattr("app.engines.piper.PiperVoice.load", lambda p: _FakeVoice(Path(p)))
+        monkeypatch.setattr("app.tts.piper.PiperVoice.load", lambda p: _FakeVoice(Path(p)))
         engine = PiperEngine(voices_dir=tmp_path / "piper")
         with pytest.raises(Exception, match="no download source"):
             engine.prepare("norman")
@@ -375,10 +375,10 @@ def test_hf_download_when_urls_omitted(tmp_path: Path, monkeypatch):
             Path(target_dir).mkdir(parents=True, exist_ok=True)
             (Path(target_dir) / f"{voice_id}.onnx").write_bytes(b"onnx")
 
-        monkeypatch.setattr("app.engines.piper._download_url_to_file", fake_url_download)
-        monkeypatch.setattr("app.engines.piper.download_voice", fake_hf)
-        monkeypatch.setattr("app.engines.piper.PiperVoice.load", lambda p: _FakeVoice(Path(p)))
-        monkeypatch.setattr("app.engines.piper.piper_quality_allowed", lambda _id: True)
+        monkeypatch.setattr("app.tts.piper._download_url_to_file", fake_url_download)
+        monkeypatch.setattr("app.tts.piper.download_voice", fake_hf)
+        monkeypatch.setattr("app.tts.piper.PiperVoice.load", lambda p: _FakeVoice(Path(p)))
+        monkeypatch.setattr("app.tts.piper.piper_quality_allowed", lambda _id: True)
 
         engine = PiperEngine(voices_dir=tmp_path / "piper")
         engine.prepare("en_US-lessac-medium")

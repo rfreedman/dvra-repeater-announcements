@@ -13,7 +13,7 @@ from fastapi.responses import StreamingResponse
 
 from app.audio import PcmChunk
 from app.deps import AuthUser
-from app.engines.base import VoiceError
+from app.tts.base import VoiceError
 from app.registry import get_registry
 from app.schemas import PrepareRequest, SpeakRequest
 

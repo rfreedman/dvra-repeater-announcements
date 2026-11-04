@@ -7,7 +7,7 @@ import urllib.error
 
 import pytest
 
-from app.engines.base import VoiceError
+from app.tts.base import VoiceError
 
 
 def _patch(monkeypatch, route: str, fail) -> None:

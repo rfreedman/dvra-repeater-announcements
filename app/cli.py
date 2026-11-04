@@ -5,7 +5,7 @@ import getpass
 import sys
 
 from app.config import DEFAULT_SENTENCE_PAUSE, DEFAULT_SPEED, HOST, PORT
-from app.engines.base import VoiceError
+from app.tts.base import VoiceError
 from app.playback import play_chunks
 from app.registry import get_registry
 

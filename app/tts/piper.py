@@ -16,9 +16,9 @@ from piper.download_voices import VOICE_PATTERN, download_voice
 
 from app.audio import PauseSegment, PcmChunk, parse_script, silence_chunk, with_sentence_pauses
 from app.config import DEFAULT_PIPER_VOICE, PIPER_VOICES_DIR, PIPER_VOICES_FILE, piper_quality_allowed
-from app.engines.base import Engine, VoiceError, VoiceInfo
+from app.tts.base import Engine, VoiceError, VoiceInfo
 
-log = logging.getLogger("app.engines.piper")
+log = logging.getLogger("app.tts.piper")
 
 _REQUIRED_FIELDS = ("id", "alias", "name", "gender", "locale", "quality", "description")
 _KNOWN_QUALITIES = ("x_low", "low", "medium", "high")
