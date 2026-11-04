@@ -12,7 +12,7 @@ If the feed is still the previous report, the app logs that the new episode is n
 
 If a new report downloads but processing fails, hourly checks keep looking at the feed but do not retry that report. **Check for Newsline now** deletes that report's audio, script, stories, and splitter cache, then downloads again. A later report on the feed is still downloaded and split.
 
-**Check for Newsline now** runs the same download and split once, including outside the Thursday–Friday window. It does not change the hourly schedule. If a check or split is already running, the button reports that and does not start a second one. The request returns immediately. The home status line shows checking, then downloading and processing while a new report is fetched and split, with the current processing step and elapsed time, then the report number when that finishes. When the feed has no newer report, the line says so and keeps the current report number. A failure is shown on that line. The action is written to the log.
+**Check for Newsline now** runs the same download and split once, including outside the Thursday–Friday window. It does not change the hourly schedule. The button is disabled while a check or split is already running, and while a Newsline bulletin is on the air. The request returns immediately. The home status line shows checking, then downloading and processing while a new report is fetched and split, with the current processing step and elapsed time, then the report number when that finishes. When the feed has no newer report, the line says so and keeps the current report number. A failure is shown on that line. The action is written to the log.
 
 ## Files
 

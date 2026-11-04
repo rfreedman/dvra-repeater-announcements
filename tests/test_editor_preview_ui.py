@@ -96,6 +96,16 @@ def test_newsline_home_status_shows_processing_step_and_elapsed():
     assert "`${head}${step}${elapsed}`" in source
 
 
+def test_newsline_check_button_disables_while_processing_or_playing():
+    source = APP_JS.read_text(encoding="utf-8")
+    assert "function syncNewslineCheckButton()" in source
+    assert "Unavailable while Newsline is on the air" in source
+    assert "A Newsline check is already running" in source
+    assert "newslinePlaying || Boolean(lastNewsline?.playing)" in source
+    click = source.split('getElementById("newsline-check").addEventListener("click"', 1)[1]
+    assert "if (button?.disabled) return;" in click.split("});", 1)[0]
+
+
 def test_running_now_shows_elapsed_clock():
     source = APP_JS.read_text(encoding="utf-8")
     assert "function elapsedSecondsSince(iso)" in source

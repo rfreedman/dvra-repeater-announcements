@@ -62,6 +62,8 @@ def upcoming_for_document(
 
 
 def build_home_live_status() -> dict[str, Any]:
+    from app.newsline.session import bulletin_session
+
     document = get_store().document()
     now = datetime.now(ZoneInfo(document.settings.timezone))
     return {
@@ -70,6 +72,7 @@ def build_home_live_status() -> dict[str, Any]:
         "pending_manual_triggers": pending_manual_triggers(),
         "manual_trigger_drop_notice": peek_manual_trigger_drop_notice(),
         "skip_notice": _skip_notice(),
+        "newsline_playing": bulletin_session.active,
     }
 
 

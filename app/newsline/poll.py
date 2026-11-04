@@ -331,6 +331,8 @@ def status_payload() -> dict[str, object]:
         from app.newsline.playlist import stories_ready
 
         ready = stories_ready(stories)
+    from app.newsline.session import bulletin_session
+
     progress = ui_snapshot()
     return {
         "report_number": state.report_number,
@@ -341,6 +343,7 @@ def status_payload() -> dict[str, object]:
         "completed_at": state.completed_at.isoformat() if state.completed_at else None,
         "last_check_at": state.last_check_at.isoformat() if state.last_check_at else None,
         "in_progress": check_in_progress(),
+        "playing": bulletin_session.active,
         "working_report": state.working_report,
         "outcome": state.last_outcome,
         "step": progress["step"],

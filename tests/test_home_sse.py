@@ -127,8 +127,22 @@ def test_build_home_live_status_reflects_running(store):
         live = build_home_live_status()
         assert live["upcoming"]["status"] == "running"
         assert live["upcoming"]["schedule_id"] == schedule.id
+        assert live["newsline_playing"] is False
     finally:
         _clear_running()
+
+
+def test_build_home_live_status_reflects_newsline_bulletin(store):
+    from app.newsline.session import bulletin_session
+
+    _seed_baseline(store)
+    bulletin_session.begin()
+    try:
+        live = build_home_live_status()
+        assert live["newsline_playing"] is True
+    finally:
+        bulletin_session.end()
+    assert build_home_live_status()["newsline_playing"] is False
 
 
 def test_build_home_live_status_matches_schedules_keys(client, store):

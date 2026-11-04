@@ -57,6 +57,8 @@ let editorPlaying = false;
 let session = 0;
 let pollTimer = null;
 let newslinePollTimer = null;
+let lastNewsline = null;
+let newslinePlaying = false;
 let statsTimer = null;
 let countdownTimer = null;
 let homeSseWanted = false;
@@ -179,11 +181,12 @@ function updateAuthChrome() {
   const shuffle = document.getElementById("baseline-randomize");
   shuffle.disabled = readOnly;
   shuffle.closest("label")?.classList.toggle("hidden", readOnly);
-  for (const id of ["newsline-check", "news-check-start", "news-check-stop", "repeater-timeout"]) {
+  for (const id of ["news-check-start", "news-check-stop", "repeater-timeout"]) {
     const el = document.getElementById(id);
     if (el) el.disabled = readOnly;
   }
   document.getElementById("newsline-check")?.classList.toggle("hidden", readOnly);
+  syncNewslineCheckButton();
   applyEditorReadOnly();
 }
 
@@ -1256,8 +1259,26 @@ function newslineCheckActive(newsline) {
   return newsline.phase === "checking" || newsline.phase === "downloading" || newsline.phase === "splitting";
 }
 
+function syncNewslineCheckButton() {
+  const button = document.getElementById("newsline-check");
+  if (!button) return;
+  const checking = newslineCheckActive(lastNewsline);
+  const playing = newslinePlaying || Boolean(lastNewsline?.playing);
+  const blocked = readOnly || checking || playing;
+  button.disabled = blocked;
+  if (readOnly) {
+    button.title = "";
+  } else if (playing) {
+    button.title = "Unavailable while Newsline is on the air";
+  } else if (checking) {
+    button.title = "A Newsline check is already running";
+  } else {
+    button.title = "";
+  }
+}
+
 function syncNewslinePoll(newsline) {
-  if (newslineCheckActive(newsline)) {
+  if (newslineCheckActive(newsline) || newslinePlaying || newsline?.playing) {
     if (!newslinePollTimer) {
       newslinePollTimer = setInterval(
         () => refreshHome({ background: true }).catch(() => {}),
@@ -1286,7 +1307,12 @@ function newslineElapsedSuffix(seconds) {
 function renderNewsline(newsline) {
   const status = document.getElementById("newsline-status");
   if (!status) return;
+  lastNewsline = newsline;
+  if (newsline && typeof newsline.playing === "boolean") {
+    newslinePlaying = newsline.playing;
+  }
   syncNewslinePoll(newsline);
+  syncNewslineCheckButton();
   if (!newsline) {
     status.textContent = "No report downloaded yet.";
     return;
@@ -1456,6 +1482,9 @@ function applyHomeLiveStatus(payload) {
     if (!Number.isNaN(serverNow)) clockSkewMs = serverNow - Date.now();
   }
   upcoming = payload.upcoming || null;
+  if (typeof payload.newsline_playing === "boolean") {
+    newslinePlaying = payload.newsline_playing;
+  }
   const fetchedAt = payload.now ? Date.parse(payload.now) : Date.now() + clockSkewMs;
   pendingManualTriggers = (payload.pending_manual_triggers || []).map((item) => ({
     ...item,
@@ -1464,6 +1493,8 @@ function applyHomeLiveStatus(payload) {
   renderUpcoming();
   renderManualTriggerDropNotice(payload.manual_trigger_drop_notice || null);
   renderSkipNotice(payload.skip_notice || null);
+  syncNewslineCheckButton();
+  syncNewslinePoll(lastNewsline);
   syncTriggerNowButtons();
 }
 
@@ -2774,15 +2805,25 @@ for (const id of ["news-check-start", "news-check-stop", "repeater-timeout"]) {
 }
 
 document.getElementById("newsline-check").addEventListener("click", async () => {
+  const button = document.getElementById("newsline-check");
+  if (button?.disabled) return;
   const status = document.getElementById("newsline-status");
   if (status) status.textContent = "Checking for a new Newsline report…";
   const res = await fetch("/api/newsline/check", { method: "POST" });
   if (res.status === 409) {
-    status.textContent = "A Newsline check is already running.";
+    let detail = "A Newsline check is already running.";
+    try {
+      const body = await res.json();
+      if (typeof body.detail === "string" && body.detail) detail = body.detail;
+    } catch {
+      /* ignore */
+    }
+    if (status) status.textContent = detail;
+    refreshHome({ background: true }).catch(() => {});
     return;
   }
   if (!res.ok) {
-    document.getElementById("newsline-status").textContent = "Could not start the Newsline check.";
+    if (status) status.textContent = "Could not start the Newsline check.";
     return;
   }
   await refreshHome();

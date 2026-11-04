@@ -336,7 +336,35 @@ def test_manual_check_refuses_a_second_run(client, monkeypatch):
     assert started.wait(2)
     second = client.post("/api/newsline/check")
     assert second.status_code == 409
+    assert second.json()["detail"] == "A Newsline check is already running"
     release.set()
+
+
+def test_manual_check_refuses_while_newsline_is_playing(client, monkeypatch):
+    from app.newsline.session import bulletin_session
+
+    monkeypatch.setattr("app.newsline.poll.start_manual_check", lambda: True)
+    bulletin_session.begin()
+    try:
+        res = client.post("/api/newsline/check")
+        assert res.status_code == 409
+        assert "playing" in res.json()["detail"].casefold()
+    finally:
+        bulletin_session.end()
+
+
+def test_status_payload_includes_playing_flag(monkeypatch, tmp_path):
+    from app.newsline.poll import status_payload
+    from app.newsline.session import bulletin_session
+
+    monkeypatch.setattr("app.newsline.state.NEWSLINE_DIR", tmp_path)
+    save_state(NewsState(), tmp_path)
+    assert status_payload()["playing"] is False
+    bulletin_session.begin()
+    try:
+        assert status_payload()["playing"] is True
+    finally:
+        bulletin_session.end()
 
 
 def test_failed_check_is_unavailable_even_when_last_week_files_exist(tmp_path, monkeypatch):

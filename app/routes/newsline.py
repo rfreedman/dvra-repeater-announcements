@@ -25,6 +25,13 @@ _END = object()
 
 @router.post("/api/newsline/check")
 def check_newsline_now(_admin: AdminUser) -> dict[str, str]:
+    from app.newsline.session import bulletin_session
+
+    if bulletin_session.active:
+        raise HTTPException(
+            status_code=409,
+            detail="Newsline is playing; try again when it finishes",
+        )
     if not start_manual_check():
         raise HTTPException(status_code=409, detail="A Newsline check is already running")
     notify_home_data_changed()
