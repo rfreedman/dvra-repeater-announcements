@@ -115,6 +115,7 @@ class AnnouncementStore:
                     item.opening_announcement_id,
                     item.station_id_announcement_id,
                     item.closing_announcement_id,
+                    item.resume_announcement_id,
                 }:
                     users.append(item.name)
             if users:

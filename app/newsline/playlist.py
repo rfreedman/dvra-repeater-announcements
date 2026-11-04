@@ -88,6 +88,17 @@ def build_playlist(
     return pieces
 
 
+def resume_piece(bulletin: Announcement, document: StoreDocument) -> Piece | None:
+    """Spoken line after a COS busy wait, or ``None`` if unset or too long."""
+    item = _spoken(document, bulletin.resume_announcement_id)
+    if item is None:
+        return None
+    if item.too_long:
+        log.info("Omitting too-long resume %s", item.name)
+        return None
+    return Piece(label=item.name, announcement=item)
+
+
 def _spoken(document: StoreDocument, announcement_id: str | None) -> Announcement | None:
     if not announcement_id:
         return None

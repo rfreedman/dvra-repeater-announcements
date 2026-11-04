@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import partial
 
@@ -16,6 +17,12 @@ from app.newsline.session import PendingEmergency, bulletin_session
 from app.radio import ChannelBusyError, TransmitAbortError, channel_blocks_transmit, transmit
 
 log = logging.getLogger("app.newsline")
+
+
+@dataclass(frozen=True)
+class ClearWait:
+    outcome: str
+    interrupted: bool = False
 
 
 def _now(deps) -> datetime:
@@ -37,25 +44,29 @@ def _fresh_busy(deps) -> bool:
     return bool(deps.radio.channel_busy())
 
 
-def wait_until_clear(deps, *, deadline: datetime | None, gap_seconds: float = 0.0) -> str:
+def wait_until_clear(deps, *, deadline: datetime | None, gap_seconds: float = 0.0) -> ClearWait:
     """Wait out the unkey gap, then until the channel is clear.
 
-    Returns ``clear``, ``emergency``, or ``deadline``.
+    ``interrupted`` is true when COS was busy after the unkey gap.
     """
     remaining = gap_seconds
     poll = _poll(deps)
+    interrupted = False
     while True:
         if bulletin_session.waiting():
-            return "emergency"
+            return ClearWait("emergency", interrupted)
         if deadline is not None and _now(deps) >= deadline:
-            return "deadline"
+            return ClearWait("deadline", interrupted)
         if remaining > 0:
             step = min(poll, remaining)
             deps.sleep_fn(step)
             remaining -= step
             continue
-        if not _blocked(deps) and not _fresh_busy(deps):
-            return "clear"
+        busy = _fresh_busy(deps)
+        if busy:
+            interrupted = True
+        if not busy and not _blocked(deps):
+            return ClearWait("clear", interrupted)
         deps.sleep_fn(poll)
 
 
@@ -88,8 +99,8 @@ def _play_emergency(deps, pending: PendingEmergency) -> str:
     log.info("Newsline yielding to emergency %s", label)
     if deps.set_running:
         deps.set_running(announcement, schedule.id)
-    outcome = wait_until_clear(deps, deadline=deadline, gap_seconds=0.0)
-    if outcome != "clear":
+    wait = wait_until_clear(deps, deadline=deadline, gap_seconds=0.0)
+    if wait.outcome != "clear":
         log.info("Emergency %s dropped; channel did not clear before its give-up", label)
         fire_trace("Emergency dropped during Newsline label=%s", label)
         return "dropped"
@@ -120,6 +131,20 @@ def _drain_emergencies(deps) -> str | None:
     return None
 
 
+def _play_resume(deps, resume: Piece | None, *, on_key: Callable[[], None] | None) -> str | None:
+    if resume is None:
+        return None
+    log.info("Newsline playing resume %s after channel busy", resume.label)
+    try:
+        _transmit_chunks(deps, _chunks_for_piece(deps, resume), on_key=on_key)
+    except (TransmitAbortError, BrokenPipeError):
+        return "dropped_usb"
+    except ChannelBusyError:
+        log.info("Newsline resume skipped; channel busy at PTT")
+        return None
+    return None
+
+
 def transmit_newsline(
     deps,
     pieces: list[Piece],
@@ -127,15 +152,16 @@ def transmit_newsline(
     bulletin: Announcement,
     schedule: Schedule,
     initial_deadline: datetime,
+    resume: Piece | None = None,
 ) -> str:
     """Play every piece. The initial clear wait still honors ``initial_deadline``."""
     label = bulletin.name
-    outcome = wait_until_clear(deps, deadline=initial_deadline, gap_seconds=0.0)
-    if outcome == "emergency":
+    wait = wait_until_clear(deps, deadline=initial_deadline, gap_seconds=0.0)
+    if wait.outcome == "emergency":
         drained = _drain_emergencies(deps)
         if drained == "dropped_usb":
             return "dropped_usb"
-    elif outcome == "deadline":
+    elif wait.outcome == "deadline":
         if _now(deps) >= initial_deadline and _blocked(deps):
             log.info("Newsline deferred; %s; channel not clear before %s", label, initial_deadline.isoformat())
             return "not_clear"
@@ -145,19 +171,27 @@ def transmit_newsline(
     if deps.set_running:
         deps.set_running(bulletin, schedule.id)
     gap = bulletin.ptt_gap_seconds
+    played_any = False
     for index, piece in enumerate(pieces):
         drained = _drain_emergencies(deps)
         if drained == "dropped_usb":
             return "dropped_usb"
+        interrupted = False
         if index > 0 or bulletin_session.waiting():
-            gap_outcome = wait_until_clear(deps, deadline=None, gap_seconds=gap)
-            if gap_outcome == "emergency":
+            gap_wait = wait_until_clear(deps, deadline=None, gap_seconds=gap)
+            interrupted = gap_wait.interrupted
+            if gap_wait.outcome == "emergency":
                 drained = _drain_emergencies(deps)
                 if drained == "dropped_usb":
                     return "dropped_usb"
-                gap_outcome = wait_until_clear(deps, deadline=None, gap_seconds=gap)
-            if gap_outcome != "clear":
+                gap_wait = wait_until_clear(deps, deadline=None, gap_seconds=gap)
+                interrupted = interrupted or gap_wait.interrupted
+            if gap_wait.outcome != "clear":
                 continue
+        if interrupted and played_any:
+            usb = _play_resume(deps, resume, on_key=on_key)
+            if usb == "dropped_usb":
+                return "dropped_usb"
         try:
             _transmit_chunks(deps, _chunks_for_piece(deps, piece), on_key=on_key)
         except (TransmitAbortError, BrokenPipeError):
@@ -165,9 +199,13 @@ def transmit_newsline(
             return "dropped_usb"
         except ChannelBusyError:
             log.info("Newsline waiting; %s; channel busy before %s", label, piece.label)
-            gap_outcome = wait_until_clear(deps, deadline=None, gap_seconds=0.0)
-            if gap_outcome == "emergency":
+            gap_wait = wait_until_clear(deps, deadline=None, gap_seconds=0.0)
+            if gap_wait.outcome == "emergency":
                 _drain_emergencies(deps)
+            if played_any:
+                usb = _play_resume(deps, resume, on_key=on_key)
+                if usb == "dropped_usb":
+                    return "dropped_usb"
             try:
                 _transmit_chunks(deps, _chunks_for_piece(deps, piece), on_key=on_key)
             except (TransmitAbortError, BrokenPipeError):
@@ -176,6 +214,7 @@ def transmit_newsline(
                 log.warning("Newsline skipped piece %s; channel stayed busy", piece.label)
                 continue
         log.info("Newsline played %s", piece.label)
+        played_any = True
         if deps.set_running:
             deps.set_running(bulletin, schedule.id)
     drained = _drain_emergencies(deps)

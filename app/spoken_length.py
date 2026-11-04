@@ -57,7 +57,12 @@ def format_seconds(value: float) -> str:
 
 
 def _role_label(role: str) -> str:
-    return {"opening": "Opening", "station ID": "Station ID", "closing": "Closing"}[role]
+    return {
+        "opening": "Opening",
+        "station ID": "Station ID",
+        "closing": "Closing",
+        "resume": "Resume",
+    }[role]
 
 
 def too_long_parts(document: StoreDocument, announcement: Announcement) -> list[str]:
@@ -76,6 +81,7 @@ def too_long_parts(document: StoreDocument, announcement: Announcement) -> list[
         ("opening", announcement.opening_announcement_id),
         ("station ID", announcement.station_id_announcement_id),
         ("closing", announcement.closing_announcement_id),
+        ("resume", announcement.resume_announcement_id),
     )
     for role, announcement_id in refs:
         if not announcement_id:

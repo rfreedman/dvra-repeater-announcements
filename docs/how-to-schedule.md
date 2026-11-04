@@ -32,7 +32,7 @@ the announcement, its length, the limit, and what will play instead. A notice
 on the home screen names the same substitution when the fire happens.
 
 The same rule applies to an emergency. Amateur Radio Newsline uses this limit
-for its opening, station ID, and closing; see
+for its opening, station ID, closing, and resume; see
 [Amateur Radio Newsline](arnewsline.md).
 
 ## 2. Fill the clock with a baseline

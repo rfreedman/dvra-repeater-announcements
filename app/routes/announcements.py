@@ -44,10 +44,12 @@ def _from_request(req: AnnouncementIn, existing: Announcement | None) -> Announc
     previous_opening = existing.opening_announcement_id if existing else None
     previous_station = existing.station_id_announcement_id if existing else None
     previous_closing = existing.closing_announcement_id if existing else None
+    previous_resume = existing.resume_announcement_id if existing else None
     if req.kind == "newsline":
         _referenced(store, req.opening_announcement_id, role="Opening", previous=previous_opening)
         _referenced(store, req.station_id_announcement_id, role="Station ID", previous=previous_station)
         _referenced(store, req.closing_announcement_id, role="Closing", previous=previous_closing)
+        _referenced(store, req.resume_announcement_id, role="Resume", previous=previous_resume)
     data = {
         "name": req.name,
         "kind": req.kind,
@@ -60,6 +62,7 @@ def _from_request(req: AnnouncementIn, existing: Announcement | None) -> Announc
         "opening_announcement_id": req.opening_announcement_id,
         "station_id_announcement_id": req.station_id_announcement_id,
         "closing_announcement_id": req.closing_announcement_id,
+        "resume_announcement_id": req.resume_announcement_id,
         "ptt_gap_seconds": req.ptt_gap_seconds,
     }
     if existing is not None:

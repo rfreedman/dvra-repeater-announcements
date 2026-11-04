@@ -38,12 +38,14 @@ def test_newsline_item_requires_a_station_id_and_protects_it(client):
             "name": "Newsline",
             "kind": "newsline",
             "station_id_announcement_id": station["id"],
+            "resume_announcement_id": station["id"],
             "ptt_gap_seconds": 2,
         },
     )
     assert created.status_code == 200
     assert created.json()["kind"] == "newsline"
     assert created.json()["text"] == ""
+    assert created.json()["resume_announcement_id"] == station["id"]
     removed = client.delete(f"/api/announcements/{station['id']}")
     assert removed.status_code == 409
 

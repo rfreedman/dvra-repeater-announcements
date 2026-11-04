@@ -201,6 +201,7 @@ function announcementEditorControls() {
     document.getElementById("news-opening"),
     document.getElementById("news-station"),
     document.getElementById("news-closing"),
+    document.getElementById("news-resume"),
     document.getElementById("news-gap"),
     document.getElementById("newsline-reset"),
   ];
@@ -1886,6 +1887,7 @@ function blankAnnouncement() {
   fillSpokenSelect("news-opening", "", { optional: true });
   fillSpokenSelect("news-station", spokenAnnouncements()[0]?.id || "");
   fillSpokenSelect("news-closing", "", { optional: true });
+  fillSpokenSelect("news-resume", "", { optional: true });
   document.getElementById("news-gap").value = "2";
   showLengthWarning(null);
   syncAnnouncementKind();
@@ -1912,6 +1914,7 @@ async function loadAnnouncement(id) {
   fillSpokenSelect("news-opening", item.opening_announcement_id || "", { optional: true });
   fillSpokenSelect("news-station", item.station_id_announcement_id || "");
   fillSpokenSelect("news-closing", item.closing_announcement_id || "", { optional: true });
+  fillSpokenSelect("news-resume", item.resume_announcement_id || "", { optional: true });
   document.getElementById("news-gap").value = String(item.ptt_gap_seconds ?? 2);
   showLengthWarning(item);
   syncAnnouncementKind();
@@ -1939,6 +1942,7 @@ async function saveAnnouncement() {
     opening_announcement_id: document.getElementById("news-opening").value || null,
     station_id_announcement_id: document.getElementById("news-station").value || null,
     closing_announcement_id: document.getElementById("news-closing").value || null,
+    resume_announcement_id: document.getElementById("news-resume").value || null,
     ptt_gap_seconds: Number(document.getElementById("news-gap").value),
   };
   if (!body.name) {
@@ -2151,6 +2155,7 @@ async function playNewsline() {
         opening_announcement_id: document.getElementById("news-opening").value || null,
         station_id_announcement_id: document.getElementById("news-station").value || null,
         closing_announcement_id: document.getElementById("news-closing").value || null,
+        resume_announcement_id: document.getElementById("news-resume").value || null,
       }),
       signal: controller.signal,
     });
@@ -2708,6 +2713,7 @@ document.getElementById("newsline-reset").addEventListener("click", () => {
   fillSpokenSelect("news-opening", "", { optional: true });
   fillSpokenSelect("news-station", spokenAnnouncements()[0]?.id || "");
   fillSpokenSelect("news-closing", "", { optional: true });
+  fillSpokenSelect("news-resume", "", { optional: true });
   document.getElementById("news-gap").value = "2";
   setStatus("Ready");
 });

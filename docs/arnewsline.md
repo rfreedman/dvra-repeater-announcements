@@ -25,17 +25,18 @@ Reports live under `data/arnewsline/`:
 
 Stories are packed so each file stays under the repeater timeout minus 2 seconds (178 seconds when the timeout is 180).
 
-## The three spoken parts
+## The spoken parts
 
 A Newsline item has no script of its own. It points at ordinary spoken announcements:
 
 - **Opening** — optional, played once before the stories
 - **Station ID** — required, played in place of each `*station-id.mp3` marker
 - **Closing** — optional, played once after the stories
+- **Resume after busy** — optional, played before the next story after the channel was busy during a gap
 
-Create those as normal announcements first, then choose them on the Newsline item. A Newsline item cannot be chosen as an opening, station ID, or closing. A spoken announcement that a Newsline item still uses cannot be deleted.
+Create those as normal announcements first, then choose them on the Newsline item. A Newsline item cannot be chosen as an opening, station ID, closing, or resume. A spoken announcement that a Newsline item still uses cannot be deleted.
 
-On the Newsline editor, **Play** streams the latest split report in the browser, using the opening, station ID, and closing chosen on that screen. While a piece plays, the status shows **Streaming…**, the piece name, and elapsed minutes and seconds for that piece. The editor fields are locked until it finishes, you press **Stop**, or you leave that screen (Back, another page, or closing the tab). A short tone marks simulated PTT key-up; a slightly lower tone marks unkey. Between pieces it pauses for the usual PTT lead and then the unkey gap from this screen, with the speakers idle rather than playing silence. **Stop** ends the preview, including a pause. **Reset** restores those three choices and the unkey gap. If no report is ready, Play shows a warning and does not start.
+On the Newsline editor, **Play** streams the latest split report in the browser, using the opening, station ID, and closing chosen on that screen. While a piece plays, the status shows **Streaming…**, the piece name, and elapsed minutes and seconds for that piece. The editor fields are locked until it finishes, you press **Stop**, or you leave that screen (Back, another page, or closing the tab). A short tone marks simulated PTT key-up; a slightly lower tone marks unkey. Between pieces it pauses for the usual PTT lead and then the unkey gap from this screen, with the speakers idle rather than playing silence. **Stop** ends the preview, including a pause. **Reset** restores those choices and the unkey gap. If no report is ready, Play shows a warning and does not start.
 
 ## Schedule and airtime
 
@@ -47,7 +48,7 @@ If the latest report failed to download or process, or the story files are missi
 
 If the channel is busy before the first piece, that wait is limited by the slot window and the busy give-up, the same as any other announcement. Once the first piece has started, the bulletin finishes every remaining piece even if that runs past the slot, the original give-up, or another schedule.
 
-If the channel is busy during a gap, the radio stays unkeyed and waits for the same clear hold as a normal key-up, including a fresh carrier check, then continues with the next piece. It does not start the bulletin over. That wait is not a scheduler retry.
+If the channel is busy during a gap, the radio stays unkeyed and waits for the same clear hold as a normal key-up, including a fresh carrier check. If a resume announcement is set, that plays before the next story. It does not start the bulletin over. That wait is not a scheduler retry.
 
 A non-emergency that comes due while the bulletin is on the air is dropped. It is not played later, and the baseline rotation does not advance for that missed slot. A manual trigger during the bulletin keeps its usual lock retry.
 

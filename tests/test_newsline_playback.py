@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 from app.audio import PcmChunk
 from app.fire import FireContext, FireDeps, LoadedFire, handle_fire
 from app.models import Announcement, Schedule, StoreDocument
-from app.newsline.playlist import Piece, build_playlist
+from app.newsline.playlist import Piece, build_playlist, resume_piece
 from app.newsline.session import bulletin_session
 from app.radio import StubRadio
 
@@ -108,6 +108,143 @@ def test_gap_unkeys_and_lead_runs_for_each_piece(tmp_path, monkeypatch):
     assert played == ["audio", "audio"]
     ptt = [event for event in radio.events if event[0] == "ptt"]
     assert ptt == [("ptt", True), ("ptt", False), ("ptt", True), ("ptt", False)]
+
+
+def test_resume_plays_after_cos_busy_between_pieces(tmp_path, monkeypatch):
+    from app.newsline.playback import ClearWait, transmit_newsline
+
+    radio = StubRadio()
+    order: list[str] = []
+    resume_item = Announcement(name="Back", text="We return to Newsline.")
+    resume = Piece(label=resume_item.name, announcement=resume_item)
+    bulletin = Announcement(
+        name="News",
+        kind="newsline",
+        station_id_announcement_id="station",
+        text="",
+        ptt_gap_seconds=2,
+    )
+    schedule = Schedule(name="Friday", kind="weekly", announcement_id=bulletin.id, days=["fri"], slots=["18:00"])
+    waits = {"n": 0}
+
+    def wait_until_clear(_deps, *, deadline, gap_seconds=0.0):
+        waits["n"] += 1
+        if waits["n"] == 1:
+            return ClearWait("clear", False)
+        return ClearWait("clear", True)
+
+    monkeypatch.setattr("app.newsline.playback.wait_until_clear", wait_until_clear)
+    monkeypatch.setattr(
+        "app.newsline.playback.mp3_to_chunks",
+        lambda path: [PcmChunk(pcm_int16=path.name.encode(), sample_rate=22050)],
+    )
+    pieces = [
+        Piece(label="one", path=tmp_path / "one"),
+        Piece(label="two", path=tmp_path / "two"),
+    ]
+    bulletin_session.begin()
+    try:
+        outcome = transmit_newsline(
+            _deps(
+                radio,
+                synthesize=lambda item: [PcmChunk(pcm_int16=item.name.encode(), sample_rate=22050)],
+                play=lambda chunks: order.append(b"".join(c.pcm_int16 for c in chunks).decode()),
+                sleep=lambda _seconds: None,
+                defer=lambda *_args: None,
+                lock=__import__("threading").Lock(),
+            ),
+            pieces,
+            bulletin=bulletin,
+            schedule=schedule,
+            initial_deadline=NOW + timedelta(minutes=5),
+            resume=resume,
+        )
+    finally:
+        bulletin_session.end()
+    assert outcome == "transmitted"
+    assert order == ["one", "Back", "two"]
+
+
+def test_resume_is_not_played_when_the_channel_stays_clear(tmp_path, monkeypatch):
+    from app.newsline.playback import transmit_newsline
+
+    radio = StubRadio()
+    order: list[str] = []
+    resume_item = Announcement(name="Back", text="We return to Newsline.")
+    bulletin = Announcement(
+        name="News",
+        kind="newsline",
+        station_id_announcement_id="station",
+        text="",
+        ptt_gap_seconds=0,
+    )
+    schedule = Schedule(name="Friday", kind="weekly", announcement_id=bulletin.id, days=["fri"], slots=["18:00"])
+    monkeypatch.setattr(
+        "app.newsline.playback.mp3_to_chunks",
+        lambda path: [PcmChunk(pcm_int16=path.name.encode(), sample_rate=22050)],
+    )
+    bulletin_session.begin()
+    try:
+        outcome = transmit_newsline(
+            _deps(
+                radio,
+                synthesize=lambda item: [PcmChunk(pcm_int16=item.name.encode(), sample_rate=22050)],
+                play=lambda chunks: order.append(b"".join(c.pcm_int16 for c in chunks).decode()),
+                sleep=lambda _seconds: None,
+                defer=lambda *_args: None,
+                lock=__import__("threading").Lock(),
+            ),
+            [
+                Piece(label="one", path=tmp_path / "one"),
+                Piece(label="two", path=tmp_path / "two"),
+            ],
+            bulletin=bulletin,
+            schedule=schedule,
+            initial_deadline=NOW + timedelta(minutes=5),
+            resume=Piece(label=resume_item.name, announcement=resume_item),
+        )
+    finally:
+        bulletin_session.end()
+    assert outcome == "transmitted"
+    assert order == ["one", "two"]
+
+
+def test_resume_piece_omits_too_long_and_missing():
+    station = Announcement(name="ID", text="id")
+    too_long = Announcement(name="Back", text="We return.", too_long=True)
+    bulletin = Announcement(
+        name="News",
+        kind="newsline",
+        station_id_announcement_id=station.id,
+        resume_announcement_id=too_long.id,
+        text="",
+    )
+    document = StoreDocument(announcements=[station, too_long, bulletin])
+    assert resume_piece(bulletin, document) is None
+    bulletin = bulletin.model_copy(update={"resume_announcement_id": None})
+    assert resume_piece(bulletin, document) is None
+
+
+def test_wait_until_clear_marks_cos_busy():
+    from app.newsline.playback import wait_until_clear
+
+    radio = StubRadio()
+    radio.busy_sequence = [True, False, False]
+    deps = _deps(
+        radio,
+        synthesize=lambda _item: _pcm(),
+        play=lambda _chunks: None,
+        sleep=lambda _seconds: None,
+        defer=lambda *_args: None,
+        lock=__import__("threading").Lock(),
+    )
+    bulletin_session.begin()
+    try:
+        wait = wait_until_clear(deps, deadline=None, gap_seconds=0.0)
+    finally:
+        bulletin_session.end()
+    assert wait.outcome == "clear"
+    assert wait.interrupted is True
 
 
 def test_unavailable_newsline_does_not_defer_when_load_still_returns_it(monkeypatch):

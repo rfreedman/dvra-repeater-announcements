@@ -339,7 +339,7 @@ def _transmit_newsline(
     schedule: Schedule,
 ) -> str:
     from app.newsline.playback import transmit_newsline
-    from app.newsline.playlist import build_playlist
+    from app.newsline.playlist import build_playlist, resume_piece
     from app.newsline.session import bulletin_session
     from app.newsline.state import load_state
     from app.store import get_store
@@ -348,7 +348,9 @@ def _transmit_newsline(
     if stories is None:
         return "dropped"
     try:
-        pieces = build_playlist(announcement, get_store().document(), stories)
+        document = get_store().document()
+        pieces = build_playlist(announcement, document, stories)
+        resume = resume_piece(announcement, document)
     except ValueError as exc:
         log.info("Fire dropped; %s; %s", announcement.name, exc)
         return "dropped"
@@ -363,6 +365,7 @@ def _transmit_newsline(
             bulletin=announcement,
             schedule=schedule,
             initial_deadline=ctx.deadline,
+            resume=resume,
         )
     finally:
         bulletin_session.end()

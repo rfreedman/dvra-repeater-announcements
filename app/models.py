@@ -179,6 +179,7 @@ class Announcement(BaseModel):
     opening_announcement_id: str | None = None
     station_id_announcement_id: str | None = None
     closing_announcement_id: str | None = None
+    resume_announcement_id: str | None = None
     ptt_gap_seconds: float = Field(default=2.0, ge=0.0, le=30.0)
 
     @field_validator("name")
