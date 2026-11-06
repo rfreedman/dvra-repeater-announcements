@@ -1,13 +1,15 @@
 """Radio backend protocol (stub vs DRA).
 
-Required: ``channel_busy``, ``set_ptt``. Optional methods used by scheduler, fire,
-and COS poll are documented in ``docs/radio-backend.md``.
+Required: ``channel_busy``, ``set_ptt``. Optional capability Protocols and ``as_*``
+helpers for clear-hold, COS polling, USB playback, etc. are documented in
+``docs/radio-backend.md``.
 """
 from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Iterable
-from typing import Protocol
+from datetime import datetime
+from typing import Protocol, runtime_checkable
 
 from app.audio import PcmChunk
 from app.config import DRA_COS_LINE, DRA_USB_CHANNEL, PTT_LEAD_SECONDS, radio_backend
@@ -29,13 +31,122 @@ class Radio(Protocol):
     def set_ptt(self, keyed: bool) -> None: ...
 
 
+# ---------------------------------------------------------------------------
+# Optional capability Protocols — checked with ``as_*`` helpers, not getattr.
+# ---------------------------------------------------------------------------
+
+
+@runtime_checkable
+class IdleCreditRadio(Protocol):
+    """Radio that tracks continuous COS idle time."""
+
+    def continuous_idle_seconds(self) -> float: ...
+
+
+@runtime_checkable
+class ClearWaitRadio(Protocol):
+    """Radio that can block until the channel has been idle for a clear-hold period."""
+
+    def wait_for_transmit_clear(
+        self,
+        *,
+        clear_seconds: float,
+        poll_seconds: float,
+        deadline: datetime,
+        now: Callable[[], datetime],
+        sleep_fn: Callable[[float], None],
+        fail_fast_on_busy: bool = False,
+    ) -> bool: ...
+
+
+@runtime_checkable
+class CosSnapshotRadio(Protocol):
+    """Radio that can peek COS state without opening HID (for UI/SSE status)."""
+
+    def cos_defer_snapshot(self) -> tuple[bool | None, float]: ...
+
+
+@runtime_checkable
+class UsbPlayRadio(Protocol):
+    """Radio that streams PCM on USB audio devices (DRA)."""
+
+    def play_transmit_audio(
+        self,
+        chunks: Iterable[PcmChunk],
+        *,
+        lead_seconds: float,
+    ) -> None: ...
+
+
+@runtime_checkable
+class CosPollingRadio(Protocol):
+    """Radio with background COS polling support (warm HID, refresh, PTT guard)."""
+
+    def warm_open_hid(self) -> None: ...
+    def refresh_cos(self) -> bool: ...
+
+    @property
+    def ptt_keyed(self) -> bool: ...
+
+
+@runtime_checkable
+class AudioReplugRadio(Protocol):
+    """Radio that can re-resolve PortAudio indices after USB replug."""
+
+    def sync_audio_output_indices_if_changed(
+        self, *, after_usb_event: bool = False
+    ) -> bool: ...
+
+
+# ---------------------------------------------------------------------------
+# Typed helpers — return the narrowed Protocol or None.
+# Unwrap proxies (e.g. _RunningOnKeyRadio) since runtime_checkable isinstance
+# uses static attribute lookup and does not trigger __getattr__.
+# ---------------------------------------------------------------------------
+
+
+def _unwrap_radio(radio: object) -> object:
+    inner = getattr(radio, "_inner", None)
+    return inner if inner is not None else radio
+
+
+def as_idle_credit(radio: Radio) -> IdleCreditRadio | None:
+    target = _unwrap_radio(radio)
+    return target if isinstance(target, IdleCreditRadio) else None
+
+
+def as_clear_wait(radio: Radio) -> ClearWaitRadio | None:
+    target = _unwrap_radio(radio)
+    return target if isinstance(target, ClearWaitRadio) else None
+
+
+def as_cos_snapshot(radio: Radio) -> CosSnapshotRadio | None:
+    target = _unwrap_radio(radio)
+    return target if isinstance(target, CosSnapshotRadio) else None
+
+
+def as_usb_play(radio: Radio) -> UsbPlayRadio | None:
+    target = _unwrap_radio(radio)
+    return target if isinstance(target, UsbPlayRadio) else None
+
+
+def as_cos_polling(radio: Radio) -> CosPollingRadio | None:
+    target = _unwrap_radio(radio)
+    return target if isinstance(target, CosPollingRadio) else None
+
+
+def as_audio_replug(radio: Radio) -> AudioReplugRadio | None:
+    target = _unwrap_radio(radio)
+    return target if isinstance(target, AudioReplugRadio) else None
+
+
 def channel_blocks_transmit(radio: Radio, *, clear_seconds: float = 0) -> bool:
     """True if COS says we must not key yet; skips the COS read once the clear hold is met.
 
     Not a final pre-PTT check — ``fire._confirm_clear_before_ptt`` always reads COS fresh.
     """
-    idle_fn = getattr(radio, "continuous_idle_seconds", None)
-    if clear_seconds > 0 and idle_fn is not None and idle_fn() >= clear_seconds:
+    idle = as_idle_credit(radio)
+    if clear_seconds > 0 and idle is not None and idle.continuous_idle_seconds() >= clear_seconds:
         return False
     return radio.channel_busy()
 
@@ -86,14 +197,14 @@ def transmit(
     play = play_fn or play_chunks
     sleep = sleep_fn or time.sleep
     lead = PTT_LEAD_SECONDS if lead_seconds is None else lead_seconds
-    play_on_dra = getattr(radio, "play_transmit_audio", None)
+    usb_play = as_usb_play(radio)
 
-    log.info(f"radio.py transmit: play_on_dra = {play_on_dra}")
+    log.info(f"radio.py transmit: play_on_dra = {usb_play}")
 
     if channel_blocks_transmit(radio, clear_seconds=clear_seconds):
         raise ChannelBusyError("channel busy immediately before PTT")
 
-    if play_on_dra is not None:
+    if usb_play is not None:
         from app.dra_alsa_mixer import prepare_dra_for_transmit, sync_cm119_speaker_unmute
         from app.dra_playback import play_dra_lead_silence
         from app.dra_radio import dra_radio_from
@@ -118,8 +229,7 @@ def transmit(
 
                 # TODO: Fix This - RAF
                 log.info(f"radio.py transmit: playing chunks with lead_seconds = 0")
-                # noinspection PyCallingNonCallable
-                play_on_dra(chunks, lead_seconds=0)
+                usb_play.play_transmit_audio(chunks, lead_seconds=0)
 
             finally:
                 radio.set_ptt(False)

@@ -23,7 +23,7 @@ def init_radio_at_startup() -> None:
     import sys
 
     from app.config import DRA_ALSA_SPEAKER_LEVEL, dra_alsa_unmute_enabled, radio_backend
-    from app.radio import create_radio_from_config, set_radio
+    from app.radio import as_cos_polling, create_radio_from_config, set_radio
 
     try:
         if sys.platform.startswith("linux") and radio_backend() in ("dra", "cm119"):
@@ -41,16 +41,14 @@ def init_radio_at_startup() -> None:
             from app.dra_radio import DraRadio
 
             if isinstance(radio, DraRadio):
-                sync_audio = getattr(radio, "sync_audio_output_indices_if_changed", None)
-                if sync_audio is not None:
-                    sync_audio(after_usb_event=True)
+                radio.sync_audio_output_indices_if_changed(after_usb_event=True)
                 ensure_cm119_speakers_unmuted(
                     radio.audio_device_indices,
                     level=DRA_ALSA_SPEAKER_LEVEL,
                 )
-        warm = getattr(radio, "warm_open_hid", None)
-        if warm is not None:
-            warm()
+        poller = as_cos_polling(radio)
+        if poller is not None:
+            poller.warm_open_hid()
     except StartupError:
         raise
     except (RuntimeError, ValueError) as exc:

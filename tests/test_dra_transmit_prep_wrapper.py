@@ -30,7 +30,7 @@ def test_transmit_prep_runs_on_running_on_key_wrapper(monkeypatch):
     )
     monkeypatch.setattr(wrapped, "set_ptt", lambda keyed: None)
     monkeypatch.setattr(
-        wrapped,
+        radio,
         "play_transmit_audio",
         lambda chunks, lead_seconds=0: None,
     )

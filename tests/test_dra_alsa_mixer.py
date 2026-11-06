@@ -91,6 +91,11 @@ def test_init_radio_calls_unmute_for_dra_linux(monkeypatch):
         def warm_open_hid(self) -> None:
             pass
 
+        def sync_audio_output_indices_if_changed(
+            self, *, after_usb_event: bool = False
+        ) -> bool:
+            return False
+
     monkeypatch.setattr("app.config.radio_backend", lambda: "dra")
     monkeypatch.setattr("app.startup.sys.platform", "linux")
     monkeypatch.setattr("app.config.dra_alsa_unmute_enabled", lambda: True)

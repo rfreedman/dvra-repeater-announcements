@@ -5,7 +5,7 @@ import logging
 import threading
 
 from app.config import DRA_CLEAR_POLL_SECONDS, dra_cos_track_enabled, radio_backend
-from app.radio import get_radio
+from app.radio import as_cos_polling, get_radio
 
 log = logging.getLogger("app.cos_track")
 
@@ -35,13 +35,13 @@ def _poll_loop() -> None:
             from app.dra_alsa_mixer import apply_cm119_replug_recovery
 
             apply_cm119_replug_recovery(radio)
-            if not getattr(radio, "ptt_keyed", False):
-                warm = getattr(radio, "warm_open_hid", None)
-                if warm is not None:
-                    warm()
-                refresh = getattr(radio, "refresh_cos", None)
-                if refresh is not None:
-                    refresh()
+            poller = as_cos_polling(radio)
+            if poller is not None:
+                if not poller.ptt_keyed:
+                    poller.warm_open_hid()
+                    poller.refresh_cos()
+                    nudge_manual_defer_jobs_if_clear_ready()
+            else:
                 nudge_manual_defer_jobs_if_clear_ready()
             from app.home_live import notify_home_live_status_throttled
 

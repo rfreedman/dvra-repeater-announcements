@@ -16,7 +16,7 @@ from app.manual_trigger_types import (
     ManualTriggerPhase,
     PendingManualTriggerRow,
 )
-from app.radio import get_radio
+from app.radio import as_clear_wait, as_cos_snapshot, as_idle_credit, get_radio
 from app.slots import as_local, zone_for
 from app.store import get_store
 
@@ -184,11 +184,11 @@ def nudge_manual_defer_jobs_if_clear_ready() -> None:
     if sched is None:
         return
     radio = get_radio()
-    idle_fn = getattr(radio, "continuous_idle_seconds", None)
-    if idle_fn is None:
+    idle = as_idle_credit(radio)
+    if idle is None:
         return
-    idle = float(idle_fn())
-    if idle < DRA_CLEAR_SECONDS:
+    idle_s = float(idle.continuous_idle_seconds())
+    if idle_s < DRA_CLEAR_SECONDS:
         return
     zone = ZoneInfo(TIMEZONE)
     now = datetime.now(zone)
@@ -222,7 +222,7 @@ def nudge_manual_defer_jobs_if_clear_ready() -> None:
         fire_trace(
             "Nudged manual defer job %s (idle=%.1fs, was %.1fs until run)",
             job.id,
-            idle,
+            idle_s,
             wait_s,
         )
         return
@@ -231,18 +231,18 @@ def nudge_manual_defer_jobs_if_clear_ready() -> None:
 def _radio_status_for_ui() -> tuple[bool, float, float]:
     """(busy, idle seconds, clear hold seconds) without disturbing COS where possible."""
     radio = get_radio()
-    wait_clear = getattr(radio, "wait_for_transmit_clear", None)
+    clear_wait = as_clear_wait(radio)
     clear_seconds = (
-        float(DRA_CLEAR_SECONDS) if wait_clear is not None and DRA_CLEAR_SECONDS > 0 else 0.0
+        float(DRA_CLEAR_SECONDS) if clear_wait is not None and DRA_CLEAR_SECONDS > 0 else 0.0
     )
-    snapshot = getattr(radio, "cos_defer_snapshot", None)
+    snapshot = as_cos_snapshot(radio)
     if snapshot is not None:
-        last_busy, idle = snapshot()
-        return (True if last_busy is None else bool(last_busy)), float(idle), clear_seconds
-    idle_fn = getattr(radio, "continuous_idle_seconds", None)
+        last_busy, idle_s = snapshot.cos_defer_snapshot()
+        return (True if last_busy is None else bool(last_busy)), float(idle_s), clear_seconds
+    idle = as_idle_credit(radio)
     busy = bool(radio.channel_busy())
-    idle = float(idle_fn()) if idle_fn is not None else 0.0
-    return busy, idle, clear_seconds
+    idle_s = float(idle.continuous_idle_seconds()) if idle is not None else 0.0
+    return busy, idle_s, clear_seconds
 
 
 def pending_manual_triggers() -> list[PendingManualTriggerRow]:

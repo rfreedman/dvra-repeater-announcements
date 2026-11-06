@@ -17,7 +17,15 @@ from app.config import (
 )
 from app.models import Announcement, Schedule
 from app.fire_trace import fire_trace
-from app.radio import ChannelBusyError, Radio, TransmitAbortError, channel_blocks_transmit, transmit
+from app.radio import (
+    ChannelBusyError,
+    Radio,
+    TransmitAbortError,
+    as_clear_wait,
+    as_idle_credit,
+    channel_blocks_transmit,
+    transmit,
+)
 
 log = logging.getLogger("app.fire")
 
@@ -91,8 +99,8 @@ class _RunningOnKeyRadio:
 def clear_hold_met(radio: Radio, *, clear_seconds: float) -> bool:
     if clear_seconds <= 0:
         return True
-    idle_fn = getattr(radio, "continuous_idle_seconds", None)
-    return idle_fn is not None and idle_fn() >= clear_seconds
+    idle = as_idle_credit(radio)
+    return idle is not None and idle.continuous_idle_seconds() >= clear_seconds
 
 
 def defer_retry_delay(
@@ -210,15 +218,15 @@ def _wait_clear_or_outcome(
     announcement: Announcement,
     label: str,
 ) -> str | None:
-    wait = getattr(deps.radio, "wait_for_transmit_clear", None)
-    if wait is None or deps.dra_clear_seconds <= 0:
+    clear_wait = as_clear_wait(deps.radio)
+    if clear_wait is None or deps.dra_clear_seconds <= 0:
         return None
     if deps.nonblocking_clear_wait:
-        idle_fn = getattr(deps.radio, "continuous_idle_seconds", None)
+        idle = as_idle_credit(deps.radio)
         idle_ok = (
-            idle_fn is not None
+            idle is not None
             and not channel_blocks_transmit(deps.radio, clear_seconds=deps.dra_clear_seconds)
-            and idle_fn() >= deps.dra_clear_seconds
+            and idle.continuous_idle_seconds() >= deps.dra_clear_seconds
         )
         if idle_ok:
             fire_trace(
@@ -262,7 +270,7 @@ def _wait_clear_or_outcome(
             retry_at.isoformat(),
         )
         return "deferred"
-    ok = wait(
+    ok = clear_wait.wait_for_transmit_clear(
         clear_seconds=deps.dra_clear_seconds,
         poll_seconds=deps.dra_clear_poll_seconds,
         deadline=ctx.deadline,
