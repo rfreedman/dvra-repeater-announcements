@@ -307,6 +307,36 @@ def test_wait_until_clear_marks_cos_busy():
     assert wait.interrupted is True
 
 
+def test_wait_until_clear_publishes_busy_then_playing_phases():
+    from app.newsline.playback import wait_until_clear
+
+    radio = StubRadio()
+    radio.busy_sequence = [True, False, False]
+    phases: list[str] = []
+
+    def set_running_wait(*, phase, clear_seconds=0.0, clear_remaining_seconds=None, force=False):
+        phases.append(phase)
+
+    deps = _deps(
+        radio,
+        synthesize=lambda _item: _pcm(),
+        play=lambda _chunks: None,
+        sleep=lambda _seconds: None,
+        defer=lambda *_args: None,
+        lock=__import__("threading").Lock(),
+    )
+    deps.set_running_wait = set_running_wait
+    bulletin_session.begin()
+    try:
+        wait = wait_until_clear(deps, deadline=None, gap_seconds=0.0)
+    finally:
+        bulletin_session.end()
+    assert wait.outcome == "clear"
+    assert wait.interrupted is True
+    assert phases[0] == "channel_busy"
+    assert phases[-1] == "playing"
+
+
 def test_unavailable_newsline_does_not_defer_when_load_still_returns_it(monkeypatch):
     radio = StubRadio()
     deferred: list[datetime] = []

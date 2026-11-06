@@ -127,7 +127,29 @@ def test_build_home_live_status_reflects_running(store):
         live = build_home_live_status()
         assert live["upcoming"]["status"] == "running"
         assert live["upcoming"]["schedule_id"] == schedule.id
+        assert live["upcoming"]["phase"] == "playing"
         assert live["newsline_playing"] is False
+    finally:
+        _clear_running()
+
+
+def test_build_home_live_status_reflects_running_wait_phase(store):
+    from app.scheduler import _set_running_wait
+
+    announcement, schedule = _seed_baseline(store)
+    try:
+        _set_running(announcement, schedule.id)
+        _set_running_wait(
+            phase="channel_busy",
+            clear_seconds=2.0,
+            clear_remaining_seconds=None,
+            force=True,
+        )
+        live = build_home_live_status()
+        assert live["upcoming"]["status"] == "running"
+        assert live["upcoming"]["phase"] == "channel_busy"
+        assert live["upcoming"]["clear_seconds"] == 2.0
+        assert live["upcoming"]["clear_remaining_seconds"] is None
     finally:
         _clear_running()
 

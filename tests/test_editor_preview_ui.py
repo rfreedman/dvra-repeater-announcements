@@ -33,6 +33,15 @@ def test_newsline_preview_uses_a_lower_tone_for_ptt_release():
     assert 'X-Preview-Framing") !== "name32+length32"' in source
 
 
+def test_next_run_shows_paused_while_newsline_waits_for_clear_channel():
+    source = APP_JS.read_text(encoding="utf-8")
+    assert 'runPhase === "channel_busy"' in source
+    assert 'runPhase === "clear_window"' in source
+    assert "Paused · channel busy" in source
+    assert "Paused · clear hold" in source
+    assert "Waiting to continue Newsline" in source
+
+
 def test_next_run_names_the_schedule_when_it_differs_from_the_announcement():
     source = APP_JS.read_text(encoding="utf-8")
     html = (APP_JS.parent / "index.html").read_text(encoding="utf-8")

@@ -113,8 +113,47 @@ def _set_running(announcement, schedule_id: str) -> None:
             "announcement_name": announcement.name,
             "schedule_id": schedule_id,
             "started_at": datetime.now(_station_zone()).isoformat(),
+            "phase": "playing",
+            "clear_seconds": 0.0,
+            "clear_remaining_seconds": None,
         }
     _notify_home_live(force=True)
+
+
+def _set_running_wait(
+    *,
+    phase: str,
+    clear_seconds: float = 0.0,
+    clear_remaining_seconds: float | None = None,
+    force: bool = False,
+) -> None:
+    """Update mid-bulletin wait phase (Newsline COS busy / clear hold) without clearing running."""
+    global _running
+    changed = False
+    with _running_lock:
+        if _running is None:
+            return
+        prev_phase = _running.get("phase") or "playing"
+        prev_remaining = _running.get("clear_remaining_seconds")
+        _running = {
+            **_running,
+            "phase": phase,  # type: ignore[typeddict-item]
+            "clear_seconds": float(clear_seconds),
+            "clear_remaining_seconds": clear_remaining_seconds,
+        }
+        changed = (
+            force
+            or prev_phase != phase
+            or (prev_remaining is None) != (clear_remaining_seconds is None)
+            or (
+                phase == "clear_window"
+                and prev_remaining is not None
+                and clear_remaining_seconds is not None
+                and abs(float(prev_remaining) - float(clear_remaining_seconds)) >= 0.5
+            )
+        )
+    if changed:
+        _notify_home_live(force=True)
 
 
 def _clear_running() -> None:
@@ -276,6 +315,7 @@ def run_scheduled_fire(
         ptt_lead_seconds=PTT_LEAD_SECONDS,
         set_running=_set_running,
         clear_running=_clear_running,
+        set_running_wait=_set_running_wait,
         not_ready_deadline=slot.center + timedelta(minutes=document.settings.slot_half_window_minutes),
     )
     result = handle_fire(ctx, deps)
@@ -441,6 +481,7 @@ def _run_manual_trigger_body(
         ptt_lead_seconds=PTT_LEAD_SECONDS,
         set_running=_set_running,
         clear_running=_clear_running,
+        set_running_wait=_set_running_wait,
         update_schedule=False,
         nonblocking_clear_wait=not defer_retry,
     )

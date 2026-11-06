@@ -75,6 +75,7 @@ class FireDeps:
     dra_final_check_seconds: float = DRA_FINAL_CHECK_SECONDS
     set_running: Callable[[Announcement, str], None] | None = None
     clear_running: Callable[[], None] | None = None
+    set_running_wait: Callable[..., None] | None = None
     update_schedule: bool = True
     nonblocking_clear_wait: bool = False
     not_ready_deadline: datetime | None = None

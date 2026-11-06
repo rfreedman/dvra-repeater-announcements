@@ -734,6 +734,33 @@ function renderUpcoming() {
   if (running && upcoming) {
     if (kicker) kicker.textContent = "Next run";
     fillUpcomingIdentity(upcoming);
+    const runPhase = upcoming.phase || "playing";
+    if (runPhase === "channel_busy") {
+      statusEl.textContent = "Paused · channel busy";
+      statusEl.classList.add("is-deferred");
+      statusEl.classList.remove("is-running", "is-clear-hold");
+      whenEl.textContent =
+        upcoming.clear_seconds > 0
+          ? `Then ${Math.ceil(upcoming.clear_seconds)}s clear hold before continuing`
+          : "Waiting to continue Newsline";
+      countEl.textContent = "Waiting for channel";
+      setUpcomingNote(upcoming.note || "");
+      return;
+    }
+    if (runPhase === "clear_window") {
+      statusEl.textContent = "Paused · clear hold";
+      statusEl.classList.add("is-clear-hold");
+      statusEl.classList.remove("is-running", "is-deferred");
+      whenEl.textContent = "Channel clear — hold timer";
+      const remain = interpolatedClearRemaining(upcoming);
+      if (remain != null && upcoming.clear_seconds > 0 && remain > 0) {
+        countEl.textContent = `${formatCountdown(remain * 1000)} remaining`;
+      } else {
+        countEl.textContent = "Continuing…";
+      }
+      setUpcomingNote(upcoming.note || "");
+      return;
+    }
     whenEl.textContent = upcoming.at ? formatWhen(upcoming.at) : "—";
     statusEl.textContent = "Running";
     statusEl.classList.add("is-running");
@@ -1481,14 +1508,17 @@ function applyHomeLiveStatus(payload) {
     const serverNow = Date.parse(payload.now);
     if (!Number.isNaN(serverNow)) clockSkewMs = serverNow - Date.now();
   }
-  upcoming = payload.upcoming || null;
+  const fetchedAt = payload.now ? Date.parse(payload.now) : Date.now() + clockSkewMs;
+  const fetchedAtMs = Number.isNaN(fetchedAt) ? Date.now() + clockSkewMs : fetchedAt;
+  upcoming = payload.upcoming
+    ? { ...payload.upcoming, fetchedAt: fetchedAtMs }
+    : null;
   if (typeof payload.newsline_playing === "boolean") {
     newslinePlaying = payload.newsline_playing;
   }
-  const fetchedAt = payload.now ? Date.parse(payload.now) : Date.now() + clockSkewMs;
   pendingManualTriggers = (payload.pending_manual_triggers || []).map((item) => ({
     ...item,
-    fetchedAt: Number.isNaN(fetchedAt) ? Date.now() + clockSkewMs : fetchedAt,
+    fetchedAt: fetchedAtMs,
   }));
   renderUpcoming();
   renderManualTriggerDropNotice(payload.manual_trigger_drop_notice || null);

@@ -48,7 +48,7 @@ If the latest report failed to download or process, or the story files are missi
 
 If the channel is busy before the first piece, that wait is limited by the slot window and the busy give-up, the same as any other announcement. Once the first piece has started, the bulletin finishes every remaining piece even if that runs past the slot, the original give-up, or another schedule.
 
-If the channel is busy during a gap, the radio stays unkeyed and waits for the same clear hold as a normal key-up, including a fresh carrier check. If a resume announcement is set and at least one story has already aired, that resume plays and then the next story without dropping PTT between them. Busy between the opening and the first story does not play the resume — the first story keys alone when the channel clears. The bulletin does not start over. That wait is not a scheduler retry.
+If the channel is busy during a gap, the radio stays unkeyed and waits for the same clear hold as a normal key-up, including a fresh carrier check. The home card shows **Paused · channel busy** or **Paused · clear hold** instead of Running while that wait is in progress. If a resume announcement is set and at least one story has already aired, that resume plays and then the next story without dropping PTT between them. Busy between the opening and the first story does not play the resume — the first story keys alone when the channel clears. The bulletin does not start over. That wait is not a scheduler retry.
 
 A non-emergency that comes due while the bulletin is on the air is dropped. It is not played later, and the baseline rotation does not advance for that missed slot. A manual trigger during the bulletin keeps its usual lock retry.
 

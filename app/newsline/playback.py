@@ -14,7 +14,13 @@ from app.models import Announcement, Schedule
 from app.newsline.decode import mp3_to_chunks
 from app.newsline.playlist import Piece
 from app.newsline.session import PendingEmergency, bulletin_session
-from app.radio import ChannelBusyError, TransmitAbortError, channel_blocks_transmit, transmit
+from app.radio import (
+    ChannelBusyError,
+    TransmitAbortError,
+    as_idle_credit,
+    channel_blocks_transmit,
+    transmit,
+)
 
 log = logging.getLogger("app.newsline")
 
@@ -44,14 +50,46 @@ def _fresh_busy(deps) -> bool:
     return bool(deps.radio.channel_busy())
 
 
+def _publish_running_wait(deps, *, busy: bool) -> None:
+    """Show paused / clear-hold on the home card while Newsline waits mid-bulletin."""
+    setter = getattr(deps, "set_running_wait", None)
+    if setter is None:
+        return
+    clear_seconds = float(getattr(deps, "dra_clear_seconds", 0) or 0)
+    idle_credit = as_idle_credit(deps.radio)
+    idle = float(idle_credit.continuous_idle_seconds()) if idle_credit is not None else 0.0
+    if busy:
+        setter(
+            phase="channel_busy",
+            clear_seconds=clear_seconds,
+            clear_remaining_seconds=None,
+        )
+        return
+    if clear_seconds > 0:
+        setter(
+            phase="clear_window",
+            clear_seconds=clear_seconds,
+            clear_remaining_seconds=max(0.0, clear_seconds - idle),
+        )
+
+
+def _publish_running_playing(deps) -> None:
+    setter = getattr(deps, "set_running_wait", None)
+    if setter is None:
+        return
+    setter(phase="playing", clear_seconds=0.0, clear_remaining_seconds=None)
+
+
 def wait_until_clear(deps, *, deadline: datetime | None, gap_seconds: float = 0.0) -> ClearWait:
     """Wait out the unkey gap, then until the channel is clear.
 
     ``interrupted`` is true when COS was busy after the unkey gap.
+    After the gap, publishes running wait phases for the home UI while blocked.
     """
     remaining = gap_seconds
     poll = _poll(deps)
     interrupted = False
+    published_wait = False
     while True:
         if bulletin_session.waiting():
             return ClearWait("emergency", interrupted)
@@ -66,7 +104,11 @@ def wait_until_clear(deps, *, deadline: datetime | None, gap_seconds: float = 0.
         if busy:
             interrupted = True
         if not busy and not _blocked(deps):
+            if published_wait:
+                _publish_running_playing(deps)
             return ClearWait("clear", interrupted)
+        _publish_running_wait(deps, busy=busy)
+        published_wait = True
         deps.sleep_fn(poll)
 
 

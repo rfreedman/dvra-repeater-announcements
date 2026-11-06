@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Literal, NotRequired, TypedDict
 
 ManualTriggerPhase = Literal["clear_window", "channel_busy", "in_progress", "retry_pending"]
+RunningPhase = Literal["playing", "channel_busy", "clear_window"]
 
 
 class RunningTransmission(TypedDict):
@@ -12,6 +13,9 @@ class RunningTransmission(TypedDict):
     announcement_name: str
     schedule_id: str
     started_at: str
+    phase: NotRequired[RunningPhase]
+    clear_seconds: NotRequired[float]
+    clear_remaining_seconds: NotRequired[float | None]
 
 
 class ManualInflightEntry(TypedDict):
