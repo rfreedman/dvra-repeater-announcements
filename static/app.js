@@ -54,6 +54,7 @@ let catalog = null;
 let player = null;
 let abort = null;
 let editorPlaying = false;
+let editorPlaySeconds = null;
 let session = 0;
 let pollTimer = null;
 let newslinePollTimer = null;
@@ -700,6 +701,16 @@ function setUpcomingNote(text) {
   note.textContent = text || "";
 }
 
+function newslineProgressNote(row) {
+  const parts = [];
+  if (row?.piece_label) parts.push(segmentDisplayName(row.piece_label));
+  if (row?.story_index != null && row?.story_total != null) {
+    parts.push(`news item ${row.story_index} of ${row.story_total}`);
+  }
+  if (parts.length) return parts.join(" · ");
+  return row?.note || "";
+}
+
 function renderSkipNotice(notice) {
   const box = document.getElementById("skip-notice");
   const text = document.getElementById("skip-notice-text");
@@ -744,7 +755,7 @@ function renderUpcoming() {
           ? `Then ${Math.ceil(upcoming.clear_seconds)}s clear hold before continuing`
           : "Waiting to continue Newsline";
       countEl.textContent = "Waiting for channel";
-      setUpcomingNote(upcoming.note || "");
+      setUpcomingNote(newslineProgressNote(upcoming));
       return;
     }
     if (runPhase === "clear_window") {
@@ -758,17 +769,25 @@ function renderUpcoming() {
       } else {
         countEl.textContent = "Continuing…";
       }
-      setUpcomingNote(upcoming.note || "");
+      setUpcomingNote(newslineProgressNote(upcoming));
       return;
     }
-    whenEl.textContent = upcoming.at ? formatWhen(upcoming.at) : "—";
+    whenEl.textContent = upcoming.piece_label
+      ? segmentDisplayName(upcoming.piece_label)
+      : upcoming.at
+        ? formatWhen(upcoming.at)
+        : "—";
     statusEl.textContent = "Running";
     statusEl.classList.add("is-running");
     statusEl.classList.remove("is-deferred", "is-clear-hold");
     const played = elapsedSecondsSince(upcoming.at);
     countEl.textContent =
       played == null ? "Now" : `Now ${formatSegmentElapsed(played)}`;
-    setUpcomingNote(upcoming.note || "");
+    if (upcoming.story_index != null && upcoming.story_total != null) {
+      setUpcomingNote(`news item ${upcoming.story_index} of ${upcoming.story_total}`);
+    } else {
+      setUpcomingNote(upcoming.note || "");
+    }
     return;
   }
 
@@ -1447,11 +1466,16 @@ function renderLibrary(items) {
       ? "Amateur Radio Newsline"
       : (item.text || "").replace(/\s+/g, " ").slice(0, 90);
     if (item.too_long) tr.classList.add("has-warning");
+    const lengthLabel =
+      item.kind !== "newsline" && item.play_seconds != null && Number.isFinite(Number(item.play_seconds))
+        ? formatSegmentElapsed(item.play_seconds)
+        : "—";
     tr.innerHTML = `
       <td>${escapeHtml(item.name)}</td>
       <td>${escapeHtml(preview)}${item.kind !== "newsline" && preview.length === 90 ? "…" : ""}${
         item.too_long ? `<div class="exclusion-line">Too long (${Number(item.play_seconds).toFixed(1)}s). Shorten it and save again.</div>` : ""
       }</td>
+      <td>${escapeHtml(lengthLabel)}</td>
       <td class="row-actions"></td>
     `;
     const del = document.createElement("button");
@@ -1959,6 +1983,8 @@ function blankAnnouncement() {
   if (catalog) renderVoices(defaults.voice);
   updateCount();
   updateDeliveryLabels();
+  editorPlaySeconds = null;
+  showKnownPlayLength();
 }
 
 async function loadAnnouncement(id) {
@@ -1986,6 +2012,12 @@ async function loadAnnouncement(id) {
   if (item.voice) renderVoices(item.voice);
   updateCount();
   updateDeliveryLabels();
+  const savedSeconds = Number(item.play_seconds);
+  editorPlaySeconds =
+    item.kind !== "newsline" && Number.isFinite(savedSeconds) && savedSeconds > 0
+      ? savedSeconds
+      : null;
+  showKnownPlayLength();
 }
 
 async function saveAnnouncement() {
@@ -2112,18 +2144,24 @@ async function speak() {
     if (mySession !== session) return;
     if (!res.ok) throw new Error(await errorDetail(res));
     const sampleRate = Number(res.headers.get("X-Sample-Rate") || "22050");
-    setStatus("Streaming…", "playing");
-    await currentPlayer.play(res.body, sampleRate, controller.signal);
-    if (mySession !== session) return;
-    if (!controller.signal.aborted) setStatus("Done");
+    const totalSeconds = Number(res.headers.get("X-Play-Seconds") || "0");
+    const knownTotal = Number.isFinite(totalSeconds) && totalSeconds > 0 ? totalSeconds : 0;
+    if (knownTotal > 0) editorPlaySeconds = knownTotal;
+    await currentPlayer.play(res.body, sampleRate, controller.signal, {
+      totalSeconds: knownTotal,
+    });
   } catch (err) {
     if (mySession !== session) return;
-    if (err.name === "AbortError" || controller.signal.aborted) setStatus("Stopped");
-    else setStatus(err.message || "Playback failed", "error");
+    if (err.name !== "AbortError" && !controller.signal.aborted) {
+      setStatus(err.message || "Playback failed", "error");
+      setEditorPlaying(false);
+      return;
+    }
   } finally {
-    if (mySession !== session) return;
-    setEditorPlaying(false);
+    if (mySession === session) setEditorPlaying(false);
   }
+  if (mySession !== session) return;
+  showKnownPlayLength();
 }
 
 function pttLeadSeconds() {
@@ -2174,6 +2212,28 @@ function formatSegmentElapsed(seconds) {
   const minutes = Math.floor(total / 60);
   const secs = total % 60;
   return `${minutes}:${String(secs).padStart(2, "0")}`;
+}
+
+function idlePlayStatus(seconds) {
+  return `Length ${formatSegmentElapsed(seconds)}`;
+}
+
+function playingStatus(elapsedSeconds, totalSeconds) {
+  return `Playing… ${formatSegmentElapsed(elapsedSeconds)} / ${formatSegmentElapsed(totalSeconds)}`;
+}
+
+function showKnownPlayLength() {
+  if (editorPlaying) return;
+  if (editorPlaySeconds != null && Number.isFinite(editorPlaySeconds) && editorPlaySeconds > 0) {
+    setStatus(idlePlayStatus(editorPlaySeconds));
+    return;
+  }
+  setStatus("Ready");
+}
+
+function clearKnownPlayLength() {
+  editorPlaySeconds = null;
+  if (!editorPlaying) setStatus("Ready");
 }
 
 function streamingPieceStatus(name, elapsedSeconds) {
@@ -2256,7 +2316,7 @@ function stopEditorPlayback() {
   if (!hadPlayback) return false;
   cancelInFlight();
   setEditorPlaying(false);
-  setStatus("Stopped");
+  showKnownPlayLength();
   return true;
 }
 
@@ -2285,7 +2345,7 @@ class PcmPlayer {
     this._segmentClock = null;
   }
 
-  async play(stream, sampleRate, signal) {
+  async play(stream, sampleRate, signal, { totalSeconds = 0 } = {}) {
     if (!stream) return;
     this.ctx = new AudioContext({ sampleRate });
     const reader = stream.getReader();
@@ -2296,6 +2356,7 @@ class PcmPlayer {
       onAbort();
       return;
     }
+    this._startPlayClock(totalSeconds, signal);
     try {
       await this.ctx.resume();
       if (this.stopped || signal.aborted) return;
@@ -2339,6 +2400,7 @@ class PcmPlayer {
       if (this.stopped || signal.aborted || err.name === "AbortError" || err.name === "InvalidStateError") return;
       throw err;
     } finally {
+      this._stopSegmentClock();
       signal.removeEventListener("abort", onAbort);
       this._cancelReader();
     }
@@ -2495,6 +2557,20 @@ class PcmPlayer {
       signal.removeEventListener("abort", onAbort);
       this._cancelReader();
     }
+  }
+
+  _startPlayClock(totalSeconds, signal) {
+    this._stopSegmentClock();
+    const started = Date.now();
+    const tick = () => {
+      if (this.stopped || signal.aborted) {
+        this._stopSegmentClock();
+        return;
+      }
+      setStatus(playingStatus((Date.now() - started) / 1000, totalSeconds), "playing");
+    };
+    tick();
+    this._segmentClock = setInterval(tick, 1000);
   }
 
   _startSegmentClock(name, signal) {
@@ -2778,16 +2854,24 @@ document.getElementById("newsline-reset").addEventListener("click", () => {
   document.getElementById("news-gap").value = "2";
   setStatus("Ready");
 });
-textEl.addEventListener("input", updateCount);
+textEl.addEventListener("input", () => {
+  updateCount();
+  clearKnownPlayLength();
+});
 speedEl.addEventListener("input", () => {
   updateDeliveryLabels();
   persist();
+  clearKnownPlayLength();
 });
 pauseEl.addEventListener("input", () => {
   updateDeliveryLabels();
   persist();
+  clearKnownPlayLength();
 });
-voiceEl.addEventListener("change", persist);
+voiceEl.addEventListener("change", () => {
+  persist();
+  clearKnownPlayLength();
+});
 document.getElementById("sched-kind").addEventListener("change", syncKindFields);
 document.getElementById("range-all-slots").addEventListener("change", syncKindFields);
 

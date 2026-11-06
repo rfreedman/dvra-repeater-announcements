@@ -11,7 +11,7 @@ from app.tts.base import VoiceError
 
 
 def _patch(monkeypatch, route: str, fail) -> None:
-    target = "prepare" if route == "prepare" else "stream_synthesize"
+    target = "prepare" if route == "prepare" else "synthesize"
     monkeypatch.setattr(f"app.routes.speak.registry.{target}", fail)
 
 

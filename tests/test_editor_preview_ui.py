@@ -19,7 +19,7 @@ def test_playback_stops_when_leaving_the_announcement_editor():
     assert 'startsWith("ann") && nextKey !== editorKey' in source
     assert 'addEventListener("pagehide"' in source
     assert "stopEditorPlayback()" in source.split("beforeunload")[1]
-    assert 'setStatus("Stopped")' in helper
+    assert "showKnownPlayLength()" in helper
 
 
 def test_newsline_preview_uses_a_lower_tone_for_ptt_release():
@@ -40,6 +40,14 @@ def test_next_run_shows_paused_while_newsline_waits_for_clear_channel():
     assert "Paused · channel busy" in source
     assert "Paused · clear hold" in source
     assert "Waiting to continue Newsline" in source
+
+
+def test_next_run_shows_newsline_piece_progress():
+    source = APP_JS.read_text(encoding="utf-8")
+    assert "function newslineProgressNote(row)" in source
+    assert "upcoming.piece_label" in source
+    assert "news item ${upcoming.story_index} of ${upcoming.story_total}" in source
+    assert "news item ${row.story_index} of ${row.story_total}" in source
 
 
 def test_next_run_names_the_schedule_when_it_differs_from_the_announcement():
@@ -128,6 +136,28 @@ def test_newsline_status_shows_segment_name_and_elapsed_clock():
     assert "this._startSegmentClock(label, signal)" in source
     assert "setInterval(tick, 1000)" in source
     assert 'replace(/\\.mp3$/i, "")' in source
+
+
+def test_speak_status_shows_elapsed_and_total():
+    source = APP_JS.read_text(encoding="utf-8")
+    assert "function playingStatus(elapsedSeconds, totalSeconds)" in source
+    assert (
+        "Playing… ${formatSegmentElapsed(elapsedSeconds)} / ${formatSegmentElapsed(totalSeconds)}"
+        in source
+    )
+    assert 'res.headers.get("X-Play-Seconds")' in source
+    assert "this._startPlayClock(totalSeconds, signal)" in source
+    assert "knownTotal = Number.isFinite(totalSeconds) && totalSeconds > 0 ? totalSeconds : 0" in source
+
+
+def test_saved_announcement_shows_idle_length():
+    source = APP_JS.read_text(encoding="utf-8")
+    assert "function idlePlayStatus(seconds)" in source
+    assert "Length ${formatSegmentElapsed(seconds)}" in source
+    assert "function showKnownPlayLength()" in source
+    assert "editorPlaySeconds =" in source.split("async function loadAnnouncement", 1)[1]
+    assert "clearKnownPlayLength()" in source
+    assert "formatSegmentElapsed(item.play_seconds)" in source.split("function renderLibrary", 1)[1]
 
 
 def _const_number(source: str, name: str) -> float:

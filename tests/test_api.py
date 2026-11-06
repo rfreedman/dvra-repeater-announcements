@@ -193,16 +193,16 @@ def test_speak_does_not_key_ptt(client, store, monkeypatch):
     radio = StubRadio()
     set_radio(radio)
 
+    pcm = b"\x00\x00" * 2205  # 0.1s at 22050 Hz
+
     def fake_synthesize(text, voice=None, speed=1.0, sentence_pause=0.25):
-        def chunks():
-            yield PcmChunk(pcm_int16=b"\x00\x00", sample_rate=22050)
+        return "en_US-ryan-medium", 22050, [PcmChunk(pcm_int16=pcm, sample_rate=22050)]
 
-        return "en_US-ryan-medium", 22050, chunks()
-
-    monkeypatch.setattr("app.routes.speak.registry.stream_synthesize", fake_synthesize)
+    monkeypatch.setattr("app.routes.speak.registry.synthesize", fake_synthesize)
     res = client.post("/api/speak", json={"text": "hello from preview"})
     assert res.status_code == 200
-    assert res.content == b"\x00\x00"
+    assert res.content == pcm
+    assert float(res.headers["X-Play-Seconds"]) == pytest.approx(0.1)
     assert not any(event[0] == "ptt" for event in radio.events)
     set_radio(None)
 

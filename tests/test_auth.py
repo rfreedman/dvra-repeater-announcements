@@ -96,12 +96,9 @@ def test_readonly_can_view_and_speak_but_not_mutate(readonly_client, store, monk
     )
 
     def fake_synthesize(text, voice=None, speed=1.0, sentence_pause=0.25):
-        def chunks():
-            yield PcmChunk(pcm_int16=b"\x00\x00", sample_rate=22050)
+        return "en_US-ryan-medium", 22050, [PcmChunk(pcm_int16=b"\x00\x00", sample_rate=22050)]
 
-        return "en_US-ryan-medium", 22050, chunks()
-
-    monkeypatch.setattr("app.routes.speak.registry.stream_synthesize", fake_synthesize)
+    monkeypatch.setattr("app.routes.speak.registry.synthesize", fake_synthesize)
     speak = readonly_client.post("/api/speak", json={"text": "preview only"})
     assert speak.status_code == 200
     assert speak.content == b"\x00\x00"

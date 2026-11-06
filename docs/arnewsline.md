@@ -40,7 +40,7 @@ On the Newsline editor, **Play** streams the latest split report in the browser,
 
 ## Schedule and airtime
 
-Point a weekly schedule (Friday is typical) at the Newsline item. Playback order is the opening, then the story files in name order with the station ID substituted, then the closing. Each piece is its own transmission: the radio keys, waits the usual PTT lead (`TTS_PTT_LEAD_SECONDS`, default 0.4 seconds), plays that piece, then unkeys.
+Point a weekly schedule (Friday is typical) at the Newsline item. Playback order is the opening, then the story files in name order with the station ID substituted, then the closing. Each piece is its own transmission: the radio keys, waits the usual PTT lead (`TTS_PTT_LEAD_SECONDS`, default 0.4 seconds), plays that piece, then unkeys. While the bulletin airs, the home card shows the current piece name; for report stories it also shows `news item x of y` (opening, station ID, and closing are named but not counted).
 
 Between pieces the radio stays unkeyed for at least the item's **PTT gap** (default 2 seconds). A full bulletin is about 17 minutes plus the short spoken parts and those gaps, so it finishes before the next half-hour slot when the channel stays clear.
 

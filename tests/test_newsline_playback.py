@@ -337,6 +337,62 @@ def test_wait_until_clear_publishes_busy_then_playing_phases():
     assert phases[-1] == "playing"
 
 
+def test_transmit_newsline_publishes_piece_progress(tmp_path, monkeypatch):
+    from app.newsline.playback import transmit_newsline
+
+    radio = StubRadio()
+    opening = Announcement(name="Open", text="News follows.")
+    closing = Announcement(name="Close", text="That is the news.")
+    marks: list[dict] = []
+
+    def set_running(_announcement, _schedule_id, **kwargs):
+        marks.append(dict(kwargs))
+
+    monkeypatch.setattr(
+        "app.newsline.playback.mp3_to_chunks",
+        lambda path: [PcmChunk(pcm_int16=path.name.encode(), sample_rate=22050)],
+    )
+    bulletin = Announcement(
+        name="News",
+        kind="newsline",
+        station_id_announcement_id="station",
+        text="",
+        ptt_gap_seconds=0,
+    )
+    schedule = Schedule(name="Friday", kind="weekly", announcement_id=bulletin.id, days=["fri"], slots=["18:00"])
+    pieces = [
+        Piece(label=opening.name, announcement=opening),
+        Piece(label="one.mp3", path=tmp_path / "one.mp3"),
+        Piece(label="two.mp3", path=tmp_path / "two.mp3"),
+        Piece(label=closing.name, announcement=closing),
+    ]
+    deps = _deps(
+        radio,
+        synthesize=lambda item: [PcmChunk(pcm_int16=item.name.encode(), sample_rate=22050)],
+        play=lambda _chunks: None,
+        sleep=lambda _seconds: None,
+        defer=lambda *_args: None,
+        lock=__import__("threading").Lock(),
+    )
+    deps.set_running = set_running
+    bulletin_session.begin()
+    try:
+        outcome = transmit_newsline(
+            deps,
+            pieces,
+            bulletin=bulletin,
+            schedule=schedule,
+            initial_deadline=NOW + timedelta(minutes=5),
+        )
+    finally:
+        bulletin_session.end()
+    assert outcome == "transmitted"
+    assert {"piece_label": "Open", "story_index": None, "story_total": None} in marks
+    assert {"piece_label": "one.mp3", "story_index": 1, "story_total": 2} in marks
+    assert {"piece_label": "two.mp3", "story_index": 2, "story_total": 2} in marks
+    assert {"piece_label": "Close", "story_index": None, "story_total": None} in marks
+
+
 def test_unavailable_newsline_does_not_defer_when_load_still_returns_it(monkeypatch):
     radio = StubRadio()
     deferred: list[datetime] = []
