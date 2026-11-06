@@ -223,7 +223,31 @@ def transmit_newsline(
             return "not_clear"
         if _fresh_busy(deps):
             return "not_clear"
-    on_key = partial(deps.set_running, bulletin, schedule.id) if deps.set_running else None
+    story_total = sum(1 for piece in pieces if _is_story_piece(piece))
+
+    def _mark_running(
+        piece: Piece,
+        piece_index: int,
+        *,
+        display_label: str | None = None,
+    ) -> None:
+        if not deps.set_running:
+            return
+        piece_label = display_label if display_label is not None else piece.label
+        story_index = None
+        story_total_for_ui = None
+        # Opening / station ID / closing / resume: name only. Stories get x of y.
+        if display_label is None and _is_story_piece(piece):
+            story_index = sum(1 for prior in pieces[: piece_index + 1] if _is_story_piece(prior))
+            story_total_for_ui = story_total
+        deps.set_running(
+            bulletin,
+            schedule.id,
+            piece_label=piece_label,
+            story_index=story_index,
+            story_total=story_total_for_ui,
+        )
+
     if deps.set_running:
         deps.set_running(bulletin, schedule.id)
     gap = bulletin.ptt_gap_seconds
@@ -246,6 +270,17 @@ def transmit_newsline(
                 continue
         # Resume only after a story has aired — not after opening-before-stories busy.
         with_resume = interrupted and played_story
+        if with_resume and resume is not None:
+            # Combined TX starts with resume (name only, not counted as a story item).
+            _mark_running(piece, index, display_label=resume.label)
+            on_key = (
+                (lambda p=piece, i=index, lbl=resume.label: _mark_running(p, i, display_label=lbl))
+                if deps.set_running
+                else None
+            )
+        else:
+            _mark_running(piece, index)
+            on_key = (lambda p=piece, i=index: _mark_running(p, i)) if deps.set_running else None
         result = _transmit_piece(
             deps, piece, resume=resume, with_resume=with_resume, on_key=on_key
         )
@@ -259,6 +294,16 @@ def transmit_newsline(
                 _drain_emergencies(deps)
             # Same rule: resume only once stories have started.
             with_resume = played_story
+            if with_resume and resume is not None:
+                _mark_running(piece, index, display_label=resume.label)
+                on_key = (
+                    (lambda p=piece, i=index, lbl=resume.label: _mark_running(p, i, display_label=lbl))
+                    if deps.set_running
+                    else None
+                )
+            else:
+                _mark_running(piece, index)
+                on_key = (lambda p=piece, i=index: _mark_running(p, i)) if deps.set_running else None
             result = _transmit_piece(
                 deps, piece, resume=resume, with_resume=with_resume, on_key=on_key
             )
@@ -270,8 +315,7 @@ def transmit_newsline(
         log.info("Newsline played %s", piece.label)
         if _is_story_piece(piece):
             played_story = True
-        if deps.set_running:
-            deps.set_running(bulletin, schedule.id)
+        _mark_running(piece, index)
     drained = _drain_emergencies(deps)
     if drained == "dropped_usb":
         return "dropped_usb"

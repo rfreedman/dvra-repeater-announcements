@@ -46,6 +46,9 @@ def upcoming_for_document(
             "phase": running.get("phase") or "playing",
             "clear_seconds": float(running.get("clear_seconds") or 0.0),
             "clear_remaining_seconds": running.get("clear_remaining_seconds"),
+            "piece_label": running.get("piece_label"),
+            "story_index": running.get("story_index"),
+            "story_total": running.get("story_total"),
             "note": notice.get("detail") if notice else None,
         }
     now = datetime.now(ZoneInfo(document.settings.timezone))

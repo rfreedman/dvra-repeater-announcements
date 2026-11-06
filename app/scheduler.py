@@ -105,7 +105,14 @@ def get_running() -> RunningTransmission | None:
         return dict(_running) if _running else None
 
 
-def _set_running(announcement, schedule_id: str) -> None:
+def _set_running(
+    announcement,
+    schedule_id: str,
+    *,
+    piece_label: str | None = None,
+    story_index: int | None = None,
+    story_total: int | None = None,
+) -> None:
     global _running
     with _running_lock:
         _running = {
@@ -116,6 +123,9 @@ def _set_running(announcement, schedule_id: str) -> None:
             "phase": "playing",
             "clear_seconds": 0.0,
             "clear_remaining_seconds": None,
+            "piece_label": piece_label,
+            "story_index": story_index,
+            "story_total": story_total,
         }
     _notify_home_live(force=True)
 
@@ -135,6 +145,7 @@ def _set_running_wait(
             return
         prev_phase = _running.get("phase") or "playing"
         prev_remaining = _running.get("clear_remaining_seconds")
+        # Preserve piece_label / story_index / story_total across wait-phase updates.
         _running = {
             **_running,
             "phase": phase,  # type: ignore[typeddict-item]

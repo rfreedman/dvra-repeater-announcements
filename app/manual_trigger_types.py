@@ -16,6 +16,9 @@ class RunningTransmission(TypedDict):
     phase: NotRequired[RunningPhase]
     clear_seconds: NotRequired[float]
     clear_remaining_seconds: NotRequired[float | None]
+    piece_label: NotRequired[str | None]
+    story_index: NotRequired[int | None]
+    story_total: NotRequired[int | None]
 
 
 class ManualInflightEntry(TypedDict):
