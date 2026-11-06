@@ -457,14 +457,19 @@ def play_dra_lead_silence(
     should_abort: Callable[[], bool] | None = None,
     register_aplay_proc: Callable[[subprocess.Popen[bytes]], None] | None = None,
 ) -> None:
-    """Stream USB silence after PTT so COMM OK / heartbeat is up before speech."""
+    """Stream USB silence after PTT so COMM OK / heartbeat is up before speech.
+
+    With two DRAs, both streams must start together. Sequential lead lets the first
+    radio's COMM OK drop before the second starts, so RF unkeys/rekeys before speech.
+    """
     if lead_seconds <= 0 or not device_indices:
         return
-    for index in device_indices:
+
+    def _play_one(index: int) -> None:
         sr = dra_device_samplerate(index)
         frames = int(round(max(0.0, lead_seconds) * sr))
         if frames <= 0:
-            continue
+            return
         silence = np.zeros(frames, dtype=np.float32)
         play_mono_f32_to_dra_device(
             silence,
@@ -474,6 +479,32 @@ def play_dra_lead_silence(
             should_abort=should_abort,
             register_aplay_proc=register_aplay_proc,
         )
+
+    if len(device_indices) == 1:
+        _play_one(device_indices[0])
+        return
+
+    errors: list[BaseException] = []
+    threads: list[threading.Thread] = []
+
+    def _target(index: int) -> None:
+        try:
+            _play_one(index)
+        except BaseException as exc:  # noqa: BLE001 — surface first failure after join
+            errors.append(exc)
+
+    for index in device_indices:
+        thread = threading.Thread(
+            target=_target,
+            args=(index,),
+            name=f"dra-lead-{index}",
+        )
+        threads.append(thread)
+        thread.start()
+    for thread in threads:
+        thread.join()
+    if errors:
+        raise errors[0]
 
 
 def play_mono_f32_to_dra_device(
