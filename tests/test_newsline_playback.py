@@ -162,7 +162,67 @@ def test_resume_plays_after_cos_busy_between_pieces(tmp_path, monkeypatch):
     finally:
         bulletin_session.end()
     assert outcome == "transmitted"
-    assert order == ["one", "Back", "two"]
+    # Resume + next story share one keyed transmission (no PTT drop between).
+    assert order == ["one", "Backtwo"]
+    ptt = [event for event in radio.events if event[0] == "ptt"]
+    assert ptt == [("ptt", True), ("ptt", False), ("ptt", True), ("ptt", False)]
+
+
+def test_resume_skipped_between_opening_and_first_story(tmp_path, monkeypatch):
+    from app.newsline.playback import ClearWait, transmit_newsline
+
+    radio = StubRadio()
+    order: list[str] = []
+    opening = Announcement(name="Open", text="News follows.")
+    resume_item = Announcement(name="Back", text="We return to Newsline.")
+    resume = Piece(label=resume_item.name, announcement=resume_item)
+    bulletin = Announcement(
+        name="News",
+        kind="newsline",
+        station_id_announcement_id="station",
+        opening_announcement_id=opening.id,
+        text="",
+        ptt_gap_seconds=2,
+    )
+    schedule = Schedule(name="Friday", kind="weekly", announcement_id=bulletin.id, days=["fri"], slots=["18:00"])
+    waits = {"n": 0}
+
+    def wait_until_clear(_deps, *, deadline, gap_seconds=0.0):
+        waits["n"] += 1
+        if waits["n"] == 1:
+            return ClearWait("clear", False)
+        return ClearWait("clear", True)
+
+    monkeypatch.setattr("app.newsline.playback.wait_until_clear", wait_until_clear)
+    monkeypatch.setattr(
+        "app.newsline.playback.mp3_to_chunks",
+        lambda path: [PcmChunk(pcm_int16=path.name.encode(), sample_rate=22050)],
+    )
+    pieces = [
+        Piece(label=opening.name, announcement=opening),
+        Piece(label="one", path=tmp_path / "one"),
+    ]
+    bulletin_session.begin()
+    try:
+        outcome = transmit_newsline(
+            _deps(
+                radio,
+                synthesize=lambda item: [PcmChunk(pcm_int16=item.name.encode(), sample_rate=22050)],
+                play=lambda chunks: order.append(b"".join(c.pcm_int16 for c in chunks).decode()),
+                sleep=lambda _seconds: None,
+                defer=lambda *_args: None,
+                lock=__import__("threading").Lock(),
+            ),
+            pieces,
+            bulletin=bulletin,
+            schedule=schedule,
+            initial_deadline=NOW + timedelta(minutes=5),
+            resume=resume,
+        )
+    finally:
+        bulletin_session.end()
+    assert outcome == "transmitted"
+    assert order == ["Open", "one"]
 
 
 def test_resume_is_not_played_when_the_channel_stays_clear(tmp_path, monkeypatch):

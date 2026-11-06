@@ -131,17 +131,31 @@ def _drain_emergencies(deps) -> str | None:
     return None
 
 
-def _play_resume(deps, resume: Piece | None, *, on_key: Callable[[], None] | None) -> str | None:
-    if resume is None:
-        return None
-    log.info("Newsline playing resume %s after channel busy", resume.label)
+def _is_story_piece(piece: Piece) -> bool:
+    """True for split report MP3s (not opening / station ID / closing TTS)."""
+    return piece.path is not None
+
+
+def _transmit_piece(
+    deps,
+    piece: Piece,
+    *,
+    resume: Piece | None,
+    with_resume: bool,
+    on_key: Callable[[], None] | None,
+) -> str | None:
+    """Key once; optionally play resume then the piece without unkeying between."""
+    chunks: list[PcmChunk] = []
+    if with_resume and resume is not None:
+        log.info("Newsline playing resume %s after channel busy before %s", resume.label, piece.label)
+        chunks.extend(_chunks_for_piece(deps, resume))
+    chunks.extend(_chunks_for_piece(deps, piece))
     try:
-        _transmit_chunks(deps, _chunks_for_piece(deps, resume), on_key=on_key)
+        _transmit_chunks(deps, chunks, on_key=on_key)
     except (TransmitAbortError, BrokenPipeError):
         return "dropped_usb"
     except ChannelBusyError:
-        log.info("Newsline resume skipped; channel busy at PTT")
-        return None
+        return "busy"
     return None
 
 
@@ -171,7 +185,7 @@ def transmit_newsline(
     if deps.set_running:
         deps.set_running(bulletin, schedule.id)
     gap = bulletin.ptt_gap_seconds
-    played_any = False
+    played_story = False
     for index, piece in enumerate(pieces):
         drained = _drain_emergencies(deps)
         if drained == "dropped_usb":
@@ -188,33 +202,32 @@ def transmit_newsline(
                 interrupted = interrupted or gap_wait.interrupted
             if gap_wait.outcome != "clear":
                 continue
-        if interrupted and played_any:
-            usb = _play_resume(deps, resume, on_key=on_key)
-            if usb == "dropped_usb":
-                return "dropped_usb"
-        try:
-            _transmit_chunks(deps, _chunks_for_piece(deps, piece), on_key=on_key)
-        except (TransmitAbortError, BrokenPipeError):
+        # Resume only after a story has aired — not after opening-before-stories busy.
+        with_resume = interrupted and played_story
+        result = _transmit_piece(
+            deps, piece, resume=resume, with_resume=with_resume, on_key=on_key
+        )
+        if result == "dropped_usb":
             log.warning("Newsline aborted; %s; DRA USB lost during %s", label, piece.label)
             return "dropped_usb"
-        except ChannelBusyError:
+        if result == "busy":
             log.info("Newsline waiting; %s; channel busy before %s", label, piece.label)
             gap_wait = wait_until_clear(deps, deadline=None, gap_seconds=0.0)
             if gap_wait.outcome == "emergency":
                 _drain_emergencies(deps)
-            if played_any:
-                usb = _play_resume(deps, resume, on_key=on_key)
-                if usb == "dropped_usb":
-                    return "dropped_usb"
-            try:
-                _transmit_chunks(deps, _chunks_for_piece(deps, piece), on_key=on_key)
-            except (TransmitAbortError, BrokenPipeError):
+            # Same rule: resume only once stories have started.
+            with_resume = played_story
+            result = _transmit_piece(
+                deps, piece, resume=resume, with_resume=with_resume, on_key=on_key
+            )
+            if result == "dropped_usb":
                 return "dropped_usb"
-            except ChannelBusyError:
+            if result == "busy":
                 log.warning("Newsline skipped piece %s; channel stayed busy", piece.label)
                 continue
         log.info("Newsline played %s", piece.label)
-        played_any = True
+        if _is_story_piece(piece):
+            played_story = True
         if deps.set_running:
             deps.set_running(bulletin, schedule.id)
     drained = _drain_emergencies(deps)
