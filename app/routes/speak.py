@@ -13,9 +13,10 @@ from fastapi.responses import StreamingResponse
 
 from app.audio import PcmChunk
 from app.deps import AuthUser
-from app.tts.base import VoiceError
 from app.registry import get_registry
 from app.schemas import PrepareRequest, SpeakRequest
+from app.spoken_length import pcm_duration_seconds
+from app.tts.base import VoiceError
 
 router = APIRouter()
 registry = get_registry()
@@ -69,7 +70,7 @@ async def speak(req: SpeakRequest, request: Request, _user: AuthUser) -> Streami
         raise HTTPException(status_code=400, detail="Text is required")
     try:
         voice_id, sample_rate, chunks = await asyncio.to_thread(
-            lambda: registry.stream_synthesize(
+            lambda: registry.synthesize(
                 text,
                 voice=req.voice,
                 speed=req.speed,
@@ -81,8 +82,9 @@ async def speak(req: SpeakRequest, request: Request, _user: AuthUser) -> Streami
     except Exception as exc:
         _raise_engine_http(exc, where="speak")
 
+    play_seconds = pcm_duration_seconds(list(chunks))
     return StreamingResponse(
-        _pcm_stream(request, chunks),
+        _pcm_stream(request, iter(chunks)),
         media_type="application/octet-stream",
         headers={
             "Cache-Control": "no-store",
@@ -90,6 +92,7 @@ async def speak(req: SpeakRequest, request: Request, _user: AuthUser) -> Streami
             "X-Sample-Rate": str(sample_rate),
             "X-Sample-Width": "2",
             "X-Channels": "1",
+            "X-Play-Seconds": f"{play_seconds:.3f}",
         },
     )
 
