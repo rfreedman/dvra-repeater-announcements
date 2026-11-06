@@ -24,7 +24,8 @@ def _dra_radio() -> DraRadio:
     )
 
 
-def test_transmit_keys_ptt_then_usb_lead(monkeypatch):
+def test_transmit_keys_ptt_then_usb_lead_in_same_stream(monkeypatch):
+    """Lead silence is prepended in play_transmit_audio so COMM OK never drops mid-TX."""
     radio = _dra_radio()
     order: list[str] = []
 
@@ -35,10 +36,6 @@ def test_transmit_keys_ptt_then_usb_lead(monkeypatch):
     monkeypatch.setattr(
         "app.dra_alsa_mixer.prepare_dra_for_transmit",
         lambda _r: order.append("prepare"),
-    )
-    monkeypatch.setattr(
-        "app.dra_playback.play_dra_lead_silence",
-        lambda **kwargs: order.append(f"lead:{kwargs.get('lead_seconds')}"),
     )
     monkeypatch.setattr(radio, "set_ptt", lambda keyed: order.append(f"ptt:{keyed}"))
     monkeypatch.setattr(
@@ -62,8 +59,7 @@ def test_transmit_keys_ptt_then_usb_lead(monkeypatch):
         "unmute",
         "prepare",
         "ptt:True",
-        "lead:0.6",
-        "play:lead=0",
+        "play:lead=0.6",
         "ptt:False",
     ]
 
@@ -74,10 +70,6 @@ def test_transmit_keys_ptt_when_lead_is_zero(monkeypatch):
 
     monkeypatch.setattr("app.dra_alsa_mixer.sync_cm119_speaker_unmute", lambda _r: None)
     monkeypatch.setattr("app.dra_alsa_mixer.prepare_dra_for_transmit", lambda _r: None)
-    monkeypatch.setattr(
-        "app.dra_playback.play_dra_lead_silence",
-        lambda **kwargs: order.append("lead"),
-    )
     monkeypatch.setattr(radio, "set_ptt", lambda keyed: order.append(f"ptt:{keyed}"))
     monkeypatch.setattr(
         radio,
@@ -99,30 +91,25 @@ def test_transmit_keys_ptt_when_lead_is_zero(monkeypatch):
     assert order == ["ptt:True", "play:lead=0", "ptt:False"]
 
 
-def test_transmit_unkeys_if_usb_lead_raises(monkeypatch):
+def test_transmit_unkeys_if_usb_playback_raises(monkeypatch):
     radio = _dra_radio()
     order: list[str] = []
 
     monkeypatch.setattr("app.dra_alsa_mixer.sync_cm119_speaker_unmute", lambda _r: None)
     monkeypatch.setattr("app.dra_alsa_mixer.prepare_dra_for_transmit", lambda _r: None)
 
-    def _raise_lead(**kwargs):
-        order.append("lead")
-        raise RuntimeError("lead failed")
+    def _raise_play(chunks, lead_seconds=0):
+        order.append(f"play:lead={lead_seconds}")
+        raise RuntimeError("playback failed")
 
-    monkeypatch.setattr("app.dra_playback.play_dra_lead_silence", _raise_lead)
     monkeypatch.setattr(radio, "set_ptt", lambda keyed: order.append(f"ptt:{keyed}"))
-    monkeypatch.setattr(
-        radio,
-        "play_transmit_audio",
-        lambda chunks, lead_seconds=0: order.append("play"),
-    )
+    monkeypatch.setattr(radio, "play_transmit_audio", _raise_play)
     monkeypatch.setattr(
         "app.radio.channel_blocks_transmit",
         lambda _radio, clear_seconds=0: False,
     )
 
-    with pytest.raises(RuntimeError, match="lead failed"):
+    with pytest.raises(RuntimeError, match="playback failed"):
         transmit(
             [PcmChunk(pcm_int16=b"\x00\x10" * 100, sample_rate=22050)],
             radio=radio,
@@ -130,7 +117,7 @@ def test_transmit_unkeys_if_usb_lead_raises(monkeypatch):
             clear_seconds=0,
         )
 
-    assert order == ["ptt:True", "lead", "ptt:False"]
+    assert order == ["ptt:True", "play:lead=0.6", "ptt:False"]
 
 
 def test_dual_lead_silence_starts_both_devices_together(monkeypatch):

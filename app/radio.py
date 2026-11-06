@@ -206,7 +206,6 @@ def transmit(
 
     if usb_play is not None:
         from app.dra_alsa_mixer import prepare_dra_for_transmit, sync_cm119_speaker_unmute
-        from app.dra_playback import play_dra_lead_silence
         from app.dra_radio import dra_radio_from
 
         sync_cm119_speaker_unmute(radio)
@@ -217,16 +216,10 @@ def transmit(
         try:
             radio.set_ptt(True)
             try:
-                if dra is not None and lead > 0:
-                    play_dra_lead_silence(
-                        device_indices=dra.audio_device_indices,
-                        channel=dra._usb_channel,
-                        lead_seconds=lead,
-                        should_abort=dra._transmit_abort.is_set,
-                        register_aplay_proc=dra._register_aplay_proc,
-                    )
-                usb_play.play_transmit_audio(chunks, lead_seconds=0)
-
+                # Lead must be the same continuous USB stream as speech. A separate
+                # lead aplay exits before speech starts, COMM OK drops, and RF unkeys
+                # briefly even though GPIO3 PTT stays asserted.
+                usb_play.play_transmit_audio(chunks, lead_seconds=lead)
             finally:
                 radio.set_ptt(False)
         except TransmitAbortError:

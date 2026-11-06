@@ -53,10 +53,6 @@ def test_transmit_uses_usb_lead_on_dra(monkeypatch):
         "app.dra_alsa_mixer.prepare_dra_for_transmit",
         lambda _r: None,
     )
-    monkeypatch.setattr(
-        "app.dra_playback.play_dra_lead_silence",
-        lambda **kwargs: events.append(("usb_lead", kwargs["lead_seconds"])),
-    )
     monkeypatch.setattr(radio, "set_ptt", lambda keyed: events.append(("ptt", keyed)))
     monkeypatch.setattr(
         radio,
@@ -76,8 +72,7 @@ def test_transmit_uses_usb_lead_on_dra(monkeypatch):
     )
     assert events == [
         ("ptt", True),
-        ("usb_lead", 0.6),
-        ("play_lead", 0),
+        ("play_lead", 0.6),
         ("ptt", False),
     ]
 
