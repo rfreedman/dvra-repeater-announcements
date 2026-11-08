@@ -146,7 +146,6 @@ def chunks_for_announcement(announcement: Announcement) -> list[PcmChunk]:
     from app.registry import get_registry
 
     started = time.perf_counter()
-    log.info("Caching %s", announcement.name)
     registry = get_registry()
     voice_id = registry.prepare(announcement.voice)
     voice_mtime_ns = registry.engine.voice_mtime_ns(voice_id)

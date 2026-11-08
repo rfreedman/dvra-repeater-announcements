@@ -292,6 +292,7 @@ def run_scheduled_fire(
         slot_key=slot.key,
         fired_at=fired_at,
         deadline=deadline,
+        trigger="scheduled",
     )
 
     def load() -> LoadedFire | None:
@@ -394,6 +395,7 @@ def _run_manual_trigger_body(
         slot_key=slot_key,
         fired_at=fired_at,
         deadline=deadline,
+        trigger="manual",
     )
 
     def load() -> LoadedFire | None:

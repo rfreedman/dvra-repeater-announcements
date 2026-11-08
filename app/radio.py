@@ -199,8 +199,6 @@ def transmit(
     lead = PTT_LEAD_SECONDS if lead_seconds is None else lead_seconds
     usb_play = as_usb_play(radio)
 
-    log.info(f"radio.py transmit: play_on_dra = {usb_play}")
-
     if channel_blocks_transmit(radio, clear_seconds=clear_seconds):
         raise ChannelBusyError("channel busy immediately before PTT")
 

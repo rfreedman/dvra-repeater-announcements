@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import threading
 from datetime import datetime, timedelta
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 from app.audio import PcmChunk
@@ -88,13 +89,14 @@ def _deps(announcement: Announcement, radio: StubRadio, schedule: Schedule | Non
     return deps, extras
 
 
-def _ctx() -> FireContext:
+def _ctx(*, trigger: Literal["scheduled", "manual"] = "scheduled") -> FireContext:
     return FireContext(
         announcement_id="ann1",
         schedule_id="sched1",
         slot_key="2026-08-27T12:00",
         fired_at=NOW,
         deadline=NOW + timedelta(seconds=45),
+        trigger=trigger,
     )
 
 
@@ -112,7 +114,30 @@ def test_clear_channel_keys_ptt_waits_lead_plays_and_unkeys(caplog):
     assert radio.events[-1] == ("ptt", False)
     assert all(e == ("busy_check", False) for e in radio.events if e[0] == "busy_check")
     assert radio.ptt is False
-    assert "Fire transmitted; ID" in caplog.text
+    assert (
+        "Fire started; trigger=scheduled; schedule=Baseline ID; announcement=ID"
+        in caplog.text
+    )
+    assert (
+        "Fire transmitted; trigger=scheduled; schedule=Baseline ID; announcement=ID"
+        in caplog.text
+    )
+
+
+def test_manual_trigger_logged_as_manual(caplog):
+    radio = StubRadio()
+    announcement = _announcement()
+    deps, _extras = _deps(announcement, radio)
+    with caplog.at_level(logging.INFO, logger="app.fire"):
+        assert handle_fire(_ctx(trigger="manual"), deps) == "transmitted"
+    assert (
+        "Fire started; trigger=manual; schedule=Baseline ID; announcement=ID"
+        in caplog.text
+    )
+    assert (
+        "Fire transmitted; trigger=manual; schedule=Baseline ID; announcement=ID"
+        in caplog.text
+    )
 
 
 def test_set_running_hooks_around_playback():
@@ -259,7 +284,10 @@ def test_busy_then_clear_defers_without_writing_last_run(caplog):
     retry_at, ctx = extras["deferred"][0]
     assert ctx.fired_at == NOW
     assert retry_at == NOW + timedelta(seconds=5)
-    assert "Fire deferred; ID;" in caplog.text
+    assert (
+        "Fire deferred; trigger=scheduled; schedule=Baseline ID; announcement=ID;"
+        in caplog.text
+    )
 
 
 def test_busy_past_deadline_drops_without_ptt(caplog):
@@ -275,7 +303,10 @@ def test_busy_past_deadline_drops_without_ptt(caplog):
     assert extras["deferred"] == []
     assert extras["played"] == []
     assert not any(event[0] == "ptt" for event in radio.events)
-    assert "Fire dropped; ID; channel still busy" in caplog.text
+    assert (
+        "Fire dropped; trigger=scheduled; schedule=Baseline ID; announcement=ID; "
+        "channel still busy" in caplog.text
+    )
 
 
 def test_transmit_uses_injected_lead_not_announcement():

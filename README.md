@@ -206,7 +206,7 @@ Startup complete in 12.3s (radio mode: stub)
 
 If the server restarts after a slot's fire time has passed, that slot is skipped rather than played late. Busy retries and defer jobs only exist while the process is running — see [Process restart and in-memory state](#process-restart-and-in-memory-state) under Deploying.
 
-`radio mode` is **`stub`** or **`dra`**, derived from the radio instance registered during startup (`StubRadio` vs `DraRadio`), not from re-reading `.env` at log time. On the NUC you should see **`dra`** when `TTS_RADIO_BACKEND=dra` and HID/audio init succeeded; dev machines without hardware typically show **`stub`**. DRA misconfiguration still fails before this line (process exits with an error on stderr). The same message is written to the console and to `TTS_LOG_DIR`/`announcements.log` (see below).
+`radio mode` is **`stub`** or **`dra`**, derived from the radio instance registered during startup (`StubRadio` vs `DraRadio`), not from re-reading `.env` at log time. On the NUC you should see **`dra`** when `TTS_RADIO_BACKEND=dra` and HID/audio init succeeded; dev machines without hardware typically show **`stub`**. DRA misconfiguration still fails before this line (process exits with an error on stderr). The same message is written to the console and to `TTS_LOG_DIR`/`announcements.log` (see `TTS_LOG_DIR` below).
 
 ### `voices`
 
@@ -290,7 +290,7 @@ python -m app users delete bob
 | `TTS_LOGIN_MAX_FAILURES` | `5` | Failed sign-ins for the same username from the same client before `429` |
 | `TTS_LOGIN_WINDOW_SECONDS` | `300` | How long those failures stay counted, in seconds |
 | `TTS_PCM_CACHE_DIR` | `./data/pcm` | Pre-rendered announcement PCM (written on save and at startup; scheduled fires play this) |
-| `TTS_LOG_DIR` | `./data/logs` | Daily `announcements.log` files (30 days; uvicorn access lines are not written here) |
+| `TTS_LOG_DIR` | `./data/logs` | Daily rotating `announcements.log` (app + uvicorn server) and filtered `access.log` (page/asset/major API hits; home polls/health/SSE omitted). Access is file-only (not stdout/stderr). Kept 30 days (`TTS_LOG_KEEP_DAYS`). |
 | `TTS_PTT_LEAD_SECONDS` | `0.4` | Delay after PTT before audio (on **dra**, silence is streamed on USB; on **stub**, host sleep) |
 | `TTS_RADIO_BACKEND` | `stub` | `stub` = in-memory PTT/COS; `dra` = CM119A HID + DRA USB audio (requires `hidapi`). Confirm the active mode in the startup log: `(radio mode: stub)` or `(radio mode: dra)` |
 | `TTS_DRA_USB_CHANNEL` | `left` | USB channel for DATA IN (**JU3=L** → `left`) |

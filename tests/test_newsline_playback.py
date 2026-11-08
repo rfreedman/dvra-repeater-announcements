@@ -415,6 +415,7 @@ def test_unavailable_newsline_does_not_defer_when_load_still_returns_it(monkeypa
         slot_key="2026-10-23T18:00",
         fired_at=NOW,
         deadline=NOW + timedelta(minutes=5),
+        trigger="scheduled",
     )
 
     def load():
@@ -495,6 +496,7 @@ def test_unavailable_newsline_slot_transmits_the_baseline(monkeypatch):
         slot_key=slot.key,
         fired_at=NOW,
         deadline=NOW + timedelta(minutes=5),
+        trigger="scheduled",
     )
     clear_skip_notice()
     try:
@@ -640,6 +642,7 @@ def test_non_emergency_is_dropped_while_the_bulletin_holds_the_lock():
         slot_key="2026-10-23T18:30",
         fired_at=NOW,
         deadline=NOW + timedelta(minutes=5),
+        trigger="scheduled",
     )
     deps = _deps(
         radio,

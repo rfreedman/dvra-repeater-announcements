@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from app.audio import PcmChunk
 from app.models import Announcement
 from app.pcm_cache import PcmCache, chunks_for_announcement, fingerprint, set_pcm_cache
@@ -78,4 +80,31 @@ def test_chunks_for_announcement_uses_disk_after_first_render(tmp_path, monkeypa
     third = chunks_for_announcement(item)
     assert calls == ["This is w2-zee-q.", "New copy."]
     assert third[0].pcm_int16 == b"\x03\x00"
+    set_pcm_cache(None)
+
+
+def test_cache_hit_does_not_log_caching(tmp_path, monkeypatch, caplog):
+    cache = PcmCache(tmp_path / "pcm")
+    set_pcm_cache(cache)
+
+    class FakeEngine:
+        def voice_mtime_ns(self, voice_id: str) -> int | None:
+            return 99
+
+    class FakeRegistry:
+        engine = FakeEngine()
+
+        def prepare(self, voice=None) -> str:
+            return "en_US-lessac-medium"
+
+        def synthesize(self, text, voice=None, speed=1.0, sentence_pause=0.25):
+            return voice, 22050, [PcmChunk(pcm_int16=b"\x03\x00", sample_rate=22050)]
+
+    monkeypatch.setattr("app.registry.get_registry", lambda: FakeRegistry())
+    item = _announcement()
+    chunks_for_announcement(item)
+    with caplog.at_level(logging.INFO, logger="app.pcm_cache"):
+        chunks_for_announcement(item)
+    assert "PCM cache hit;" in caplog.text
+    assert "Caching " not in caplog.text
     set_pcm_cache(None)

@@ -7,6 +7,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from functools import partial
+from typing import Literal
 
 from app.audio import PcmChunk, materialize_chunks
 from app.config import (
@@ -38,6 +39,8 @@ DEFER_CLEAR_NONBLOCKING_MAX_SECONDS = 0.5
 # When the clear hold is already met, retry soon instead of waiting the full busy_retry interval.
 DEFER_RETRY_WHEN_CLEAR_MET_CAP_SECONDS = 1.0
 
+FireTrigger = Literal["scheduled", "manual"]
+
 
 @dataclass
 class FireContext:
@@ -46,7 +49,24 @@ class FireContext:
     slot_key: str
     fired_at: datetime
     deadline: datetime
+    trigger: FireTrigger
     defer_kind: str | None = None
+
+
+def _fire_who(
+    ctx: FireContext,
+    schedule: Schedule | None = None,
+    announcement: str | None = None,
+) -> str:
+    parts = [f"trigger={ctx.trigger}"]
+    if schedule is not None:
+        name = (schedule.name or "").strip() or schedule.id
+        parts.append(f"schedule={name}")
+    elif ctx.schedule_id:
+        parts.append(f"schedule_id={ctx.schedule_id}")
+    if announcement:
+        parts.append(f"announcement={announcement}")
+    return "; ".join(parts)
 
 
 @dataclass
@@ -133,27 +153,30 @@ def _defer_or_drop_on_busy(
     deps: FireDeps,
     ctx: FireContext,
     announcement: Announcement,
+    schedule: Schedule,
     label: str,
     *,
     phase: str,
 ) -> str | None:
     if not channel_blocks_transmit(deps.radio, clear_seconds=deps.dra_clear_seconds):
         return None
-    return _defer_or_drop_busy(deps, ctx, announcement, label, phase=phase)
+    return _defer_or_drop_busy(deps, ctx, announcement, schedule, label, phase=phase)
 
 
 def _defer_or_drop_busy(
     deps: FireDeps,
     ctx: FireContext,
     announcement: Announcement,
+    schedule: Schedule,
     label: str,
     *,
     phase: str,
 ) -> str:
+    who = _fire_who(ctx, schedule, label)
     if _wall_now(deps) >= ctx.deadline:
         log.info(
             "Fire dropped; %s; channel still busy %s (deadline %s)",
-            label,
+            who,
             phase,
             ctx.deadline.isoformat(),
         )
@@ -175,7 +198,7 @@ def _defer_or_drop_busy(
     deps.schedule_defer(retry_at, replace(ctx, defer_kind="busy"))
     log.info(
         "Fire deferred; %s; retry at %s; channel busy %s",
-        label,
+        who,
         retry_at.isoformat(),
         phase,
     )
@@ -193,6 +216,7 @@ def _confirm_clear_before_ptt(
     deps: FireDeps,
     ctx: FireContext,
     announcement: Announcement,
+    schedule: Schedule,
     label: str,
 ) -> str | None:
     """Fresh COS reads right before PTT; any busy sample defers or drops the fire.
@@ -209,7 +233,9 @@ def _confirm_clear_before_ptt(
         if index:
             deps.sleep_fn(poll)
         if deps.radio.channel_busy():
-            return _defer_or_drop_busy(deps, ctx, announcement, label, phase="before PTT")
+            return _defer_or_drop_busy(
+                deps, ctx, announcement, schedule, label, phase="before PTT"
+            )
     return None
 
 
@@ -217,6 +243,7 @@ def _wait_clear_or_outcome(
     deps: FireDeps,
     ctx: FireContext,
     announcement: Announcement,
+    schedule: Schedule,
     label: str,
 ) -> str | None:
     clear_wait = as_clear_wait(deps.radio)
@@ -229,6 +256,7 @@ def _wait_clear_or_outcome(
             and not channel_blocks_transmit(deps.radio, clear_seconds=deps.dra_clear_seconds)
             and idle.continuous_idle_seconds() >= deps.dra_clear_seconds
         )
+        who = _fire_who(ctx, schedule, label)
         if idle_ok:
             fire_trace(
                 "Fire clear hold already satisfied label=%s slot=%s idle>=%ss",
@@ -240,7 +268,7 @@ def _wait_clear_or_outcome(
         if _wall_now(deps) >= ctx.deadline:
             log.info(
                 "Fire dropped; %s; no %ss clear before deadline %s",
-                label,
+                who,
                 deps.dra_clear_seconds,
                 ctx.deadline.isoformat(),
             )
@@ -261,7 +289,7 @@ def _wait_clear_or_outcome(
         deps.schedule_defer(retry_at, replace(ctx, defer_kind="clear"))
         log.info(
             "Fire deferred; %s; retry at %s; clear wait on scheduler thread",
-            label,
+            who,
             retry_at.isoformat(),
         )
         fire_trace(
@@ -279,13 +307,14 @@ def _wait_clear_or_outcome(
         sleep_fn=deps.sleep_fn,
         fail_fast_on_busy=False,
     )
+    who = _fire_who(ctx, schedule, label)
     if ok:
         fire_trace("Fire clear wait satisfied label=%s slot=%s", label, ctx.slot_key)
         return None
     if _wall_now(deps) >= ctx.deadline:
         log.info(
             "Fire dropped; %s; no %ss clear before deadline %s",
-            label,
+            who,
             deps.dra_clear_seconds,
             ctx.deadline.isoformat(),
         )
@@ -305,7 +334,7 @@ def _wait_clear_or_outcome(
     deps.schedule_defer(retry_at, replace(ctx, defer_kind="clear"))
     log.info(
         "Fire deferred; %s; retry at %s; clear window not satisfied",
-        label,
+        who,
         retry_at.isoformat(),
     )
     fire_trace(
@@ -317,10 +346,14 @@ def _wait_clear_or_outcome(
     return "deferred"
 
 
-def _note_substitution(deps: FireDeps, loaded: LoadedFire) -> None:
+def _note_substitution(deps: FireDeps, ctx: FireContext, loaded: LoadedFire) -> None:
     if not loaded.skipped_detail:
         return
-    log.info("Fire substituted; %s", loaded.skipped_detail)
+    log.info(
+        "Fire substituted; %s; %s",
+        _fire_who(ctx, loaded.schedule),
+        loaded.skipped_detail,
+    )
     from app.newsline.notices import record_skip_notice
 
     record_skip_notice(loaded.skipped_detail, when=deps.now)
@@ -330,13 +363,17 @@ def _newsline_not_ready(
     deps: FireDeps,
     ctx: FireContext,
     announcement: Announcement,
+    schedule: Schedule,
     label: str,
 ) -> str | None:
     from app.newsline.playlist import newsline_unavailable_reason
 
     if newsline_unavailable_reason() is None:
         return None
-    log.info("Fire dropped; %s; Newsline is not available", label)
+    log.info(
+        "Fire dropped; %s; Newsline is not available",
+        _fire_who(ctx, schedule, label),
+    )
     fire_trace("Fire dropped (newsline not ready) label=%s slot=%s", label, ctx.slot_key)
     return "dropped"
 
@@ -361,10 +398,17 @@ def _transmit_newsline(
         pieces = build_playlist(announcement, document, stories)
         resume = resume_piece(announcement, document)
     except ValueError as exc:
-        log.info("Fire dropped; %s; %s", announcement.name, exc)
+        log.info(
+            "Fire dropped; %s; %s",
+            _fire_who(ctx, schedule, announcement.name),
+            exc,
+        )
         return "dropped"
     if not pieces:
-        log.info("Fire dropped; %s; Newsline playlist is empty", announcement.name)
+        log.info(
+            "Fire dropped; %s; Newsline playlist is empty",
+            _fire_who(ctx, schedule, announcement.name),
+        )
         return "dropped"
     bulletin_session.begin()
     try:
@@ -379,7 +423,14 @@ def _transmit_newsline(
     finally:
         bulletin_session.end()
     if outcome == "not_clear":
-        busy = _defer_or_drop_on_busy(deps, ctx, announcement, announcement.name, phase="before Newsline")
+        busy = _defer_or_drop_on_busy(
+            deps,
+            ctx,
+            announcement,
+            schedule,
+            announcement.name,
+            phase="before Newsline",
+        )
         if busy:
             return busy
         if _wall_now(deps) >= ctx.deadline:
@@ -395,30 +446,41 @@ def _transmit_newsline(
 def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
     loaded = deps.load()
     if loaded is None:
-        log.info("Fire skipped; announcement or schedule missing")
+        log.info("Fire skipped; %s; announcement or schedule missing", _fire_who(ctx))
         return "missing"
     announcement, schedule = loaded.announcement, loaded.schedule
     label = (announcement.name if announcement else None) or schedule.name or "Untitled"
+    who = _fire_who(ctx, schedule, label if announcement is not None else None)
     if not schedule.enabled:
-        log.info("Fire skipped; %s; schedule %s disabled", label, schedule.id)
+        log.info("Fire skipped; %s; schedule %s disabled", who, schedule.id)
         return "disabled"
     if loaded.silence:
         if deps.update_schedule:
             deps.mark_last_run(None, schedule.id, deps.now)
-        log.info("Fire skipped; %s; silence occupies slot %s", label, ctx.slot_key)
+        log.info(
+            "Fire skipped; %s; silence occupies slot %s",
+            _fire_who(ctx, schedule, label),
+            ctx.slot_key,
+        )
         return "silence"
-    _note_substitution(deps, loaded)
+    _note_substitution(deps, ctx, loaded)
     if announcement is None:
-        log.info("Fire skipped; announcement missing for schedule %s", schedule.id)
+        log.info(
+            "Fire skipped; %s; announcement missing for schedule %s",
+            _fire_who(ctx, schedule),
+            schedule.id,
+        )
         return "missing"
 
+    who = _fire_who(ctx, schedule, label)
+    log.info("Fire started; %s", who)
     if announcement.kind == "newsline":
-        outcome = _newsline_not_ready(deps, ctx, announcement, label)
+        outcome = _newsline_not_ready(deps, ctx, announcement, schedule, label)
         if outcome:
             return outcome
 
     outcome = _defer_or_drop_on_busy(
-        deps, ctx, announcement, label, phase="at fire start"
+        deps, ctx, announcement, schedule, label, phase="at fire start"
     )
     if outcome:
         return outcome
@@ -428,14 +490,17 @@ def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
 
         if bulletin_session.active and schedule.kind == "emergency":
             bulletin_session.offer(announcement, schedule)
-            log.info("Emergency %s will play when the current Newsline piece finishes", label)
+            log.info(
+                "Emergency will play when the current Newsline piece finishes; %s",
+                who,
+            )
             fire_trace("Emergency queued behind Newsline label=%s slot=%s", label, ctx.slot_key)
             return "yielded"
         if bulletin_session.active:
-            log.info("Fire dropped; %s; Newsline bulletin in progress", label)
+            log.info("Fire dropped; %s; Newsline bulletin in progress", who)
             fire_trace("Fire dropped (newsline preempt) label=%s slot=%s", label, ctx.slot_key)
         else:
-            log.info("Fire skipped; %s; another announcement is playing", label)
+            log.info("Fire skipped; %s; another announcement is playing", who)
             fire_trace("Fire skipped_lock label=%s slot=%s", label, ctx.slot_key)
         return "skipped_lock"
     try:
@@ -447,21 +512,21 @@ def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
                 deps.mark_last_run(announcement.id, schedule.id, deps.now)
                 if schedule.kind == "baseline":
                     deps.consume_baseline(schedule.id, ctx.slot_key)
-            log.info("Fire transmitted; %s", label)
+            log.info("Fire transmitted; %s", who)
             return "transmitted"
         chunks = materialize_chunks(deps.synthesize(announcement))
 
         outcome = _defer_or_drop_on_busy(
-            deps, ctx, announcement, label, phase="after synthesize"
+            deps, ctx, announcement, schedule, label, phase="after synthesize"
         )
         if outcome:
             return outcome
 
-        outcome = _wait_clear_or_outcome(deps, ctx, announcement, label)
+        outcome = _wait_clear_or_outcome(deps, ctx, announcement, schedule, label)
         if outcome:
             return outcome
 
-        outcome = _confirm_clear_before_ptt(deps, ctx, announcement, label)
+        outcome = _confirm_clear_before_ptt(deps, ctx, announcement, schedule, label)
         if outcome:
             return outcome
 
@@ -476,26 +541,26 @@ def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
                 clear_seconds=deps.dra_clear_seconds,
             )
         except TransmitAbortError:
-            log.warning("Fire aborted; %s; DRA USB lost during playback", label)
+            log.warning("Fire aborted; %s; DRA USB lost during playback", who)
             fire_trace("Fire aborted (USB loss) label=%s slot=%s", label, ctx.slot_key)
             return FIRE_OUTCOME_DROPPED_USB
         except BrokenPipeError:
             log.warning(
                 "Fire aborted; %s; DRA aplay pipe closed (USB unplugged during playback?)",
-                label,
+                who,
             )
             fire_trace("Fire aborted (USB loss) label=%s slot=%s", label, ctx.slot_key)
             return FIRE_OUTCOME_DROPPED_USB
         except ChannelBusyError:
             outcome = _defer_or_drop_on_busy(
-                deps, ctx, announcement, label, phase="at PTT key"
+                deps, ctx, announcement, schedule, label, phase="at PTT key"
             )
             if outcome:
                 return outcome
             if _wall_now(deps) >= ctx.deadline:
                 log.info(
                     "Fire dropped; %s; PTT blocked past deadline %s",
-                    label,
+                    who,
                     ctx.deadline.isoformat(),
                 )
                 fire_trace(
@@ -515,7 +580,7 @@ def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
             deps.schedule_defer(retry_at, replace(ctx, defer_kind="ptt"))
             log.info(
                 "Fire deferred; %s; retry at %s; PTT blocked (COS clear, key failed)",
-                label,
+                who,
                 retry_at.isoformat(),
             )
             fire_trace(
@@ -531,7 +596,7 @@ def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
             if dra_usb_transmit_lost(deps.radio):
                 log.warning(
                     "Fire aborted; %s; DRA USB lost during playback (%s)",
-                    label,
+                    who,
                     exc,
                 )
                 fire_trace("Fire aborted (USB loss) label=%s slot=%s", label, ctx.slot_key)
@@ -541,7 +606,7 @@ def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
             deps.mark_last_run(announcement.id, schedule.id, deps.now)
             if schedule.kind == "baseline":
                 deps.consume_baseline(schedule.id, ctx.slot_key)
-        log.info("Fire transmitted; %s", label)
+        log.info("Fire transmitted; %s", who)
         fire_trace("Fire transmitted label=%s slot=%s", label, ctx.slot_key)
         return "transmitted"
     finally:

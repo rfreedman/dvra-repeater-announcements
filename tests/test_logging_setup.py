@@ -5,7 +5,12 @@ import logging.config
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 
-from app.logging_setup import LOG_FILENAME, serve_log_config
+from app.logging_setup import (
+    ACCESS_LOG_FILENAME,
+    AccessNoiseFilter,
+    LOG_FILENAME,
+    serve_log_config,
+)
 
 _LOGGER_NAMES = ("", "uvicorn", "uvicorn.error", "uvicorn.access", "app.fire")
 
@@ -34,19 +39,63 @@ def _restore(state: dict[str, tuple]) -> None:
                 logger.addHandler(handler)
 
 
-def test_serve_log_config_writes_app_logs_not_access(tmp_path: Path):
+def _access_record(method: str, path: str) -> logging.LogRecord:
+    record = logging.LogRecord(
+        name="uvicorn.access",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg='%s - "%s %s HTTP/%s" %d',
+        args=("127.0.0.1:1", method, path, "1.1", 200),
+        exc_info=None,
+    )
+    return record
+
+
+def test_access_noise_filter_matrix():
+    filt = AccessNoiseFilter()
+    assert filt.filter(_access_record("GET", "/api/schedules")) is False
+    assert filt.filter(_access_record("GET", "/api/schedules?clock_date=2026-11-08")) is False
+    assert filt.filter(_access_record("GET", "/api/announcements")) is False
+    assert filt.filter(_access_record("GET", "/api/ready")) is False
+    assert filt.filter(_access_record("GET", "/api/health")) is False
+    assert filt.filter(_access_record("GET", "/api/system/stats")) is False
+    assert filt.filter(_access_record("GET", "/api/events/home")) is False
+    assert filt.filter(_access_record("GET", "/api/events/stats")) is False
+    assert filt.filter(_access_record("GET", "/")) is True
+    assert filt.filter(_access_record("GET", "/static/app.js")) is True
+    assert filt.filter(_access_record("GET", "/api/schedules/abc")) is True
+    assert filt.filter(_access_record("GET", "/api/announcements/abc")) is True
+    assert filt.filter(_access_record("GET", "/api/voices")) is True
+    assert filt.filter(_access_record("POST", "/api/schedules/abc/trigger")) is True
+    assert filt.filter(_access_record("POST", "/api/speak")) is True
+
+
+def test_serve_log_config_splits_app_and_access(tmp_path: Path):
     config = serve_log_config(tmp_path)
     assert config["handlers"]["file"]["when"] == "midnight"
     assert config["handlers"]["file"]["backupCount"] == 30
-    assert config["loggers"]["uvicorn.access"]["handlers"] == ["access"]
+    assert config["handlers"]["access_file"]["when"] == "midnight"
+    assert config["handlers"]["access_file"]["backupCount"] == 30
+    assert config["loggers"]["uvicorn.access"]["handlers"] == ["access_file"]
+    assert "access" not in config["handlers"]
     assert "file" in config["loggers"]["uvicorn"]["handlers"]
     assert "file" in config["root"]["handlers"]
 
     previous = _snapshot()
     logging.config.dictConfig(config)
     try:
-        logging.getLogger("app.fire").info("Fire transmitted; On-the-hour")
-        logging.getLogger("uvicorn.access").info(
+        logging.getLogger("app.fire").info("Fire transmitted; trigger=scheduled; On-the-hour")
+        access = logging.getLogger("uvicorn.access")
+        access.info(
+            '%s - "%s %s HTTP/%s" %d',
+            "127.0.0.1:1",
+            "GET",
+            "/",
+            "1.1",
+            200,
+        )
+        access.info(
             '%s - "%s %s HTTP/%s" %d',
             "127.0.0.1:1",
             "GET",
@@ -57,19 +106,26 @@ def test_serve_log_config_writes_app_logs_not_access(tmp_path: Path):
         for name in _LOGGER_NAMES:
             for handler in logging.getLogger(name).handlers:
                 handler.flush()
-        text = (tmp_path / LOG_FILENAME).read_text()
-        assert "Fire transmitted; On-the-hour" in text
-        assert "app.fire" in text
-        assert "/api/schedules" not in text
+        app_text = (tmp_path / LOG_FILENAME).read_text()
+        access_text = (tmp_path / ACCESS_LOG_FILENAME).read_text()
+        assert "Fire transmitted; trigger=scheduled; On-the-hour" in app_text
+        assert "app.fire" in app_text
+        assert "/api/schedules" not in app_text
+        assert 'GET / HTTP/1.1' in access_text or 'GET / ' in access_text
+        assert "/api/schedules" not in access_text
+        assert "Fire transmitted" not in access_text
+        assert "\x1b" not in access_text
+        assert config["formatters"]["access_file"]["use_colors"] is False
         rotating = [h for h in logging.getLogger().handlers if isinstance(h, TimedRotatingFileHandler)]
         assert rotating
         assert rotating[0].backupCount == 30
         assert rotating[0].when == "MIDNIGHT"
-        access_rotating = [
-            h
-            for h in logging.getLogger("uvicorn.access").handlers
-            if isinstance(h, TimedRotatingFileHandler)
-        ]
-        assert access_rotating == []
+        access_handlers = logging.getLogger("uvicorn.access").handlers
+        assert any(isinstance(h, TimedRotatingFileHandler) for h in access_handlers)
+        # TimedRotatingFileHandler subclasses StreamHandler; require no console-only handler.
+        assert not any(
+            isinstance(h, logging.StreamHandler) and not isinstance(h, TimedRotatingFileHandler)
+            for h in access_handlers
+        )
     finally:
         _restore(previous)
