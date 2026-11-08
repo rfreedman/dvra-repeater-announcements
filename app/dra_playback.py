@@ -7,6 +7,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable, Iterable
+from typing import NotRequired, TypedDict, cast
 
 import numpy as np
 
@@ -19,8 +20,42 @@ from app.audio import PcmChunk, materialize_chunks
 _DRA_NAME_MARKERS = ("USB PnP Sound Device", "C-Media")
 
 
+class PortAudioDeviceInfo(TypedDict):
+    """Fields we read from ``sounddevice.query_devices()`` entries."""
+
+    name: str
+    max_output_channels: int
+    max_input_channels: NotRequired[int]
+    default_samplerate: NotRequired[float]
+    hostapi: NotRequired[int]
+
+
+DraOutputDevice = tuple[int, PortAudioDeviceInfo]
+
+
 def is_dra_audio_name(name: str) -> bool:
     return any(marker in name for marker in _DRA_NAME_MARKERS)
+
+
+def _as_portaudio_device(raw: object) -> PortAudioDeviceInfo:
+    if not isinstance(raw, dict):
+        raise TypeError(f"PortAudio device info must be a mapping, got {type(raw)!r}")
+    mapping = cast(dict[object, object], raw)
+    name = mapping.get("name")
+    max_out = mapping.get("max_output_channels")
+    if not isinstance(name, str) or not isinstance(max_out, int):
+        raise TypeError(f"PortAudio device missing name/channels: {raw!r}")
+    info: PortAudioDeviceInfo = {"name": name, "max_output_channels": max_out}
+    max_in = mapping.get("max_input_channels")
+    if isinstance(max_in, int):
+        info["max_input_channels"] = max_in
+    rate = mapping.get("default_samplerate")
+    if isinstance(rate, (int, float)):
+        info["default_samplerate"] = float(rate)
+    hostapi = mapping.get("hostapi")
+    if isinstance(hostapi, int):
+        info["hostapi"] = hostapi
+    return info
 
 
 def _ensure_portaudio_initialized_unlocked() -> None:
@@ -54,13 +89,17 @@ def refresh_portaudio_device_list() -> None:
                 log.error("PortAudio initialize recovery failed", exc_info=True)
 
 
-def list_dra_output_devices() -> list[tuple[int, dict]]:
+def list_dra_output_devices() -> list[DraOutputDevice]:
     import sounddevice as sd
 
     with _portaudio_lock:
         _ensure_portaudio_initialized_unlocked()
-        out: list[tuple[int, dict]] = []
-        for index, dev in enumerate(sd.query_devices()):
+        out: list[DraOutputDevice] = []
+        for index, raw in enumerate(sd.query_devices()):
+            try:
+                dev = _as_portaudio_device(cast(object, raw))
+            except TypeError:
+                continue
             if dev["max_output_channels"] < 1:
                 continue
             if is_dra_audio_name(dev["name"]):
@@ -80,8 +119,8 @@ def _is_pipewire_usb_sink_name(name: str) -> bool:
 
 
 def _prefer_cm119_hw_devices(
-    hw_dra: list[tuple[int, dict]],
-) -> list[tuple[int, dict]]:
+    hw_dra: list[DraOutputDevice],
+) -> list[DraOutputDevice]:
     """Drop non-CM119 ``(hw:…)`` entries when /proc lists CM119 cards (avoids stale indices)."""
     from app.dra_alsa_mixer import alsa_card_from_portaudio_device, cm119_alsa_card_signature
 
@@ -97,8 +136,8 @@ def _prefer_cm119_hw_devices(
 
 
 def auto_select_dra_outputs(
-    devices: list[tuple[int, dict]] | None = None,
-) -> list[tuple[int, dict]]:
+    devices: list[DraOutputDevice] | None = None,
+) -> list[DraOutputDevice]:
     """DRA-like outputs for auto pairing (no ``TTS_DRA_AUDIO_DEVICES``).
 
     On a Linux NUC with PipeWire, the same CM119 often appears as both an ALSA
@@ -160,7 +199,7 @@ def resolve_dra_audio_indices(
             idx = int(spec)
             with _portaudio_lock:
                 _ensure_portaudio_initialized_unlocked()
-                dev = sd.query_devices(idx)
+                dev = _as_portaudio_device(cast(object, sd.query_devices(idx)))
             if dev["max_output_channels"] < 1:
                 raise RuntimeError(f"TTS_DRA_AUDIO_DEVICES index {idx} has no output channels")
             indices.append(idx)

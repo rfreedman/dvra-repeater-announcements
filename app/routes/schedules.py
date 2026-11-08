@@ -37,7 +37,7 @@ from app.scheduler import (
     sync_jobs,
 )
 from app.schemas import ScheduleDetail, ScheduleIn, SchedulePatch, SettingsIn
-from app.store import get_store
+from app.store import AnnouncementStore, get_store
 
 router = APIRouter()
 
@@ -48,13 +48,13 @@ def _newsline_status() -> NewslineStatus:
     return status_payload()
 
 
-def _recompute_lengths(store, timeout: int) -> None:
+def _recompute_lengths(store: AnnouncementStore, timeout: int) -> None:
     from app.spoken_length import recompute_too_long
 
     for item in store.document().announcements:
         updated = recompute_too_long(item, timeout)
         if updated.too_long != item.too_long:
-            store.save_announcement(updated)
+            _ = store.save_announcement(updated)
 
 
 def _validation_detail(exc: ValidationError) -> str:

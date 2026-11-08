@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import threading
+from collections.abc import Mapping
 from pathlib import Path
+from typing import cast
 
 from app.config import ANNOUNCEMENTS_PATH
 from app.models import (
@@ -20,12 +22,14 @@ from app.schedule_logic import (
 _lock = threading.Lock()
 _store: AnnouncementStore | None = None
 
+JsonObject = dict[str, object]
+
 
 class DataFileError(RuntimeError):
     """A data file exists but is not in a format this version understands."""
 
 
-def read_versioned_json(path: Path, *, version: int, kind: str) -> dict | None:
+def read_versioned_json(path: Path, *, version: int, kind: str) -> JsonObject | None:
     """Parsed JSON object, or None if the file is missing/empty.
 
     Raises instead of returning an empty document for an unknown format: the
@@ -45,10 +49,10 @@ def read_versioned_json(path: Path, *, version: int, kind: str) -> dict | None:
             f"{path} is not a version {version} {kind} file (found version {found!r}). "
             "Move it aside or restore a backup; refusing to overwrite it."
         )
-    return raw
+    return cast(JsonObject, raw)
 
 
-def write_json_atomic(path: Path, data: dict) -> None:
+def write_json_atomic(path: Path, data: Mapping[str, object]) -> None:
     """Write JSON atomically via a same-directory .tmp file and replace."""
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(data, indent=2) + "\n"

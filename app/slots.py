@@ -8,6 +8,7 @@ plays at the center.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -74,7 +75,7 @@ def slot_from_key(key: str, zone: ZoneInfo) -> Slot:
     return found
 
 
-def iter_day_slots(day: date, zone: ZoneInfo):
+def iter_day_slots(day: date, zone: ZoneInfo) -> Iterator[Slot]:
     for hour in range(24):
         for minute in SLOT_MINUTES:
             found = slot_from_parts(day, format_hhmm(hour, minute), zone)
@@ -82,7 +83,7 @@ def iter_day_slots(day: date, zone: ZoneInfo):
                 yield found
 
 
-def iter_slots(after: datetime, until: datetime, zone: ZoneInfo):
+def iter_slots(after: datetime, until: datetime, zone: ZoneInfo) -> Iterator[Slot]:
     """Slot centers in (after, until)."""
     local_after = as_local(after, zone)
     local_until = as_local(until, zone)

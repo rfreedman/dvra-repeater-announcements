@@ -4,11 +4,11 @@ import asyncio
 import json
 import logging
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 from starlette.middleware.sessions import SessionMiddleware
@@ -39,6 +39,7 @@ from app.startup import StartupError, fail_startup, init_radio_at_startup
 from app.startup_gate import clear_startup_ready, is_startup_ready, mark_startup_ready
 from app.stats_sse import stats_broadcast_loop
 from app.store import DataFileError, get_store
+from app.manual_trigger_types import SystemStats
 from app.system_status import read_system_stats
 from app.users import get_user_store
 from app.uvicorn_shutdown import register_stats_broadcast_stop
@@ -80,7 +81,7 @@ async def _complete_startup(started: float, stats_stop: asyncio.Event) -> asynci
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI):
+async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     import app.sse_hub as sse_hub
 
     sse_hub.set_event_loop(asyncio.get_running_loop())
@@ -132,7 +133,10 @@ app.add_middleware(
 
 
 @app.middleware("http")
-async def startup_gate_middleware(request: Request, call_next):
+async def startup_gate_middleware(
+    request: Request,
+    call_next: Callable[[Request], Awaitable[Response]],
+) -> Response:
     path = request.url.path
     if path == "/api/ready" or not path.startswith("/api/"):
         return await call_next(request)
@@ -151,7 +155,7 @@ def health() -> dict[str, str]:
 
 
 @app.get("/api/system/stats")
-def system_stats(_user: AuthUser) -> dict[str, object]:
+def system_stats(_user: AuthUser) -> SystemStats:
     return read_system_stats()
 
 

@@ -14,7 +14,7 @@ from app.pcm_cache import get_pcm_cache, warm_announcement, warm_announcement_in
 from app.scheduler import sync_jobs
 from app.schemas import AnnouncementIn, AnnouncementsListOut
 from app.spoken_length import measure_announcement
-from app.store import get_store
+from app.store import AnnouncementStore, get_store
 
 router = APIRouter()
 log = logging.getLogger("app.routes.announcements")
@@ -26,7 +26,9 @@ def _warm_in_background(item: Announcement) -> None:
     warm_announcement_in_background(item, warm_announcement)
 
 
-def _referenced(store, announcement_id: str | None, *, role: str, previous: str | None) -> None:
+def _referenced(
+    store: AnnouncementStore, announcement_id: str | None, *, role: str, previous: str | None
+) -> None:
     if not announcement_id:
         return
     item = store.get(announcement_id)
