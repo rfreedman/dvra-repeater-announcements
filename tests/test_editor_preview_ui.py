@@ -126,7 +126,7 @@ def test_newsline_check_button_disables_while_processing_or_playing():
 def test_running_now_shows_elapsed_clock():
     source = APP_JS.read_text(encoding="utf-8")
     assert "function elapsedSecondsSince(iso)" in source
-    assert "Now ${formatSegmentElapsed(played)}" in source
+    assert 'played == null ? "Now" : `${formatSegmentElapsed(played)}`' in source
 
 
 def test_newsline_status_shows_segment_name_and_elapsed_clock():
