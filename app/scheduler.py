@@ -576,6 +576,9 @@ def sync_jobs() -> None:
     (scheduler woke late). A job waiting at an older offset is removed and is
     never re-added — re-adding a past DateTrigger inside the misfire grace
     makes the slot transmit a second time.
+
+    Jobs already scheduled at the correct fire time are left alone so a post-fire
+    sync does not rewrite the whole lookahead window.
     """
     scheduler = get_scheduler()
     if scheduler is None:
@@ -590,6 +593,8 @@ def sync_jobs() -> None:
         seconds=SLOT_MISFIRE_GRACE_SECONDS,
     )
     wanted: set[str] = set()
+    added = 0
+    removed = 0
     for item in resolve_window(document, now - lookback, until):
         if item.source == "none":
             continue
@@ -600,6 +605,9 @@ def sync_jobs() -> None:
                 wanted.add(jid)
             continue
         wanted.add(jid)
+        existing = scheduler.get_job(jid)
+        if existing is not None and _job_still_scheduled_at(existing, item.fire_at):
+            continue
         scheduler.add_job(
             run_scheduled_fire,
             DateTrigger(run_date=item.fire_at),
@@ -608,10 +616,12 @@ def sync_jobs() -> None:
             kwargs={"slot_key": item.slot.key},
             misfire_grace_time=SLOT_MISFIRE_GRACE_SECONDS,
         )
+        added += 1
     for job in list(scheduler.get_jobs()):
         jid = job.id or ""
         if jid.startswith("slot:") and jid not in wanted:
             scheduler.remove_job(jid)
+            removed += 1
             continue
         key = _slot_key_from_defer_job_id(jid)
         if key is None or key.startswith(MANUAL_KEY_PREFIX):
@@ -624,6 +634,9 @@ def sync_jobs() -> None:
             source = "none"
         if source in ("none", "silence"):
             scheduler.remove_job(jid)
+            removed += 1
+    if added or removed:
+        log.info("Synced slot jobs; added %s, removed %s", added, removed)
 
 
 def get_scheduler() -> BackgroundScheduler | None:

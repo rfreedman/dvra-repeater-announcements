@@ -169,8 +169,13 @@ def chunks_for_announcement(announcement: Announcement) -> list[PcmChunk]:
         return rendered
 
 
+def _should_warm(announcement: Announcement) -> bool:
+    """True when PCM warm/render applies (spoken TTS with text)."""
+    return announcement.kind == "tts" and bool(announcement.text.strip())
+
+
 def warm_announcement(announcement: Announcement) -> list[PcmChunk] | None:
-    if announcement.kind != "tts" or not announcement.text.strip():
+    if not _should_warm(announcement):
         return None
     started = time.perf_counter()
     try:
@@ -205,15 +210,20 @@ def warm_all(announcements: list[Announcement] | None = None) -> None:
     store = get_store()
     document = store.document()
     items = list(announcements if announcements is not None else document.announcements)
+    to_warm = [item for item in items if _should_warm(item)]
     started = time.perf_counter()
-    log.info("Caching %s announcements", len(items))
+    log.info("Warming all TTS announcements; caching %s", len(to_warm))
     get_pcm_cache().prune({item.id for item in items})
     from app.spoken_length import apply_played_length, pcm_duration_seconds
 
     timeout = document.settings.repeater_timeout_seconds
-    for item in items:
+    cached = 0
+    for item in to_warm:
         chunks = warm_announcement(item)
-        if item.kind != "tts" or item.play_seconds is not None or chunks is None:
+        if chunks is None:
+            continue
+        cached += 1
+        if item.play_seconds is not None:
             continue
         measured = apply_played_length(item, pcm_duration_seconds(chunks), timeout)
         store.save_announcement(measured)
@@ -225,4 +235,4 @@ def warm_all(announcements: list[Announcement] | None = None) -> None:
             )
         else:
             log.info("Timed %s at %.1fs", measured.name, measured.play_seconds or 0)
-    log.info("Cached %s announcements in %.1fs", len(items), time.perf_counter() - started)
+    log.info("Cached %s announcements in %.1fs", cached, time.perf_counter() - started)

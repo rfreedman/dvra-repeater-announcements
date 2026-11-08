@@ -132,3 +132,30 @@ def test_slot_jobs_are_not_added_in_the_past(paused, store):
     for job in paused.get_jobs():
         if job.id.startswith("slot:"):
             assert job.next_run_time > _at(15, 0, 10)
+
+
+def test_second_sync_skips_unchanged_slot_jobs(paused, store, monkeypatch, caplog):
+    _seed(store)
+    _sync_at(_at(14, 0))
+    calls: list[str] = []
+    real_add = paused.add_job
+
+    def tracking_add(*args, **kwargs):
+        calls.append(kwargs.get("id") or "")
+        return real_add(*args, **kwargs)
+
+    monkeypatch.setattr(paused, "add_job", tracking_add)
+    with caplog.at_level("INFO", logger="app.scheduler"):
+        _sync_at(_at(14, 0))
+    assert calls == []
+    assert not any("Synced slot jobs" in record.message for record in caplog.records)
+
+
+def test_sync_logs_one_summary_when_jobs_change(paused, store, caplog):
+    _seed(store)
+    with caplog.at_level("INFO", logger="app.scheduler"):
+        _sync_at(_at(14, 0))
+    summaries = [r.message for r in caplog.records if "Synced slot jobs" in r.message]
+    assert len(summaries) == 1
+    assert "added " in summaries[0]
+    assert "removed 0" in summaries[0]

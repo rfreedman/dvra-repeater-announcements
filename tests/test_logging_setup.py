@@ -78,6 +78,7 @@ def test_serve_log_config_splits_app_and_access(tmp_path: Path):
     assert config["handlers"]["access_file"]["when"] == "midnight"
     assert config["handlers"]["access_file"]["backupCount"] == 30
     assert config["loggers"]["uvicorn.access"]["handlers"] == ["access_file"]
+    assert config["loggers"]["apscheduler"]["level"] == "WARNING"
     assert "access" not in config["handlers"]
     assert "file" in config["loggers"]["uvicorn"]["handlers"]
     assert "file" in config["root"]["handlers"]

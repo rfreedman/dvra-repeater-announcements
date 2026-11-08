@@ -4,7 +4,13 @@ import logging
 
 from app.audio import PcmChunk
 from app.models import Announcement
-from app.pcm_cache import PcmCache, chunks_for_announcement, fingerprint, set_pcm_cache
+from app.pcm_cache import (
+    PcmCache,
+    chunks_for_announcement,
+    fingerprint,
+    set_pcm_cache,
+    warm_all,
+)
 
 
 def _announcement(**kwargs) -> Announcement:
@@ -106,5 +112,51 @@ def test_cache_hit_does_not_log_caching(tmp_path, monkeypatch, caplog):
     with caplog.at_level(logging.INFO, logger="app.pcm_cache"):
         chunks_for_announcement(item)
     assert "PCM cache hit;" in caplog.text
+    assert "Warming all TTS announcements" not in caplog.text
     assert "Caching " not in caplog.text
+    set_pcm_cache(None)
+
+
+def test_warm_all_counts_only_tts_with_text(store, tmp_path, monkeypatch, caplog):
+    cache = PcmCache(tmp_path / "pcm")
+    set_pcm_cache(cache)
+
+    class FakeEngine:
+        def voice_mtime_ns(self, voice_id: str) -> int | None:
+            return 99
+
+    class FakeRegistry:
+        engine = FakeEngine()
+
+        def prepare(self, voice=None) -> str:
+            return "en_US-lessac-medium"
+
+        def synthesize(self, text, voice=None, speed=1.0, sentence_pause=0.25):
+            return voice, 22050, [PcmChunk(pcm_int16=b"\x03\x00", sample_rate=22050)]
+
+    monkeypatch.setattr("app.registry.get_registry", lambda: FakeRegistry())
+    a = store.save_announcement(Announcement(name="A", text="Hello."))
+    b = store.save_announcement(Announcement(name="B", text="World."))
+    store.save_announcement(
+        Announcement(
+            name="Newsline",
+            kind="newsline",
+            station_id_announcement_id=a.id,
+        )
+    )
+    with caplog.at_level(logging.INFO, logger="app.pcm_cache"):
+        warm_all()
+    start = [r.message for r in caplog.records if "Warming all TTS announcements" in r.message]
+    end = [r.message for r in caplog.records if r.message.startswith("Cached ")]
+    per_item = [
+        r.message
+        for r in caplog.records
+        if r.message.startswith("PCM cache hit;") or r.message.startswith("PCM cache stored;")
+    ]
+    assert start == ["Warming all TTS announcements; caching 2"]
+    assert len(end) == 1 and end[0].startswith("Cached 2 announcements in ")
+    assert len(per_item) == 2
+    assert {a.name, b.name} == {
+        message.split("; ", 1)[1].split(" in ", 1)[0] for message in per_item
+    }
     set_pcm_cache(None)

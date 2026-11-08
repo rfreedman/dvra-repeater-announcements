@@ -106,5 +106,7 @@ def serve_log_config(log_dir: Path | None = None) -> dict:
         "level": "INFO",
         "propagate": False,
     }
+    # Per-job add/remove INFO lines; app.scheduler emits one sync summary instead.
+    config["loggers"]["apscheduler"] = {"level": "WARNING"}
     config["root"] = {"handlers": ["console", "file"], "level": "INFO"}
     return config
