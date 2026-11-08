@@ -7,8 +7,9 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import Iterator
+from typing import cast, override
 from urllib.parse import urlparse
 
 from piper import PiperVoice, SynthesisConfig
@@ -63,43 +64,46 @@ def load_featured_voices(path: Path | None = None) -> tuple[PiperVoiceMeta, ...]
     if not isinstance(raw, dict) or not isinstance(raw.get("voices"), list):
         raise ValueError(f"{voices_path} must be an object with a 'voices' array")
 
+    root = cast(dict[object, object], raw)
+    voice_items = cast(list[object], root["voices"])
     voices: list[PiperVoiceMeta] = []
     seen_ids: set[str] = set()
     seen_aliases: set[str] = set()
-    for index, item in enumerate(raw["voices"]):
+    for index, item in enumerate(voice_items):
         if not isinstance(item, dict):
             raise ValueError(f"{voices_path} voices[{index}] must be an object")
-        missing = [field for field in _REQUIRED_FIELDS if not str(item.get(field, "")).strip()]
+        entry = cast(dict[object, object], item)
+        missing = [field for field in _REQUIRED_FIELDS if not str(entry.get(field, "")).strip()]
         if missing:
             raise ValueError(
                 f"{voices_path} voices[{index}] missing required fields: {', '.join(missing)}"
             )
-        voice_id = str(item["id"]).strip()
-        alias = str(item["alias"]).strip()
+        voice_id = str(entry["id"]).strip()
+        alias = str(entry["alias"]).strip()
         alias_key = alias.lower()
         if voice_id in seen_ids:
             raise ValueError(f"{voices_path}: duplicate voice id {voice_id!r}")
         if alias_key in seen_aliases:
             raise ValueError(f"{voices_path}: duplicate voice alias {alias!r}")
-        onnx_url = _optional_http_url(item.get("onnx_url"), field="onnx_url", voices_path=voices_path, index=index)
+        onnx_url = _optional_http_url(
+            entry.get("onnx_url"), field="onnx_url", voices_path=voices_path, index=index
+        )
         config_url = _optional_http_url(
-            item.get("config_url"), field="config_url", voices_path=voices_path, index=index
+            entry.get("config_url"), field="config_url", voices_path=voices_path, index=index
         )
         if config_url and not onnx_url:
-            raise ValueError(
-                f"{voices_path} voices[{index}]: config_url requires onnx_url"
-            )
+            raise ValueError(f"{voices_path} voices[{index}]: config_url requires onnx_url")
         seen_ids.add(voice_id)
         seen_aliases.add(alias_key)
         voices.append(
             PiperVoiceMeta(
                 id=voice_id,
                 alias=alias,
-                name=str(item["name"]).strip(),
-                gender=str(item["gender"]).strip(),
-                locale=str(item["locale"]).strip(),
-                quality=str(item["quality"]).strip(),
-                description=str(item["description"]).strip(),
+                name=str(entry["name"]).strip(),
+                gender=str(entry["gender"]).strip(),
+                locale=str(entry["locale"]).strip(),
+                quality=str(entry["quality"]).strip(),
+                description=str(entry["description"]).strip(),
                 onnx_url=onnx_url,
                 config_url=config_url,
             )
@@ -107,9 +111,11 @@ def load_featured_voices(path: Path | None = None) -> tuple[PiperVoiceMeta, ...]
     return tuple(voices)
 
 
-FEATURED_VOICES: tuple[PiperVoiceMeta, ...] = load_featured_voices()
-_FEATURED_BY_ID = {voice.id: voice for voice in FEATURED_VOICES}
-_FEATURED_BY_ALIAS = {voice.alias.lower(): voice for voice in FEATURED_VOICES}
+featured_voices: tuple[PiperVoiceMeta, ...] = load_featured_voices()
+_featured_by_id: dict[str, PiperVoiceMeta] = {voice.id: voice for voice in featured_voices}
+_featured_by_alias: dict[str, PiperVoiceMeta] = {
+    voice.alias.lower(): voice for voice in featured_voices
+}
 
 
 def _quality_from_id(voice_id: str) -> str:
@@ -121,21 +127,22 @@ def _quality_from_id(voice_id: str) -> str:
 
 def set_featured_voices(voices: tuple[PiperVoiceMeta, ...]) -> None:
     """Replace featured voices (tests)."""
-    global FEATURED_VOICES, _FEATURED_BY_ID, _FEATURED_BY_ALIAS
-    FEATURED_VOICES = voices
-    _FEATURED_BY_ID = {voice.id: voice for voice in FEATURED_VOICES}
-    _FEATURED_BY_ALIAS = {voice.alias.lower(): voice for voice in FEATURED_VOICES}
+    global featured_voices, _featured_by_id, _featured_by_alias
+    featured_voices = voices
+    _featured_by_id = {voice.id: voice for voice in featured_voices}
+    _featured_by_alias = {voice.alias.lower(): voice for voice in featured_voices}
 
 
 def _download_url_to_file(url: str, dest: Path) -> None:
     """Download url to dest via a temp file, then atomically replace."""
-    dest.parent.mkdir(parents=True, exist_ok=True)
+    _ = dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".tmp")
     try:
         with urllib.request.urlopen(url, timeout=120) as response:
-            data = response.read()
-        tmp.write_bytes(data)
-        tmp.replace(dest)
+            read_body = cast(Callable[[], object], response.read)
+            data = cast(bytes, read_body())
+        _ = tmp.write_bytes(data)
+        _ = tmp.replace(dest)
     except (urllib.error.URLError, OSError, TimeoutError) as exc:
         if tmp.exists():
             tmp.unlink(missing_ok=True)
@@ -155,23 +162,25 @@ def _ensure_featured_files(meta: PiperVoiceMeta, voices_dir: Path) -> None:
 
 
 class PiperEngine(Engine):
-    id = "piper"
-    name = "Piper"
+    id: str = "piper"
+    name: str = "Piper"
 
     def __init__(self, voices_dir: Path | None = None, default_voice: str | None = None) -> None:
-        self.voices_dir = Path(voices_dir or PIPER_VOICES_DIR)
-        self._default_voice = default_voice or DEFAULT_PIPER_VOICE
+        self.voices_dir: Path = Path(voices_dir or PIPER_VOICES_DIR)
+        self._default_voice: str = default_voice or DEFAULT_PIPER_VOICE
         self._models: dict[str, PiperVoice] = {}
         self._locks: dict[str, threading.Lock] = {}
-        self._global = threading.Lock()
+        self._global: threading.Lock = threading.Lock()
 
+    @override
     def default_voice_id(self) -> str:
         return self._default_voice
 
+    @override
     def list_voices(self) -> list[VoiceInfo]:
         listed_ids: set[str] = set()
         voices: list[VoiceInfo] = []
-        for meta in FEATURED_VOICES:
+        for meta in featured_voices:
             if not piper_quality_allowed(meta.id):
                 continue
             listed_ids.add(meta.id)
@@ -196,6 +205,7 @@ class PiperEngine(Engine):
                 )
         return voices
 
+    @override
     def try_resolve(self, voice: str | None) -> str | None:
         if not voice:
             return self._default_voice
@@ -203,9 +213,9 @@ class PiperEngine(Engine):
         if not key:
             return self._default_voice
         lowered = key.lower()
-        if lowered in _FEATURED_BY_ALIAS:
-            return _FEATURED_BY_ALIAS[lowered].id
-        if key in _FEATURED_BY_ID:
+        if lowered in _featured_by_alias:
+            return _featured_by_alias[lowered].id
+        if key in _featured_by_id:
             return key
         if VOICE_PATTERN.match(key):
             return key
@@ -214,13 +224,15 @@ class PiperEngine(Engine):
             return key
         return None
 
+    @override
     def is_ready(self, voice: str | None = None) -> bool:
         voice_id = self.resolve(voice)
         return self._model_path(voice_id).exists()
 
+    @override
     def prepare(self, voice: str | None = None) -> str:
         voice_id = self.resolve(voice)
-        self._load(voice_id)
+        _ = self._load(voice_id)
         return voice_id
 
     def preload(self) -> list[str]:
@@ -232,7 +244,7 @@ class PiperEngine(Engine):
             voice_started = time.perf_counter()
             log.info("Preloading %s", voice_id)
             try:
-                self._load(voice_id)
+                _ = self._load(voice_id)
                 self._warmup(voice_id)
                 loaded.append(voice_id)
                 log.info("Preloaded %s in %.1fs", voice_id, time.perf_counter() - voice_started)
@@ -242,13 +254,20 @@ class PiperEngine(Engine):
                     voice_id,
                     time.perf_counter() - voice_started,
                 )
-        log.info("Preloaded %s of %s voices in %.1fs", len(loaded), len(ids), time.perf_counter() - started)
+        log.info(
+            "Preloaded %s of %s voices in %.1fs",
+            len(loaded),
+            len(ids),
+            time.perf_counter() - started,
+        )
         return loaded
 
+    @override
     def sample_rate(self, voice: str | None = None) -> int:
         voice_id = self.prepare(voice)
         return self._load(voice_id).config.sample_rate
 
+    @override
     def synthesize(
         self,
         text: str,
@@ -266,7 +285,7 @@ class PiperEngine(Engine):
         def speech_chunks(speech: str) -> Iterator[PcmChunk]:
             # Hold the voice lock per sentence only, never across a yield: a slow
             # streaming client must not block scheduled synthesis on the same voice.
-            sentences = model.synthesize(speech, syn_config=syn_config)
+            sentences = iter(model.synthesize(speech, syn_config=syn_config))
             while True:
                 with lock:
                     chunk = next(sentences, None)
@@ -310,7 +329,7 @@ class PiperEngine(Engine):
         return path.stat().st_mtime_ns
 
     def _preload_ids(self) -> list[str]:
-        ids = [meta.id for meta in FEATURED_VOICES if piper_quality_allowed(meta.id)]
+        ids = [meta.id for meta in featured_voices if piper_quality_allowed(meta.id)]
         seen = set(ids)
         if self.voices_dir.exists():
             for model_path in sorted(self.voices_dir.glob("*.onnx")):
@@ -341,18 +360,20 @@ class PiperEngine(Engine):
                 cached = self._models.get(voice_id)
                 if cached is not None:
                     return cached
-            self.voices_dir.mkdir(parents=True, exist_ok=True)
+            _ = self.voices_dir.mkdir(parents=True, exist_ok=True)
             model_path = self._model_path(voice_id)
             if not model_path.exists():
-                meta = _FEATURED_BY_ID.get(voice_id)
+                meta = _featured_by_id.get(voice_id)
                 if meta is not None and meta.onnx_url:
                     _ensure_featured_files(meta, self.voices_dir)
                 elif VOICE_PATTERN.match(voice_id) is not None:
                     download_voice(voice_id, self.voices_dir)
                 else:
                     raise VoiceError(
-                        f"Piper voice {voice_id!r} is not on disk and has no download source "
-                        "(add onnx_url in config/piper-voices.json, or use a standard Piper id)"
+                        (
+                            f"Piper voice {voice_id!r} is not on disk and has no download source "
+                            "(add onnx_url in config/piper-voices.json, or use a standard Piper id)"
+                        )
                     )
             model = PiperVoice.load(model_path)
             with self._global:

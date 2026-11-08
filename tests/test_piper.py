@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.tts.piper import FEATURED_VOICES, PiperEngine, load_featured_voices, set_featured_voices
+from app.tts.piper import featured_voices, PiperEngine, load_featured_voices, set_featured_voices
 
 
 @dataclass
@@ -69,7 +69,7 @@ def featured(tmp_path: Path):
         encoding="utf-8",
     )
     voices = load_featured_voices(path)
-    previous = FEATURED_VOICES
+    previous = featured_voices
     set_featured_voices(voices)
     yield voices
     set_featured_voices(previous)
@@ -98,9 +98,9 @@ def _stub_piper(monkeypatch, voices_dir: Path, fail_ids: set[str] | None = None)
 
 
 def test_load_featured_voices_from_repo_file():
-    assert len(FEATURED_VOICES) >= 1
-    assert FEATURED_VOICES[0].id
-    assert FEATURED_VOICES[0].alias
+    assert len(featured_voices) >= 1
+    assert featured_voices[0].id
+    assert featured_voices[0].alias
 
 
 def test_load_featured_voices_rejects_duplicates(tmp_path: Path):
@@ -279,7 +279,7 @@ def test_custom_url_download_when_missing(tmp_path: Path, monkeypatch):
         encoding="utf-8",
     )
     voices = load_featured_voices(path)
-    previous = FEATURED_VOICES
+    previous = featured_voices
     set_featured_voices(voices)
     try:
         fetched: list[tuple[str, str]] = []
@@ -328,7 +328,7 @@ def test_non_pattern_id_without_url_fails(tmp_path: Path, monkeypatch):
         encoding="utf-8",
     )
     voices = load_featured_voices(path)
-    previous = FEATURED_VOICES
+    previous = featured_voices
     set_featured_voices(voices)
     try:
         monkeypatch.setattr("app.tts.piper.PiperVoice.load", lambda p: _FakeVoice(Path(p)))
@@ -360,7 +360,7 @@ def test_hf_download_when_urls_omitted(tmp_path: Path, monkeypatch):
         encoding="utf-8",
     )
     voices = load_featured_voices(path)
-    previous = FEATURED_VOICES
+    previous = featured_voices
     set_featured_voices(voices)
     try:
         custom_fetches: list[str] = []
