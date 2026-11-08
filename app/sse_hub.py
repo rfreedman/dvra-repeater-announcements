@@ -7,10 +7,11 @@ import json
 import logging
 import threading
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
 
 from app.home_live import build_home_live_status
+from app.manual_trigger_types import SystemStats
 
 log = logging.getLogger("app.sse_hub")
 
@@ -23,11 +24,14 @@ _publish_lock = threading.Lock()
 _last_publish_mono = 0.0
 MIN_PUBLISH_INTERVAL_SECONDS = 0.05
 
+# JSON object payloads (TypedDicts are Mapping[str, object] at runtime).
+SsePayload = Mapping[str, object]
+
 
 @dataclass(frozen=True, slots=True)
 class SseHomeMessage:
     event: str
-    data: dict[str, Any]
+    data: SsePayload
 
 
 def set_event_loop(loop: asyncio.AbstractEventLoop) -> None:
@@ -102,7 +106,7 @@ def has_stats_subscribers() -> bool:
         return bool(_stats_subscribers)
 
 
-def publish_sse_event(event: str, data: dict[str, Any], *, force: bool = False) -> None:
+def publish_sse_event(event: str, data: SsePayload, *, force: bool = False) -> None:
     if not _has_subscribers():
         return
     loop = _loop
@@ -149,7 +153,7 @@ def publish_home_data_changed() -> None:
     publish_sse_event("data_changed", {}, force=True)
 
 
-def publish_stats_event(data: dict[str, Any]) -> None:
+def publish_stats_event(data: SystemStats) -> None:
     if not has_stats_subscribers():
         return
     loop = _loop
@@ -195,6 +199,6 @@ def _enqueue(queue: asyncio.Queue[SseHomeMessage | None], message: SseHomeMessag
             pass
 
 
-def format_sse(event: str, data: dict[str, Any]) -> str:
+def format_sse(event: str, data: SsePayload) -> str:
     body = json.dumps(data, separators=(",", ":"))
     return f"event: {event}\ndata: {body}\n\n"

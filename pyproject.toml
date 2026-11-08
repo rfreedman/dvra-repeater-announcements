@@ -40,6 +40,7 @@ dev = [
     "pytest>=8.0.0",
     "httpx2>=2.0",
     "pytest-playwright>=0.10.0",
+    "basedpyright>=1.40.2",
 ]
 
 # CPU wheels on Linux/CI/NUC (PyPI Linux torch pulls CUDA). Mac stays on this index too.
@@ -51,3 +52,23 @@ explicit = true
 [tool.uv.sources]
 torch = [{ index = "pytorch-cpu" }]
 torchaudio = [{ index = "pytorch-cpu" }]
+
+# Static typing (basedpyright). Existing debt is in .basedpyright/baseline.json;
+# new diagnostics outside the baseline fail CI. Prefer fixing types over growing the baseline.
+[tool.basedpyright]
+include = ["app"]
+exclude = ["**/__pycache__"]
+pythonVersion = "3.12"
+typeCheckingMode = "recommended"
+baselineFile = ".basedpyright/baseline.json"
+venvPath = "."
+venv = ".venv"
+# Incomplete third-party stubs; wrap at boundaries instead of sprinkling Any.
+allowedUntypedLibraries = [
+    "hid",
+    "sounddevice",
+    "apscheduler",
+    "Foundation",
+    "feedparser",
+    "stable_whisper",
+]

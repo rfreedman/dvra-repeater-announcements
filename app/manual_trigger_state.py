@@ -12,6 +12,7 @@ from apscheduler.triggers.date import DateTrigger
 from app.config import DRA_CLEAR_SECONDS, TIMEZONE
 from app.fire_trace import fire_trace
 from app.manual_trigger_types import (
+    ManualDropNotice,
     ManualInflightEntry,
     ManualTriggerPhase,
     PendingManualTriggerRow,
@@ -29,7 +30,7 @@ MANUAL_NUDGE_MIN_WAIT_FOR_UNKNOWN_KIND_SECONDS = 2.0  # only nudge unknown defer
 MANUAL_NUDGE_RUN_DELAY_MS = 50  # reschedule manual defer this soon after clear hold is met
 
 _manual_drop_lock = threading.Lock()
-_manual_drop_notice: dict[str, object] | None = None
+_manual_drop_notice: ManualDropNotice | None = None
 _manual_inflight_lock = threading.Lock()
 _manual_inflight: dict[str, ManualInflightEntry] = {}
 
@@ -51,7 +52,7 @@ def _station_zone() -> ZoneInfo:
     return zone_for(get_store().document().settings.timezone)
 
 
-def peek_manual_trigger_drop_notice() -> dict[str, object] | None:
+def peek_manual_trigger_drop_notice() -> ManualDropNotice | None:
     with _manual_drop_lock:
         return dict(_manual_drop_notice) if _manual_drop_notice else None
 

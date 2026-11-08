@@ -47,7 +47,7 @@ from app.manual_trigger_state import (
     pending_manual_triggers,
     record_manual_trigger_drop,
 )
-from app.manual_trigger_types import RunningTransmission
+from app.manual_trigger_types import RunningPhase, RunningTransmission
 from app.models import Announcement, Schedule
 from app.pcm_cache import chunks_for_announcement
 from app.playback import play_chunks
@@ -106,7 +106,7 @@ def get_running() -> RunningTransmission | None:
 
 
 def _set_running(
-    announcement,
+    announcement: Announcement,
     schedule_id: str,
     *,
     piece_label: str | None = None,
@@ -132,7 +132,7 @@ def _set_running(
 
 def _set_running_wait(
     *,
-    phase: str,
+    phase: RunningPhase,
     clear_seconds: float = 0.0,
     clear_remaining_seconds: float | None = None,
     force: bool = False,
@@ -148,7 +148,7 @@ def _set_running_wait(
         # Preserve piece_label / story_index / story_total across wait-phase updates.
         _running = {
             **_running,
-            "phase": phase,  # type: ignore[typeddict-item]
+            "phase": phase,
             "clear_seconds": float(clear_seconds),
             "clear_remaining_seconds": clear_remaining_seconds,
         }

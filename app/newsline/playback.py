@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from functools import partial
 
 from app.audio import PcmChunk, materialize_chunks
+from app.fire import FireDeps
 from app.fire_trace import fire_trace
 from app.models import Announcement, Schedule
 from app.newsline.decode import mp3_to_chunks
@@ -31,31 +32,28 @@ class ClearWait:
     interrupted: bool = False
 
 
-def _now(deps) -> datetime:
-    wall = getattr(deps, "wall_now", None)
-    if wall is not None:
-        return wall()
+def _now(deps: FireDeps) -> datetime:
     return deps.now
 
 
-def _poll(deps) -> float:
+def _poll(deps: FireDeps) -> float:
     return deps.dra_clear_poll_seconds if deps.dra_clear_poll_seconds > 0 else 0.25
 
 
-def _blocked(deps) -> bool:
+def _blocked(deps: FireDeps) -> bool:
     return channel_blocks_transmit(deps.radio, clear_seconds=deps.dra_clear_seconds)
 
 
-def _fresh_busy(deps) -> bool:
+def _fresh_busy(deps: FireDeps) -> bool:
     return bool(deps.radio.channel_busy())
 
 
-def _publish_running_wait(deps, *, busy: bool) -> None:
+def _publish_running_wait(deps: FireDeps, *, busy: bool) -> None:
     """Show paused / clear-hold on the home card while Newsline waits mid-bulletin."""
-    setter = getattr(deps, "set_running_wait", None)
+    setter = deps.set_running_wait
     if setter is None:
         return
-    clear_seconds = float(getattr(deps, "dra_clear_seconds", 0) or 0)
+    clear_seconds = float(deps.dra_clear_seconds or 0)
     idle_credit = as_idle_credit(deps.radio)
     idle = float(idle_credit.continuous_idle_seconds()) if idle_credit is not None else 0.0
     if busy:
@@ -73,14 +71,16 @@ def _publish_running_wait(deps, *, busy: bool) -> None:
         )
 
 
-def _publish_running_playing(deps) -> None:
-    setter = getattr(deps, "set_running_wait", None)
+def _publish_running_playing(deps: FireDeps) -> None:
+    setter = deps.set_running_wait
     if setter is None:
         return
     setter(phase="playing", clear_seconds=0.0, clear_remaining_seconds=None)
 
 
-def wait_until_clear(deps, *, deadline: datetime | None, gap_seconds: float = 0.0) -> ClearWait:
+def wait_until_clear(
+    deps: FireDeps, *, deadline: datetime | None, gap_seconds: float = 0.0
+) -> ClearWait:
     """Wait out the unkey gap, then until the channel is clear.
 
     ``interrupted`` is true when COS was busy after the unkey gap.
@@ -112,7 +112,7 @@ def wait_until_clear(deps, *, deadline: datetime | None, gap_seconds: float = 0.
         deps.sleep_fn(poll)
 
 
-def _chunks_for_piece(deps, piece: Piece) -> list[PcmChunk]:
+def _chunks_for_piece(deps: FireDeps, piece: Piece) -> list[PcmChunk]:
     if piece.announcement is not None:
         return materialize_chunks(deps.synthesize(piece.announcement))
     if piece.path is None:
@@ -120,7 +120,9 @@ def _chunks_for_piece(deps, piece: Piece) -> list[PcmChunk]:
     return mp3_to_chunks(piece.path)
 
 
-def _transmit_chunks(deps, chunks: Iterable[PcmChunk], *, on_key: Callable[[], None] | None) -> None:
+def _transmit_chunks(
+    deps: FireDeps, chunks: Iterable[PcmChunk], *, on_key: Callable[[], None] | None
+) -> None:
     from app.fire import _RunningOnKeyRadio
 
     transmit(
@@ -133,7 +135,7 @@ def _transmit_chunks(deps, chunks: Iterable[PcmChunk], *, on_key: Callable[[], N
     )
 
 
-def _play_emergency(deps, pending: PendingEmergency) -> str:
+def _play_emergency(deps: FireDeps, pending: PendingEmergency) -> str:
     announcement = pending.announcement
     schedule = pending.schedule
     label = announcement.name
@@ -162,7 +164,7 @@ def _play_emergency(deps, pending: PendingEmergency) -> str:
     return "transmitted"
 
 
-def _drain_emergencies(deps) -> str | None:
+def _drain_emergencies(deps: FireDeps) -> str | None:
     while bulletin_session.waiting():
         pending = bulletin_session.take()
         if pending is None:
@@ -179,7 +181,7 @@ def _is_story_piece(piece: Piece) -> bool:
 
 
 def _transmit_piece(
-    deps,
+    deps: FireDeps,
     piece: Piece,
     *,
     resume: Piece | None,
@@ -202,7 +204,7 @@ def _transmit_piece(
 
 
 def transmit_newsline(
-    deps,
+    deps: FireDeps,
     pieces: list[Piece],
     *,
     bulletin: Announcement,

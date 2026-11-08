@@ -5,11 +5,13 @@ from __future__ import annotations
 import threading
 from datetime import datetime
 
+from app.manual_trigger_types import SkipNotice
+
 _lock = threading.Lock()
-_notice: dict[str, object] | None = None
+_notice: SkipNotice | None = None
 
 
-def peek_skip_notice() -> dict[str, object] | None:
+def peek_skip_notice() -> SkipNotice | None:
     with _lock:
         return dict(_notice) if _notice else None
 

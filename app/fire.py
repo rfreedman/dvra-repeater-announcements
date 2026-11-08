@@ -7,7 +7,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from functools import partial
-from typing import Literal
+from typing import Literal, Protocol
 
 from app.audio import PcmChunk, materialize_chunks
 from app.config import (
@@ -16,6 +16,7 @@ from app.config import (
     DRA_FINAL_CHECK_SECONDS,
     PTT_LEAD_SECONDS,
 )
+from app.manual_trigger_types import RunningPhase
 from app.models import Announcement, Schedule
 from app.fire_trace import fire_trace
 from app.radio import (
@@ -40,6 +41,29 @@ DEFER_CLEAR_NONBLOCKING_MAX_SECONDS = 0.5
 DEFER_RETRY_WHEN_CLEAR_MET_CAP_SECONDS = 1.0
 
 FireTrigger = Literal["scheduled", "manual"]
+
+
+class SetRunningFn(Protocol):
+    def __call__(
+        self,
+        announcement: Announcement,
+        schedule_id: str,
+        *,
+        piece_label: str | None = None,
+        story_index: int | None = None,
+        story_total: int | None = None,
+    ) -> None: ...
+
+
+class SetRunningWaitFn(Protocol):
+    def __call__(
+        self,
+        *,
+        phase: RunningPhase,
+        clear_seconds: float = 0.0,
+        clear_remaining_seconds: float | None = None,
+        force: bool = False,
+    ) -> None: ...
 
 
 @dataclass
@@ -93,9 +117,9 @@ class FireDeps:
     dra_clear_seconds: float = DRA_CLEAR_SECONDS
     dra_clear_poll_seconds: float = DRA_CLEAR_POLL_SECONDS
     dra_final_check_seconds: float = DRA_FINAL_CHECK_SECONDS
-    set_running: Callable[[Announcement, str], None] | None = None
+    set_running: SetRunningFn | None = None
     clear_running: Callable[[], None] | None = None
-    set_running_wait: Callable[..., None] | None = None
+    set_running_wait: SetRunningWaitFn | None = None
     update_schedule: bool = True
     nonblocking_clear_wait: bool = False
     not_ready_deadline: datetime | None = None

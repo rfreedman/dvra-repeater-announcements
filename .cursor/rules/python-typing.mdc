@@ -1,0 +1,41 @@
+---
+description: Maximize Python static typing with basedpyright; rules for new and changed code
+globs: "**/*.py"
+alwaysApply: false
+---
+
+# Python typing (basedpyright)
+
+Annotations are enforced by **basedpyright** (`uv run basedpyright`), not by CPython. Config: `[tool.basedpyright]` in `pyproject.toml`. Known debt lives in `.basedpyright/baseline.json` — **do not** grow the baseline to silence new work; fix the types (or a scoped `# pyright: ignore[rule]` at an FFI edge).
+
+Do **not** change inheritance patterns just for typing. Prefer `Protocol`, `TypedDict`, `Literal`, dataclasses, and Pydantic as used today (`app/radio.py`, `app/manual_trigger_types.py`, `app/models.py`).
+
+## Rule of thumb for new / touched code
+
+1. Annotate **every** parameter and return (including nested helpers). Prefer `X | None` over bare `Optional`.
+2. Never reach for `dict[str, Any]` / `Any`. Use a `TypedDict`, Pydantic model, dataclass, or `dict[str, object]` only when the value is truly opaque.
+3. Branching on `kind` / `phase` / status strings → `Literal` (or existing aliases) and exhaustiveness (`assert_never` when matching).
+4. Pluggable capabilities → `Protocol` + narrow helpers (same style as `as_idle_credit` in `app/radio.py`), not `getattr` / `Callable[..., None]`.
+5. Keep types honest: update annotations when behavior changes. Run `uv run basedpyright` before finishing Python work.
+
+## Where to put shapes
+
+| Kind of data | Prefer |
+|---|---|
+| Persisted / HTTP request bodies | Pydantic (`app/models.py`, `app/schemas.py`) |
+| REST/SSE JSON snapshots | `TypedDict` (see `app/manual_trigger_types.py`) |
+| Internal bags of callables/state | `@dataclass` (see `FireDeps` in `app/fire.py`) |
+| Backend capabilities | `Protocol` (`app/radio.py`) |
+
+## Boundaries and escapes
+
+- Untyped libs (`hid`, PortAudio device dicts, Cocoa): thin typed wrappers at the edge; keep `# type: ignore[import-untyped]` / `# pyright: ignore[...]` **coded and local**.
+- Test fakes should structurally satisfy Protocols, or use one `cast(...)` at construction — avoid scattered `# type: ignore[arg-type]`.
+- Scope: checker includes `app/` only for now; still type `tests/` helpers you touch when cheap.
+
+## Incremental debt (do when touching the file)
+
+- Replace remaining `dict[str, object]` API returns with TypedDict / response models.
+- Tighten `Callable[..., …]` (e.g. leftover wait/setter signatures).
+- Prefer `DayName = Literal["mon", …]` over `list[str]` where values are fixed.
+- Do **not** wholesale rewrite `Schedule` into a discriminated union unless that issue is in scope.

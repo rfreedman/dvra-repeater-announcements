@@ -5,6 +5,8 @@ from pathlib import Path
 
 import psutil
 
+from app.manual_trigger_types import SystemStats
+
 _THERMAL_ROOT = Path("/sys/class/thermal")
 
 # Zone type substrings that indicate a CPU / package / SoC sensor (lowercase).
@@ -152,7 +154,7 @@ def thermal_state_band(state: str | None) -> str:
 def read_system_stats(
     *,
     thermal_root: Path | None = None,
-) -> dict[str, float | str | None]:
+) -> SystemStats:
     """Collect CPU temp or thermal state, CPU %, and memory %."""
     celsius = read_cpu_temp_celsius(thermal_root=thermal_root)
     thermal_state = read_thermal_state()
