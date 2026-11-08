@@ -4,9 +4,10 @@ from __future__ import annotations
 import os
 import sys
 
+from app.startup_errors import StartupError
 
-class StartupError(Exception):
-    """Fatal startup problem; message is safe to show operators."""
+__all__ = ["StartupError", "fail_startup", "init_radio_at_startup"]
+
 
 
 def _message_for_os_error(exc: OSError) -> str:

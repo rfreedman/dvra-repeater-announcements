@@ -40,7 +40,7 @@ def resolve_bench_dra_pairs(hid: HidModule, *, min_pairs: int = 2) -> list[DraBe
     if DRA_HID_PATH_BYTES is not None:
         log.warning(
             "TTS_DRA_HID_PATH is set (%s); dual bench uses all CM119 HID paths. "
-            "Unset it for production with two DRAs.",
+            + "Unset it for production with two DRAs.",
             DRA_HID_PATH_BYTES.hex(),
         )
         print(
@@ -59,13 +59,13 @@ def resolve_bench_dra_pairs(hid: HidModule, *, min_pairs: int = 2) -> list[DraBe
     if n_hid != n_audio:
         raise BenchPairingError(
             f"DRA HID count ({n_hid}) != PortAudio DRA device count ({n_audio}). "
-            "Two radios need two of each (run aplay -l, python scripts/dra36m_check.py probe-all). "
-            "Unset TTS_DRA_HID_PATH; check udev/plugdev and fixed USB ports."
+            + "Two radios need two of each (run aplay -l, python scripts/dra36m_check.py probe-all). "
+            + "Unset TTS_DRA_HID_PATH; check udev/plugdev and fixed USB ports."
         )
     if n_hid < min_pairs:
         raise BenchPairingError(
             f"Need at least {min_pairs} paired DRA(s); found {n_hid}. "
-            "Plug both adapters into direct NUC USB ports."
+            + "Plug both adapters into direct NUC USB ports."
         )
 
     pairs: list[DraBenchPair] = []

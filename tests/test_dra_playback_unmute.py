@@ -13,8 +13,16 @@ def test_playback_unmutes_by_portaudio_indices_before_stream(
     unmute_calls: list[list[int]] = []
 
     monkeypatch.setattr(
-        "app.dra_alsa_mixer.sync_cm119_speaker_unmute_for_indices",
+        "app.dra_alsa_unmute.sync_cm119_speaker_unmute_for_indices",
         lambda indices: unmute_calls.append(list(indices)),
+    )
+    monkeypatch.setattr(
+        "app.dra_playback.portaudio_output_device_name",
+        lambda index: f"alsa_output.usb-test-{index}",
+    )
+    monkeypatch.setattr(
+        "app.dra_pulse_mixer.sync_pulse_sink_unmute_for_portaudio_name",
+        lambda _name: None,
     )
 
     class FakeStream:

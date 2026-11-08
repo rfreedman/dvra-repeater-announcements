@@ -48,10 +48,18 @@ def sync_pulse_sink_unmute_for_portaudio_name(device_name: str) -> None:
 
 
 def sync_pulse_sink_unmute_for_portaudio_index(device_index: int) -> None:
-    from app.dra_playback import portaudio_output_device_name
+    """Resolve PortAudio index → device name without importing ``dra_playback`` (cycle)."""
+    from typing import cast
 
     try:
-        name = portaudio_output_device_name(device_index)
+        import sounddevice as sd
+
+        raw = cast(object, sd.query_devices(device_index))
+        if not isinstance(raw, dict):
+            return
+        name = cast(dict[object, object], raw).get("name")
+        if not isinstance(name, str):
+            return
     except Exception:
         log.debug("Could not resolve PortAudio name for index %s", device_index, exc_info=True)
         return

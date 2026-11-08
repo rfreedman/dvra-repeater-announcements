@@ -11,7 +11,7 @@ def test_play_mono_f32_uses_aplay_on_linux(monkeypatch):
     aplay_calls: list[tuple[str, int]] = []
 
     monkeypatch.setattr(
-        "app.dra_alsa_mixer.sync_cm119_speaker_unmute_for_indices",
+        "app.dra_alsa_unmute.sync_cm119_speaker_unmute_for_indices",
         lambda _indices: None,
     )
     monkeypatch.setattr(

@@ -30,12 +30,7 @@ from app.config import (
     DRA_HID_PATH_BYTES,
     DRA_USB_CHANNEL,
 )
-from app.dra_playback import (
-    play_pcm_chunks_to_dra_devices,
-    refresh_portaudio_device_list,
-    resolve_dra_audio_indices,
-)
-from app.radio import ChannelBusyError
+from app.radio_errors import ChannelBusyError
 
 log = logging.getLogger("app.dra_radio")
 
@@ -54,11 +49,32 @@ def dra_usb_transmit_lost(radio: object) -> bool:
     dra = dra_radio_from(radio)
     if dra is None:
         return False
-    return dra._usb_hid_absent or dra._transmit_abort.is_set()
+    return (not dra.usb_hid_present) or dra.transmit_abort_is_set()
 
 
 class DraRadio:
     """One or two DRA-36M units: OR busy, parallel PTT, mirrored USB audio."""
+
+    _hid_adapters: list[Cm119HidAdapter]
+    _audio_indices: list[int]
+    _usb_channel: str
+    _cos_line: str
+    _cos_active_low: bool
+    _lock: threading.Lock
+    _ptt_devices: list[HidDevice]
+    _ptt_keyed: bool
+    _idle_since_mono: float | None
+    _last_cos_busy: bool | None
+    _cos_devices: list[HidDevice | None]
+    _last_cos_raw_hex: str | None
+    _usb_hid_absent: bool
+    _usb_hid_reconnected_pending: bool
+    _pending_audio_indices: list[int] | None
+    _transmit_abort: threading.Event
+    _usb_transmit_active: bool
+    _active_playback_streams: list[object]
+    _active_aplay_procs: list[subprocess.Popen[bytes]]
+    _play_streams_lock: threading.Lock
 
     def __init__(
         self,
@@ -79,19 +95,19 @@ class DraRadio:
         self._cos_line = cos_line
         self._cos_active_low = not cos_active_high
         self._lock = threading.Lock()
-        self._ptt_devices: list[HidDevice] = []
+        self._ptt_devices = []
         self._ptt_keyed = False
-        self._idle_since_mono: float | None = None
-        self._last_cos_busy: bool | None = None
-        self._cos_devices: list[HidDevice | None] = [None] * len(hid_adapters)
-        self._last_cos_raw_hex: str | None = None
+        self._idle_since_mono = None
+        self._last_cos_busy = None
+        self._cos_devices = [None] * len(hid_adapters)
+        self._last_cos_raw_hex = None
         self._usb_hid_absent = False
         self._usb_hid_reconnected_pending = False
-        self._pending_audio_indices: list[int] | None = None
+        self._pending_audio_indices = None
         self._transmit_abort = threading.Event()
         self._usb_transmit_active = False
-        self._active_playback_streams: list[object] = []
-        self._active_aplay_procs: list[subprocess.Popen[bytes]] = []
+        self._active_playback_streams = []
+        self._active_aplay_procs = []
         self._play_streams_lock = threading.Lock()
 
     @property
@@ -103,11 +119,16 @@ class DraRadio:
     def usb_hid_present(self) -> bool:
         return not self._usb_hid_absent
 
-    def _runtime_usb_hid_tracking_enabled(self) -> bool:
+    def transmit_abort_is_set(self) -> bool:
+        return self._transmit_abort.is_set()
+
+    def runtime_usb_hid_tracking_enabled(self) -> bool:
         """Linux NUC hot-unplug/replug; off for tests with fake adapters and non-Linux dev."""
         if not sys.platform.startswith("linux"):
             return False
-        return all(isinstance(adapter, Cm119HidAdapter) for adapter in self._hid_adapters)
+        # Widen so isinstance stays meaningful for duck-typed test adapters.
+        adapters: list[object] = list(self._hid_adapters)
+        return all(isinstance(adapter, Cm119HidAdapter) for adapter in adapters)
 
     @property
     def hid_count(self) -> int:
@@ -124,8 +145,8 @@ class DraRadio:
         if not entries:
             raise RuntimeError(
                 "No CM119A HID interface found. Is the DRA-36M plugged in and accessible?"
-                "\nIf attempting to test the system without the DRA-36M and radio, change TTS_RADIO_BACKEND in the .env file to \"stub\" instead of \"dra\""
-
+                + "\nIf attempting to test the system without the DRA-36M and radio, "
+                + 'change TTS_RADIO_BACKEND in the .env file to "stub" instead of "dra"'
             )
         if DRA_HID_PATH_BYTES is not None:
             entries = [e for e in entries if e.get("path") == DRA_HID_PATH_BYTES]
@@ -133,10 +154,12 @@ class DraRadio:
                 paths = [e.get("path", b"").hex() for e in list_cm119_hid_entries(hid)]
                 raise RuntimeError(
                     "TTS_DRA_HID_PATH did not match any CM119 HID path. "
-                    f"Available paths (hex): {paths}. "
-                    "Run: python scripts/dra36m_check.py probe"
+                    + f"Available paths (hex): {paths}. "
+                    + "Run: python scripts/dra36m_check.py probe"
                 )
             log.info("DRA HID pinned via TTS_DRA_HID_PATH (%s)", DRA_HID_PATH_BYTES.hex())
+
+        from app.dra_playback import resolve_dra_audio_indices
 
         adapters = [
             Cm119HidAdapter(path=entry["path"], label=f"dra-hid-{i + 1}")
@@ -169,10 +192,10 @@ class DraRadio:
         else:
             log.warning(
                 "DRA HID count (%s) != PortAudio device count (%s); using %s pair(s). "
-                "Two radios on one NUC need two CM119 HID interfaces "
-                "(python scripts/dra36m_check.py probe). Unset TTS_DRA_HID_PATH when both "
-                "DRAs are connected; check udev/plugdev (docs/final-hardware/README.md). "
-                "Optional: TTS_DRA_AUDIO_DEVICES and fixed USB ports.",
+                + "Two radios on one NUC need two CM119 HID interfaces "
+                + "(python scripts/dra36m_check.py probe). Unset TTS_DRA_HID_PATH when both "
+                + "DRAs are connected; check udev/plugdev (docs/final-hardware/README.md). "
+                + "Optional: TTS_DRA_AUDIO_DEVICES and fixed USB ports.",
                 n_hid,
                 n_audio,
                 count,
@@ -287,7 +310,9 @@ class DraRadio:
             self._active_playback_streams.clear()
         for stream in streams:
             try:
-                stream.__exit__(None, None, None)  # type: ignore[attr-defined]
+                exit_fn = getattr(stream, "__exit__", None)
+                if callable(exit_fn):
+                    _ = exit_fn(None, None, None)
             except Exception:
                 log.debug("Closing playback stream after USB loss", exc_info=True)
 
@@ -326,7 +351,7 @@ class DraRadio:
 
     def note_usb_hid_presence(self) -> bool:
         """True when enough CM119 HID interfaces exist for this radio configuration."""
-        if not self._runtime_usb_hid_tracking_enabled():
+        if not self.runtime_usb_hid_tracking_enabled():
             return True
         try:
             entries = self._enumerate_hid_entries()
@@ -354,6 +379,8 @@ class DraRadio:
 
     def sync_audio_output_indices_if_changed(self, *, after_usb_event: bool = False) -> bool:
         """Refresh PortAudio output indices after USB replug (hw index often changes)."""
+        from app.dra_playback import refresh_portaudio_device_list, resolve_dra_audio_indices
+
         if after_usb_event:
             refresh_portaudio_device_list()
         try:
@@ -503,12 +530,12 @@ class DraRadio:
         for index, adapter in enumerate(self._hid_adapters):
             try:
                 with self._lock:
-                    self._ensure_adapter_hid_locked(hid, index, adapter)
+                    _ = self._ensure_adapter_hid_locked(hid, index, adapter)
             except OSError as err:
                 if self.sync_hid_adapters_if_replugged():
                     try:
                         with self._lock:
-                            self._ensure_adapter_hid_locked(
+                            _ = self._ensure_adapter_hid_locked(
                                 hid,
                                 index,
                                 self._hid_adapters[index],
@@ -524,25 +551,29 @@ class DraRadio:
                     err,
                 )
 
-    def _sample_one_cos_locked(self, hid, adapter: Cm119HidAdapter, index: int) -> bool | None:
+    def _sample_one_cos_locked(
+        self, hid: HidModule, adapter: object, index: int
+    ) -> bool | None:
         if self._ptt_keyed:
             return None
         if not isinstance(adapter, Cm119HidAdapter):
             read_tri = getattr(adapter, "read_cos_tri_state", None)
-            if read_tri is not None:
-                return read_tri(
+            if callable(read_tri):
+                result = read_tri(
                     hid,
                     line=self._cos_line,
                     active_low=self._cos_active_low,
                 )
+                return result if isinstance(result, bool) or result is None else None
             read_legacy = getattr(adapter, "read_cos_busy", None)
-            if read_legacy is not None:
-                return read_legacy(
+            if callable(read_legacy):
+                result = read_legacy(
                     hid,
                     line=self._cos_line,
                     active_low=self._cos_active_low,
                     persistent_dev=None,
                 )
+                return result if isinstance(result, bool) or result is None else None
             return None
         try:
             dev = self._ensure_adapter_hid_locked(hid, index, adapter)
@@ -581,7 +612,7 @@ class DraRadio:
         )
         return busy
 
-    def _sample_channel_busy_locked(self, hid) -> bool:
+    def _sample_channel_busy_locked(self, hid: HidModule) -> bool:
         saw_busy = False
         saw_idle = False
         for index, adapter in enumerate(self._hid_adapters):
@@ -610,7 +641,7 @@ class DraRadio:
         from app.dra_alsa_mixer import apply_cm119_replug_recovery
 
         apply_cm119_replug_recovery(self)
-        if self._runtime_usb_hid_tracking_enabled() and self._usb_hid_absent:
+        if self.runtime_usb_hid_tracking_enabled() and self._usb_hid_absent:
             return True
         hid = ensure_hid_module()
         with self._lock:
@@ -728,6 +759,39 @@ class DraRadio:
             self._ptt_devices = keyed_devices
             self._ptt_keyed = True
 
+    def prepare_for_transmit(self) -> None:
+        """Before PTT: PortAudio re-scan, HID/audio replug recovery, Speaker unmute."""
+        from app.dra_alsa_mixer import apply_cm119_replug_recovery, sync_cm119_speaker_unmute
+
+        if not self.runtime_usb_hid_tracking_enabled():
+            return
+        if self.ptt_keyed:
+            return
+        reconnected = self.usb_hid_reconnected_pending
+        apply_cm119_replug_recovery(self)
+        if not self.note_usb_hid_presence():
+            return
+        pa_rescan = reconnected or not self.audio_output_indices_look_valid()
+        _ = self.sync_audio_output_indices_if_changed(after_usb_event=pa_rescan)
+        if not self.audio_output_indices_look_valid():
+            _ = self.sync_audio_output_indices_if_changed(after_usb_event=True)
+        sync_cm119_speaker_unmute(self)
+        from typing import cast
+
+        import sounddevice as sd
+
+        for index in self.audio_device_indices:
+            try:
+                raw = cast(object, sd.query_devices(index))
+                name = (
+                    str(cast(dict[object, object], raw).get("name", "?"))
+                    if isinstance(raw, dict)
+                    else "?"
+                )
+            except Exception:
+                name = "?"
+            log.info("DRA transmit audio → PortAudio[%s] %s", index, name)
+
     def play_transmit_audio(
         self,
         chunks: Iterable[PcmChunk],
@@ -735,7 +799,8 @@ class DraRadio:
         lead_seconds: float,
     ) -> None:
         """Stream Piper PCM on all DRA outputs (lead silence on USB, not host sleep)."""
-        from app.radio import TransmitAbortError
+        from app.dra_playback import play_pcm_chunks_to_dra_devices
+        from app.radio_errors import TransmitAbortError
 
         try:
             play_pcm_chunks_to_dra_devices(

@@ -33,7 +33,7 @@ def test_sync_hid_adapters_updates_paths_and_clears_idle_credit(monkeypatch):
 def test_apply_replug_recovery_hid_only_unmutes_speaker(monkeypatch):
     monkeypatch.setattr("app.dra_alsa_mixer.sys.platform", "linux")
     alsa_watch.last_unmuted_signature = (1,)
-    monkeypatch.setattr("app.dra_alsa_mixer.cm119_alsa_card_signature", lambda limit: (1,))
+    monkeypatch.setattr("app.dra_alsa_unmute.cm119_alsa_card_signature", lambda limit: (1,))
     unmuted: list[list[int]] = []
     radio = DraRadio(
         hid_adapters=[Cm119HidAdapter(b"old", "dra-hid-1")],
@@ -106,7 +106,7 @@ def test_usb_reconnect_same_hid_path_still_unmutes(monkeypatch):
     monkeypatch.setattr("app.dra_alsa_mixer.sys.platform", "linux")
     monkeypatch.setattr("app.dra_radio.sys.platform", "linux")
     alsa_watch.last_unmuted_signature = (1,)
-    monkeypatch.setattr("app.dra_alsa_mixer.cm119_alsa_card_signature", lambda limit: (1,))
+    monkeypatch.setattr("app.dra_alsa_unmute.cm119_alsa_card_signature", lambda limit: (1,))
     unmuted: list[list[int]] = []
     radio = DraRadio(
         hid_adapters=[Cm119HidAdapter(b"same", "dra-hid-1")],

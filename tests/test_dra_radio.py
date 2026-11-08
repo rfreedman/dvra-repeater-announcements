@@ -45,14 +45,7 @@ def test_transmit_uses_usb_lead_on_dra(monkeypatch):
         cos_line="vol_dn",
         cos_active_high=False,
     )
-    monkeypatch.setattr(
-        "app.dra_alsa_mixer.sync_cm119_speaker_unmute",
-        lambda _r: None,
-    )
-    monkeypatch.setattr(
-        "app.dra_alsa_mixer.prepare_dra_for_transmit",
-        lambda _r: None,
-    )
+    monkeypatch.setattr(radio, "prepare_for_transmit", lambda: None)
     monkeypatch.setattr(radio, "set_ptt", lambda keyed: events.append(("ptt", keyed)))
     monkeypatch.setattr(
         radio,

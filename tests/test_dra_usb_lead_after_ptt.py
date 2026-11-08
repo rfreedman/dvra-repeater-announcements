@@ -30,12 +30,9 @@ def test_transmit_keys_ptt_then_usb_lead_in_same_stream(monkeypatch):
     order: list[str] = []
 
     monkeypatch.setattr(
-        "app.dra_alsa_mixer.sync_cm119_speaker_unmute",
-        lambda _r: order.append("unmute"),
-    )
-    monkeypatch.setattr(
-        "app.dra_alsa_mixer.prepare_dra_for_transmit",
-        lambda _r: order.append("prepare"),
+        radio,
+        "prepare_for_transmit",
+        lambda: order.append("prepare"),
     )
     monkeypatch.setattr(radio, "set_ptt", lambda keyed: order.append(f"ptt:{keyed}"))
     monkeypatch.setattr(
@@ -56,7 +53,6 @@ def test_transmit_keys_ptt_then_usb_lead_in_same_stream(monkeypatch):
     )
 
     assert order == [
-        "unmute",
         "prepare",
         "ptt:True",
         "play:lead=0.6",
@@ -68,8 +64,7 @@ def test_transmit_keys_ptt_when_lead_is_zero(monkeypatch):
     radio = _dra_radio()
     order: list[str] = []
 
-    monkeypatch.setattr("app.dra_alsa_mixer.sync_cm119_speaker_unmute", lambda _r: None)
-    monkeypatch.setattr("app.dra_alsa_mixer.prepare_dra_for_transmit", lambda _r: None)
+    monkeypatch.setattr(radio, "prepare_for_transmit", lambda: None)
     monkeypatch.setattr(radio, "set_ptt", lambda keyed: order.append(f"ptt:{keyed}"))
     monkeypatch.setattr(
         radio,
@@ -95,8 +90,7 @@ def test_transmit_unkeys_if_usb_playback_raises(monkeypatch):
     radio = _dra_radio()
     order: list[str] = []
 
-    monkeypatch.setattr("app.dra_alsa_mixer.sync_cm119_speaker_unmute", lambda _r: None)
-    monkeypatch.setattr("app.dra_alsa_mixer.prepare_dra_for_transmit", lambda _r: None)
+    monkeypatch.setattr(radio, "prepare_for_transmit", lambda: None)
 
     def _raise_play(chunks, lead_seconds=0):
         order.append(f"play:lead={lead_seconds}")

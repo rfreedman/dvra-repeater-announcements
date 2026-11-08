@@ -14,16 +14,10 @@ from typing import Protocol, runtime_checkable
 from app.audio import PcmChunk
 from app.config import DRA_COS_LINE, DRA_USB_CHANNEL, PTT_LEAD_SECONDS, radio_backend
 from app.playback import play_chunks
+from app.radio_errors import ChannelBusyError, TransmitAbortError
 
 log = logging.getLogger("app.radio")
 
-
-class ChannelBusyError(Exception):
-    """Raised when COS is active immediately before PTT (should not key)."""
-
-
-class TransmitAbortError(Exception):
-    """Playback stopped early (e.g. DRA USB unplugged mid-transmit)."""
 
 
 class Radio(Protocol):
@@ -154,11 +148,17 @@ def channel_blocks_transmit(radio: Radio, *, clear_seconds: float = 0) -> bool:
 class StubRadio:
     """In-memory SQL/PTT stand-in when ``TTS_RADIO_BACKEND=stub`` (default)."""
 
+    busy: bool
+    ptt: bool
+    events: list[tuple[str, object]]
+    busy_sequence: list[bool] | None
+    _busy_index: int
+
     def __init__(self) -> None:
         self.busy = False
         self.ptt = False
-        self.events: list[tuple[str, object]] = []
-        self.busy_sequence: list[bool] | None = None
+        self.events = []
+        self.busy_sequence = None
         self._busy_index = 0
 
     def channel_busy(self) -> bool:
@@ -203,13 +203,11 @@ def transmit(
         raise ChannelBusyError("channel busy immediately before PTT")
 
     if usb_play is not None:
-        from app.dra_alsa_mixer import prepare_dra_for_transmit, sync_cm119_speaker_unmute
         from app.dra_radio import dra_radio_from
 
-        sync_cm119_speaker_unmute(radio)
-        prepare_dra_for_transmit(radio)
         dra = dra_radio_from(radio)
         if dra is not None:
+            dra.prepare_for_transmit()
             dra.begin_usb_transmit()
         try:
             radio.set_ptt(True)
@@ -224,7 +222,7 @@ def transmit(
             raise
         except RuntimeError as exc:
             if dra is not None and (
-                dra._transmit_abort.is_set() or dra._usb_hid_absent
+                dra.transmit_abort_is_set() or not dra.usb_hid_present
             ):
                 raise TransmitAbortError("DRA USB playback aborted") from exc
             raise

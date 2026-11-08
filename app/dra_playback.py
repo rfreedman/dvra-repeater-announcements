@@ -7,7 +7,8 @@ import sys
 import threading
 import time
 from collections.abc import Callable, Iterable
-from typing import NotRequired, TypedDict, cast
+from types import TracebackType
+from typing import NotRequired, Protocol, Self, TypedDict, cast
 
 import numpy as np
 
@@ -16,8 +17,7 @@ log = logging.getLogger("app.dra_playback")
 _portaudio_lock = threading.RLock()
 
 from app.audio import PcmChunk, materialize_chunks
-
-_DRA_NAME_MARKERS = ("USB PnP Sound Device", "C-Media")
+from app.dra_device_names import is_dra_audio_name
 
 
 class PortAudioDeviceInfo(TypedDict):
@@ -33,8 +33,10 @@ class PortAudioDeviceInfo(TypedDict):
 DraOutputDevice = tuple[int, PortAudioDeviceInfo]
 
 
-def is_dra_audio_name(name: str) -> bool:
-    return any(marker in name for marker in _DRA_NAME_MARKERS)
+class _PortAudioWriteStream(Protocol):
+    def write(self, data: object) -> None: ...
+
+
 
 
 def _as_portaudio_device(raw: object) -> PortAudioDeviceInfo:
@@ -42,10 +44,13 @@ def _as_portaudio_device(raw: object) -> PortAudioDeviceInfo:
         raise TypeError(f"PortAudio device info must be a mapping, got {type(raw)!r}")
     mapping = cast(dict[object, object], raw)
     name = mapping.get("name")
+    if not isinstance(name, str):
+        raise TypeError(f"PortAudio device missing name: {raw!r}")
     max_out = mapping.get("max_output_channels")
-    if not isinstance(name, str) or not isinstance(max_out, int):
-        raise TypeError(f"PortAudio device missing name/channels: {raw!r}")
-    info: PortAudioDeviceInfo = {"name": name, "max_output_channels": max_out}
+    info: PortAudioDeviceInfo = {
+        "name": name,
+        "max_output_channels": max_out if isinstance(max_out, int) else 0,
+    }
     max_in = mapping.get("max_input_channels")
     if isinstance(max_in, int):
         info["max_input_channels"] = max_in
@@ -60,12 +65,17 @@ def _as_portaudio_device(raw: object) -> PortAudioDeviceInfo:
 
 def _ensure_portaudio_initialized_unlocked() -> None:
     import sounddevice as sd
-    from sounddevice import PortAudioError, _check, _lib
+    from sounddevice import PortAudioError
 
+    # sounddevice has no public re-init API; Pa_* lives on private helpers.
+    check = cast(Callable[[object], object], getattr(sd, "_check"))
+    lib = cast(object, getattr(sd, "_lib"))
+    get_count = cast(Callable[[], object], getattr(lib, "Pa_GetDeviceCount"))
+    initialize = cast(Callable[[], None], getattr(sd, "_initialize"))
     try:
-        _check(_lib.Pa_GetDeviceCount())
+        _ = check(get_count())
     except PortAudioError:
-        sd._initialize()
+        initialize()
 
 
 def refresh_portaudio_device_list() -> None:
@@ -74,17 +84,19 @@ def refresh_portaudio_device_list() -> None:
         return
     import sounddevice as sd
 
+    terminate = cast(Callable[[], None], getattr(sd, "_terminate"))
+    initialize = cast(Callable[[], None], getattr(sd, "_initialize"))
     with _portaudio_lock:
         try:
-            sd._terminate()
+            terminate()
         except Exception:
             log.debug("PortAudio terminate before replug refresh", exc_info=True)
         try:
-            sd._initialize()
+            initialize()
         except Exception:
             log.warning("PortAudio re-init after USB replug failed", exc_info=True)
             try:
-                sd._initialize()
+                initialize()
             except Exception:
                 log.error("PortAudio initialize recovery failed", exc_info=True)
 
@@ -95,9 +107,9 @@ def list_dra_output_devices() -> list[DraOutputDevice]:
     with _portaudio_lock:
         _ensure_portaudio_initialized_unlocked()
         out: list[DraOutputDevice] = []
-        for index, raw in enumerate(sd.query_devices()):
+        for index, raw_device in enumerate(cast(list[object], cast(object, sd.query_devices()))):
             try:
-                dev = _as_portaudio_device(cast(object, raw))
+                dev = _as_portaudio_device(raw_device)
             except TypeError:
                 continue
             if dev["max_output_channels"] < 1:
@@ -122,7 +134,7 @@ def _prefer_cm119_hw_devices(
     hw_dra: list[DraOutputDevice],
 ) -> list[DraOutputDevice]:
     """Drop non-CM119 ``(hw:…)`` entries when /proc lists CM119 cards (avoids stale indices)."""
-    from app.dra_alsa_mixer import alsa_card_from_portaudio_device, cm119_alsa_card_signature
+    from app.dra_alsa_unmute import alsa_card_from_portaudio_device, cm119_alsa_card_signature
 
     cards = set(cm119_alsa_card_signature(limit=max(len(hw_dra), 1)))
     if not cards:
@@ -209,7 +221,7 @@ def resolve_dra_audio_indices(
             names = [d["name"] for _i, d in all_dra]
             raise RuntimeError(
                 f"TTS_DRA_AUDIO_DEVICES entry {spec!r} matched {len(matches)} devices "
-                f"(expected 1). Available: {names}"
+                + f"(expected 1). Available: {names}"
             )
         indices.append(matches[0][0])
     if not indices:
@@ -241,7 +253,7 @@ def portaudio_output_device_name(device_index: int) -> str:
 
     with _portaudio_lock:
         _ensure_portaudio_initialized_unlocked()
-        return str(sd.query_devices(device_index)["name"])
+        return _as_portaudio_device(cast(object, sd.query_devices(device_index)))["name"]
 
 
 def _alsa_hw_samplerate(card: int, subdevice: int = 0) -> int | None:
@@ -273,11 +285,12 @@ def dra_device_samplerate(device_index: int) -> int:
 
     with _portaudio_lock:
         _ensure_portaudio_initialized_unlocked()
-        pa_rate = int(sd.query_devices(device_index)["default_samplerate"])
+        info = _as_portaudio_device(cast(object, sd.query_devices(device_index)))
+        pa_rate = int(info.get("default_samplerate") or 48000)
     if sys.platform.startswith("linux"):
         name = portaudio_output_device_name(device_index)
         if _is_alsa_hw_portaudio_name(name):
-            from app.dra_alsa_mixer import alsa_card_from_portaudio_device
+            from app.dra_alsa_unmute import alsa_card_from_portaudio_device
 
             card = alsa_card_from_portaudio_device(device_index)
             if card is not None:
@@ -291,6 +304,7 @@ def dra_device_samplerate(device_index: int) -> int:
                     )
                     return hw_rate
     return pa_rate
+
 
 
 def resample_pcm_int16_mono(pcm_int16: bytes, *, from_rate: int, to_rate: int) -> bytes:
@@ -314,7 +328,7 @@ WRITE_BLOCK_SECONDS = 0.05
 
 
 def _write_mono_to_stream(
-    stream,
+    stream: _PortAudioWriteStream,
     mono_f32: np.ndarray,
     *,
     channel: str,
@@ -334,7 +348,7 @@ def _write_mono_to_stream(
 
 def _alsa_playback_devices_for_portaudio_index(device_index: int) -> list[str]:
     from app.config import DRA_ALSA_PLAYBACK_DEVICE
-    from app.dra_alsa_mixer import alsa_card_from_portaudio_device
+    from app.dra_alsa_unmute import alsa_card_from_portaudio_device
 
     if DRA_ALSA_PLAYBACK_DEVICE:
         return [DRA_ALSA_PLAYBACK_DEVICE]
@@ -342,7 +356,7 @@ def _alsa_playback_devices_for_portaudio_index(device_index: int) -> list[str]:
     if card is None:
         raise RuntimeError(
             f"Could not map PortAudio index {device_index} to ALSA hw "
-            "(expected device name with (hw:N,0))"
+            + "(expected device name with (hw:N,0))"
         )
     # Prefer direct hw for CM119 USB; plughw can route through PipeWire and stay silent.
     return [f"hw:{card},0", f"plughw:{card},0"]
@@ -366,7 +380,7 @@ def _play_s16_stereo_via_aplay(
     should_abort: Callable[[], bool] | None = None,
     register_proc: Callable[[subprocess.Popen[bytes]], None] | None = None,
 ) -> None:
-    from app.radio import TransmitAbortError
+    from app.radio_errors import TransmitAbortError
 
     if not pcm:
         return
@@ -404,13 +418,13 @@ def _play_s16_stereo_via_aplay(
     try:
         assert proc.stdin is not None
         try:
-            proc.stdin.write(pcm)
+            _ = proc.stdin.write(pcm)
             proc.stdin.close()
         except BrokenPipeError as exc:
             proc.stdin = None
             try:
                 proc.kill()
-                proc.wait(timeout=2.0)
+                _ = proc.wait(timeout=2.0)
             except (OSError, subprocess.TimeoutExpired):
                 try:
                     proc.kill()
@@ -426,10 +440,10 @@ def _play_s16_stereo_via_aplay(
             if should_abort is not None and should_abort():
                 proc.kill()
                 try:
-                    proc.wait(timeout=2.0)
+                    _ = proc.wait(timeout=2.0)
                 except subprocess.TimeoutExpired:
                     proc.kill()
-                    proc.wait()
+                    _ = proc.wait()
                 raise TransmitAbortError("DRA USB playback aborted")
             time.sleep(_APLAY_ABORT_POLL_SECONDS)
         stderr = (proc.stderr.read() if proc.stderr is not None else b"").decode(
@@ -457,7 +471,7 @@ def _play_s16_stereo_via_aplay_first_working(
     should_abort: Callable[[], bool] | None = None,
     register_proc: Callable[[subprocess.Popen[bytes]], None] | None = None,
 ) -> str:
-    from app.radio import TransmitAbortError
+    from app.radio_errors import TransmitAbortError
 
     errors: list[str] = []
     for alsa_device in alsa_devices:
@@ -559,14 +573,16 @@ def play_mono_f32_to_dra_device(
     if mono_f32.size == 0:
         return
     if _linux_use_aplay():
-        from app.dra_alsa_mixer import sync_cm119_speaker_unmute_for_indices
+        from app.dra_alsa_unmute import sync_cm119_speaker_unmute_for_indices
 
         sync_cm119_speaker_unmute_for_indices([device_index])
         alsa_candidates = _alsa_playback_devices_for_portaudio_index(device_index)
-        peak_f32 = float(np.max(np.abs(mono_f32)))
+        peak_f32 = float(cast(float | int, cast(object, np.max(np.abs(mono_f32)))))
         pcm = _mono_f32_to_interleaved_s16(mono_f32, channel)
         s16 = np.frombuffer(pcm, dtype=np.int16)
-        peak_s16 = int(np.max(np.abs(s16))) if s16.size else 0
+        peak_s16 = (
+            int(cast(float | int, cast(object, np.max(np.abs(s16))))) if s16.size else 0
+        )
         used = _play_s16_stereo_via_aplay_first_working(
             pcm,
             sample_rate=samplerate,
@@ -604,41 +620,56 @@ def mono_program_f32(chunks: Iterable[PcmChunk], *, samplerate: int, lead_silenc
 class DraUsbPlayback:
     """One PortAudio output stream to a DRA (USB audio heartbeat)."""
 
-    def __init__(self, device_index: int, channel: str, samplerate: int):
-        import sounddevice as sd
+    device_index: int
+    channel: str
+    samplerate: int
+    _channels: int
+    _dtype: str
+    _stream: object | None
 
+    def __init__(self, device_index: int, channel: str, samplerate: int) -> None:
         self.device_index = device_index
         self.channel = channel
         self.samplerate = samplerate
         self._channels = _output_channels(channel)
         self._dtype = "float32"
-        self._stream: sd.OutputStream | None = None
+        self._stream = None
 
-    def __enter__(self):
+    def __enter__(self) -> Self:
         import sounddevice as sd
 
-        self._stream = sd.OutputStream(
+        stream = sd.OutputStream(
             device=self.device_index,
             samplerate=self.samplerate,
             channels=self._channels,
             dtype=self._dtype,
         )
-        self._stream.start()
+        self._stream = stream
+        cast(Callable[[], None], getattr(stream, "start"))()
         return self
 
-    def __exit__(self, *_exc) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        _ = exc_type, exc, tb
         if self._stream is not None:
-            self._stream.stop()
-            self._stream.close()
+            stop = cast(Callable[[], None], getattr(self._stream, "stop"))
+            close = cast(Callable[[], None], getattr(self._stream, "close"))
+            stop()
+            close()
             self._stream = None
 
     def write_mono_f32(self, mono: np.ndarray) -> None:
         if self._stream is None or mono.size == 0:
             return
+        stream = cast(_PortAudioWriteStream, self._stream)
         block = max(1, int(round(WRITE_BLOCK_SECONDS * self.samplerate)))
         for start in range(0, mono.size, block):
             _write_mono_to_stream(
-                self._stream,
+                stream,
                 mono[start : start + block],
                 channel=self.channel,
                 stream_dtype=self._dtype,
@@ -653,12 +684,12 @@ def write_programs_interleaved(
     should_abort: Callable[[], bool] | None = None,
 ) -> None:
     """Feed each stream its program in lock-step blocks so all radios play together."""
-    from app.radio import TransmitAbortError
+    from app.radio_errors import TransmitAbortError
 
     if not streams:
         return
     duration = max(len(program) / stream.samplerate for stream, program in zip(streams, programs))
-    blocks = int(np.ceil(duration / block_seconds))
+    blocks = int(cast(float | int, cast(object, np.ceil(duration / block_seconds))))
     for block in range(blocks):
         if should_abort is not None and should_abort():
             raise TransmitAbortError("DRA USB playback aborted")
@@ -688,14 +719,14 @@ def play_pcm_chunks_to_dra_devices(
         return
 
     with _portaudio_lock:
-        from app.dra_alsa_mixer import sync_cm119_speaker_unmute_for_indices
-        from app.dra_pulse_mixer import sync_pulse_sink_unmute_for_portaudio_index
+        from app.dra_alsa_unmute import sync_cm119_speaker_unmute_for_indices
+        from app.dra_pulse_mixer import sync_pulse_sink_unmute_for_portaudio_name
 
         sync_cm119_speaker_unmute_for_indices(device_indices)
         for index in device_indices:
-            sync_pulse_sink_unmute_for_portaudio_index(index)
+            sync_pulse_sink_unmute_for_portaudio_name(portaudio_output_device_name(index))
 
-        from app.radio import TransmitAbortError
+        from app.radio_errors import TransmitAbortError
 
         try:
             samplerates = [dra_device_samplerate(index) for index in device_indices]
@@ -707,7 +738,12 @@ def play_pcm_chunks_to_dra_devices(
             mono_program_f32(buffered, samplerate=sr, lead_silence=lead_silence)
             for sr in samplerates
         ]
-        peak = max(float(np.max(np.abs(program))) for program in programs if program.size)
+        peak_values = [
+            float(cast(float | int, cast(object, np.max(np.abs(program)))))
+            for program in programs
+            if program.size
+        ]
+        peak = max(peak_values)
         frames = max(len(program) for program in programs)
         log.info(
             "DRA PCM program: %s frames, peak=%.4f, channel=%s, devices=%s",
@@ -780,14 +816,14 @@ def play_pcm_chunks_to_dra_devices(
         try:
             for index, sr in zip(device_indices, samplerates):
                 playback = DraUsbPlayback(index, channel, sr)
-                playback.__enter__()
+                _ = playback.__enter__()
                 if register_stream is not None:
                     register_stream(playback)
                 streams.append(playback)
             write_programs_interleaved(streams, programs, should_abort=should_abort)
         finally:
             for playback in streams:
-                playback.__exit__()
+                playback.__exit__(None, None, None)
 
 
 def play_pcm_chunks_to_single_dra(

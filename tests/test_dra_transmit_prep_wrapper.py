@@ -17,16 +17,12 @@ def test_transmit_prep_runs_on_running_on_key_wrapper(monkeypatch):
         cos_active_high=False,
     )
     wrapped = _RunningOnKeyRadio(radio, on_key=None)
-    sync_calls: list[object] = []
     prep_calls: list[object] = []
 
     monkeypatch.setattr(
-        "app.dra_alsa_mixer.sync_cm119_speaker_unmute",
-        lambda r: sync_calls.append(r),
-    )
-    monkeypatch.setattr(
-        "app.dra_alsa_mixer.prepare_dra_for_transmit",
-        lambda r: prep_calls.append(r),
+        radio,
+        "prepare_for_transmit",
+        lambda: prep_calls.append(radio),
     )
     monkeypatch.setattr(wrapped, "set_ptt", lambda keyed: None)
     monkeypatch.setattr(
@@ -48,6 +44,4 @@ def test_transmit_prep_runs_on_running_on_key_wrapper(monkeypatch):
         lead_seconds=0,
     )
 
-    assert sync_calls == [wrapped]
-    assert prep_calls == [wrapped]
-    assert sync_calls[0]._inner is radio  # type: ignore[attr-defined]
+    assert prep_calls == [radio]

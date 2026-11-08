@@ -57,11 +57,11 @@ def test_aplay_playback_honors_should_abort(monkeypatch):
         lambda _i: ["hw:1,0"],
     )
     monkeypatch.setattr(
-        "app.dra_alsa_mixer.sync_cm119_speaker_unmute_for_indices",
+        "app.dra_alsa_unmute.sync_cm119_speaker_unmute_for_indices",
         lambda _indices: None,
     )
     monkeypatch.setattr(
-        "app.dra_pulse_mixer.sync_pulse_sink_unmute_for_portaudio_index",
+        "app.dra_pulse_mixer.sync_pulse_sink_unmute_for_portaudio_name",
         lambda _index: None,
     )
 

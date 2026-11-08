@@ -12,7 +12,7 @@ def test_dra_device_samplerate_prefers_alsa_hw_rate(monkeypatch):
         return {"name": "USB PnP Sound Device: Audio (hw:1,0)", "default_samplerate": 44100.0}
 
     monkeypatch.setattr("sounddevice.query_devices", fake_query)
-    monkeypatch.setattr("app.dra_alsa_mixer.alsa_card_from_portaudio_device", lambda _i: 1)
+    monkeypatch.setattr("app.dra_alsa_unmute.alsa_card_from_portaudio_device", lambda _i: 1)
 
     def fake_arecord(cmd, **kwargs):
         assert "-D" in cmd and "hw:1,0" in cmd
