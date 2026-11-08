@@ -171,6 +171,11 @@ def _clear_running() -> None:
     global _running
     with _running_lock:
         _running = None
+    # Manual trigger still holds inflight until run_manual_trigger's finally;
+    # skip the intermediate notify so the UI does not flash pending between
+    # Running and Waiting (that finally publishes with force=True).
+    if any_manual_trigger_inflight():
+        return
     _notify_home_live(force=True)
 
 
@@ -184,7 +189,7 @@ def _finish_manual_trigger(
 ) -> str:
     if result == "transmitted":
         clear_manual_trigger_drop_notice()
-        _notify_home_live(force=True)
+        # Inflight is still set; run_manual_trigger finally notifies after clear.
     elif result == "dropped":
         record_manual_trigger_drop(
             schedule_id,

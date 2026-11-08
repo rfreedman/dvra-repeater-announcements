@@ -7,11 +7,16 @@ from datetime import datetime, timedelta
 from app import manual_trigger_state, scheduler
 from app.auth import BACKGROUND_POLL_HEADER
 from app.audio import PcmChunk
+from app.home_live import build_home_live_status
 from app.scheduler import (
     _clear_manual_inflight,
+    _clear_running,
+    _finish_manual_trigger,
     _pending_row_for_manual,
     _set_manual_inflight,
     _set_manual_inflight_deadline,
+    _set_running,
+    get_running,
     pending_manual_triggers,
     run_manual_trigger,
 )
@@ -98,3 +103,44 @@ def test_schedules_poll_reports_running_during_immediate_manual_transmit(
     after = client.get("/api/schedules").json()
     assert after["upcoming"]["status"] == "waiting"
     assert after["pending_manual_triggers"] == []
+
+
+def test_clear_running_while_manual_inflight_skips_intermediate_notify(store, monkeypatch):
+    """Avoid Running → pending flash → Waiting when Trigger now finishes."""
+    announcement, schedule = _seed_baseline(store)
+    notifies: list[dict] = []
+    monkeypatch.setattr(
+        "app.scheduler._notify_home_live",
+        lambda *, force=False: notifies.append({"force": force}),
+    )
+    _set_manual_inflight(schedule.id, announcement.name)
+    try:
+        _set_running(announcement, schedule.id)
+        notifies.clear()
+
+        _clear_running()
+        assert get_running() is None
+        assert notifies == []
+        assert pending_manual_triggers()  # would flash in the UI if published
+
+        _finish_manual_trigger(schedule.id, announcement, schedule, "transmitted")
+        assert notifies == []
+    finally:
+        _clear_manual_inflight(schedule.id)
+
+    live = build_home_live_status()
+    assert live["upcoming"]["status"] == "waiting"
+    assert live["pending_manual_triggers"] == []
+
+
+def test_clear_running_without_inflight_still_notifies(store, monkeypatch):
+    announcement, schedule = _seed_baseline(store)
+    notifies: list[dict] = []
+    monkeypatch.setattr(
+        "app.scheduler._notify_home_live",
+        lambda *, force=False: notifies.append({"force": force}),
+    )
+    _set_running(announcement, schedule.id)
+    notifies.clear()
+    _clear_running()
+    assert notifies == [{"force": True}]
