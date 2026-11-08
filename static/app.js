@@ -782,7 +782,7 @@ function renderUpcoming() {
     statusEl.classList.remove("is-deferred", "is-clear-hold");
     const played = elapsedSecondsSince(upcoming.at);
     countEl.textContent =
-      played == null ? "Now" : `Now ${formatSegmentElapsed(played)}`;
+      played == null ? "Now" : `${formatSegmentElapsed(played)}`;
     if (upcoming.story_index != null && upcoming.story_total != null) {
       setUpcomingNote(`news item ${upcoming.story_index} of ${upcoming.story_total}`);
     } else {
