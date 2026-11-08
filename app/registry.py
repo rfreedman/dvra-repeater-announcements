@@ -11,7 +11,7 @@ from app.config import (
     MAX_BUSY_GIVE_UP_SECONDS,
     PTT_LEAD_SECONDS,
 )
-from app.tts.base import VoiceInfo
+from app.tts.base import VoiceInfo, VoicesPayload
 from app.tts.piper import PiperEngine
 
 
@@ -55,7 +55,7 @@ class EngineRegistry:
         )
         return voice_id, rate, materialize_chunks(chunks)
 
-    def voices_payload(self) -> dict[str, object]:
+    def voices_payload(self) -> VoicesPayload:
         return {
             "default_voice": self.engine.default_voice_id(),
             "ready": self.engine.is_ready(),

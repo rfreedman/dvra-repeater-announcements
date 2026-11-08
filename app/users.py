@@ -3,7 +3,7 @@ from __future__ import annotations
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal
+from typing import Literal, TypedDict
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -12,6 +12,27 @@ from app.models import new_id
 from app.store import read_versioned_json, write_json_atomic
 
 Role = Literal["admin", "readonly"]
+
+
+class PublicUser(TypedDict):
+    id: str
+    username: str
+    role: Role
+    created_at: str
+
+
+class AuthStatus(TypedDict):
+    authenticated: bool
+    needs_setup: bool
+    user: PublicUser | None
+
+
+class AuthUserEnvelope(TypedDict):
+    user: PublicUser
+
+
+class UsersList(TypedDict):
+    users: list[PublicUser]
 
 
 class User(BaseModel):
@@ -33,7 +54,7 @@ class User(BaseModel):
             raise ValueError("Username is too long")
         return name
 
-    def public(self) -> dict[str, object]:
+    def public(self) -> PublicUser:
         return {
             "id": self.id,
             "username": self.username,

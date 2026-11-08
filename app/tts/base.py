@@ -2,13 +2,38 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Iterator
+from typing import Iterator, TypedDict
 
 from app.audio import PcmChunk
 
 
 class VoiceError(ValueError):
     """Unknown engine or voice selection."""
+
+
+class VoiceDict(TypedDict):
+    id: str
+    name: str
+    engine: str
+    gender: str
+    locale: str
+    quality: str
+    description: str
+    downloaded: bool
+    default: bool
+    alias: str | None
+
+
+class VoicesPayload(TypedDict):
+    default_voice: str
+    ready: bool
+    speed: float
+    sentence_pause: float
+    busy_retry_seconds: float
+    busy_give_up_seconds: float
+    max_busy_give_up_seconds: float
+    ptt_lead_seconds: float
+    voices: list[VoiceDict]
 
 
 @dataclass(frozen=True)
@@ -24,7 +49,7 @@ class VoiceInfo:
     default: bool = False
     alias: str | None = None
 
-    def to_dict(self) -> dict[str, object]:
+    def to_dict(self) -> VoiceDict:
         return {
             "id": self.id,
             "name": self.name,

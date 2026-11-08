@@ -16,7 +16,7 @@ from app.deps import AuthUser
 from app.registry import get_registry
 from app.schemas import PrepareRequest, SpeakRequest
 from app.spoken_length import pcm_duration_seconds
-from app.tts.base import VoiceError
+from app.tts.base import VoiceError, VoicesPayload
 
 router = APIRouter()
 registry = get_registry()
@@ -48,7 +48,7 @@ def _raise_engine_http(exc: Exception, *, where: str) -> NoReturn:
 
 
 @router.get("/api/voices")
-def voices(_user: AuthUser) -> dict[str, object]:
+def voices(_user: AuthUser) -> VoicesPayload:
     return registry.voices_payload()
 
 

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any
+
+from app.cm119 import HidDeviceEntry, HidModule
 
 log = logging.getLogger(__name__)
 
@@ -13,7 +14,7 @@ log = logging.getLogger(__name__)
 class DraBenchPair:
     """One DRA-36M: HID entry from enumerate + matching PortAudio output index."""
 
-    hid_entry: dict[str, Any]
+    hid_entry: HidDeviceEntry
     audio_index: int
     label: str
 
@@ -27,7 +28,7 @@ class BenchPairingError(RuntimeError):
     """HID/audio count mismatch or fewer adapters than required."""
 
 
-def resolve_bench_dra_pairs(hid, *, min_pairs: int = 2) -> list[DraBenchPair]:
+def resolve_bench_dra_pairs(hid: HidModule, *, min_pairs: int = 2) -> list[DraBenchPair]:
     """Pair each CM119 HID with a DRA USB audio device (same logic as ``DraRadio.from_config``).
 
     Ignores ``TTS_DRA_HID_PATH`` (dual bench needs every CM119). Warns if that env is set.

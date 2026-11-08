@@ -15,13 +15,19 @@ from app.auth import (
 )
 from app.deps import AdminUser, AuthUser
 from app.schemas import LoginIn, SetupIn, UserCreateIn, UserUpdateIn
-from app.users import get_user_store
+from app.users import (
+    AuthStatus,
+    AuthUserEnvelope,
+    PublicUser,
+    UsersList,
+    get_user_store,
+)
 
 router = APIRouter()
 
 
 @router.get("/api/auth/status")
-def auth_status(request: Request) -> dict[str, object]:
+def auth_status(request: Request) -> AuthStatus:
     store = get_user_store()
     if store.count() == 0:
         return {"authenticated": False, "needs_setup": True, "user": None}
@@ -32,7 +38,7 @@ def auth_status(request: Request) -> dict[str, object]:
 
 
 @router.post("/api/auth/setup")
-def auth_setup(req: SetupIn, request: Request) -> dict[str, object]:
+def auth_setup(req: SetupIn, request: Request) -> AuthUserEnvelope:
     store = get_user_store()
     if store.count() != 0:
         raise HTTPException(status_code=409, detail="Setup already completed")
@@ -50,7 +56,7 @@ def auth_setup(req: SetupIn, request: Request) -> dict[str, object]:
 
 
 @router.post("/api/auth/login")
-def auth_login(req: LoginIn, request: Request) -> dict[str, object]:
+def auth_login(req: LoginIn, request: Request) -> AuthUserEnvelope:
     if get_user_store().count() == 0:
         raise HTTPException(status_code=409, detail="Setup required")
     client = request.client.host if request.client else "unknown"
@@ -78,18 +84,18 @@ def auth_logout(request: Request) -> dict[str, bool]:
 
 
 @router.get("/api/auth/me")
-def auth_me(user: AuthUser) -> dict[str, object]:
+def auth_me(user: AuthUser) -> AuthUserEnvelope:
     return {"user": user.public()}
 
 
 @router.get("/api/users")
-def list_users(_admin: AdminUser) -> dict[str, object]:
+def list_users(_admin: AdminUser) -> UsersList:
     users = sorted(get_user_store().list_users(), key=lambda item: item.username.lower())
     return {"users": [item.public() for item in users]}
 
 
 @router.post("/api/users")
-def create_user(req: UserCreateIn, _admin: AdminUser) -> dict[str, object]:
+def create_user(req: UserCreateIn, _admin: AdminUser) -> PublicUser:
     try:
         password = validate_password(req.password)
         user = get_user_store().create(
@@ -103,7 +109,7 @@ def create_user(req: UserCreateIn, _admin: AdminUser) -> dict[str, object]:
 
 
 @router.put("/api/users/{user_id}")
-def update_user(user_id: str, req: UserUpdateIn, _admin: AdminUser) -> dict[str, object]:
+def update_user(user_id: str, req: UserUpdateIn, _admin: AdminUser) -> PublicUser:
     store = get_user_store()
     if store.get(user_id) is None:
         raise HTTPException(status_code=404, detail="User not found")

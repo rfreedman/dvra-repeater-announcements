@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import math
 import os
+from collections.abc import Callable
 from pathlib import Path
+from typing import TypeVar
+
+_TNumber = TypeVar("_TNumber", int, float)
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = ROOT_DIR / "static"
@@ -40,13 +44,15 @@ def _env_positive_float(name: str, default: float) -> float:
     return float(_env_positive(name, default, float))
 
 
-def _env_positive(name: str, default: int | float, parse):
+def _env_positive(
+    name: str, default: _TNumber, parse: Callable[[str], _TNumber]
+) -> _TNumber:
     """Parse a positive number from the environment, or return ``default``."""
     raw = os.environ.get(name)
     if raw is None or not raw.strip():
         return default
     try:
-        value = parse(raw.strip())
+        value: _TNumber | None = parse(raw.strip())
     except ValueError:
         value = None
     if isinstance(value, float) and not math.isfinite(value):

@@ -41,7 +41,7 @@ class AccessNoiseFilter(logging.Filter):
         return True
 
 
-def serve_log_config(log_dir: Path | None = None) -> dict:
+def serve_log_config(log_dir: Path | None = None) -> dict[str, object]:
     """Uvicorn dictConfig: app logs on stderr + announcements.log; filtered access.log only."""
     directory = Path(log_dir or LOG_DIR)
     directory.mkdir(parents=True, exist_ok=True)

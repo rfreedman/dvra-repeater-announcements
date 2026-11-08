@@ -9,7 +9,7 @@ import os
 import sys
 import time
 from dataclasses import dataclass
-from typing import Any, NamedTuple
+from typing import NamedTuple, NotRequired, Protocol, TypedDict
 
 log = logging.getLogger("app.cm119")
 
@@ -25,7 +25,33 @@ class HidSample(NamedTuple):
     source: str
 
 
-def ensure_hid_module():
+class HidDeviceEntry(TypedDict):
+    """Subset of hidapi ``enumerate()`` fields we rely on."""
+
+    path: bytes
+    vendor_id: int
+    product_id: int
+    interface_number: NotRequired[int]
+    serial_number: NotRequired[str | None]
+    product_string: NotRequired[str | None]
+    manufacturer_string: NotRequired[str | None]
+
+
+class HidDevice(Protocol):
+    def open_path(self, path: bytes) -> None: ...
+    def set_nonblocking(self, nonblocking: int | bool) -> None: ...
+    def write(self, data: bytes) -> int | None: ...
+    def read(self, size: int, timeout_ms: int = 0) -> bytes | list[int]: ...
+    def get_input_report(self, report_id: int, size: int) -> bytes | list[int]: ...
+    def close(self) -> None: ...
+
+
+class HidModule(Protocol):
+    def enumerate(self, vendor_id: int = 0, product_id: int = 0) -> list[object]: ...
+    def device(self) -> HidDevice: ...
+
+
+def ensure_hid_module() -> HidModule:
     if sys.platform == "darwin":
         brew_lib = "/opt/homebrew/lib"
         if os.path.isdir(brew_lib):
@@ -42,7 +68,9 @@ def ensure_hid_module():
             "Wrong 'hid' package installed. Run: uv pip uninstall hid && uv sync "
             "(pip deploy: pip uninstall hid && pip install -r requirements.txt)"
         )
-    return hid
+    # hidapi has no stubs; Protocol is our typed surface after this boundary.
+    hid_module: HidModule = hid  # pyright: ignore[reportAssignmentType]
+    return hid_module
 
 
 def normalize_input_report(raw: bytes) -> bytes | None:
@@ -79,45 +107,77 @@ def cos_line_busy(
     return bit_set
 
 
-def _cm119_hid_candidates(hid) -> list[dict[str, Any]]:
-    candidates: list[dict] = list(hid.enumerate(VENDOR_ID, PRODUCT_ID_CM119A))
-    if not candidates:
-        candidates = [
-            d for d in hid.enumerate(VENDOR_ID, 0) if d.get("vendor_id") == VENDOR_ID
-        ]
-    if not candidates:
-        candidates = [
-            d
-            for d in hid.enumerate(0, 0)
-            if d.get("vendor_id") == VENDOR_ID and d.get("product_id") == PRODUCT_ID_CM119A
-        ]
-    by_path: dict[bytes, dict] = {}
-    for entry in candidates:
-        path = entry.get("path")
-        if path is None:
-            continue
-        if entry.get("product_id") != PRODUCT_ID_CM119A:
-            continue
-        by_path[path] = entry
+def _as_hid_entry(raw: object) -> HidDeviceEntry | None:
+    if not isinstance(raw, dict):
+        return None
+    mapping: dict[object, object] = raw
+    path = mapping.get("path")
+    vendor_id = mapping.get("vendor_id")
+    product_id = mapping.get("product_id")
+    if not isinstance(path, (bytes, bytearray)):
+        return None
+    if not isinstance(vendor_id, int) or not isinstance(product_id, int):
+        return None
+    entry: HidDeviceEntry = {
+        "path": bytes(path),
+        "vendor_id": vendor_id,
+        "product_id": product_id,
+    }
+    interface_number = mapping.get("interface_number")
+    if isinstance(interface_number, int):
+        entry["interface_number"] = interface_number
+    serial_number = mapping.get("serial_number")
+    if serial_number is None or isinstance(serial_number, str):
+        entry["serial_number"] = serial_number
+    product_string = mapping.get("product_string")
+    if product_string is None or isinstance(product_string, str):
+        entry["product_string"] = product_string
+    manufacturer_string = mapping.get("manufacturer_string")
+    if manufacturer_string is None or isinstance(manufacturer_string, str):
+        entry["manufacturer_string"] = manufacturer_string
+    return entry
+
+
+def _cm119_hid_candidates(hid: HidModule) -> list[HidDeviceEntry]:
+    parsed: list[HidDeviceEntry] = []
+    for vendor_id, product_id in (
+        (VENDOR_ID, PRODUCT_ID_CM119A),
+        (VENDOR_ID, 0),
+        (0, 0),
+    ):
+        batch: list[HidDeviceEntry] = []
+        for raw in hid.enumerate(vendor_id, product_id):
+            entry = _as_hid_entry(raw)
+            if entry is None:
+                continue
+            if entry["vendor_id"] != VENDOR_ID:
+                continue
+            if entry["product_id"] != PRODUCT_ID_CM119A:
+                continue
+            batch.append(entry)
+        if batch:
+            parsed = batch
+            break
+    by_path: dict[bytes, HidDeviceEntry] = {entry["path"]: entry for entry in parsed}
     items = list(by_path.values())
     preferred = [d for d in items if d.get("interface_number") == 3]
     rest = [d for d in items if d.get("interface_number") != 3]
-    return sorted(preferred + rest, key=lambda d: d.get("path") or b"")
+    return sorted(preferred + rest, key=lambda d: d["path"])
 
 
-def list_cm119_hid_entries(hid) -> list[dict[str, Any]]:
+def list_cm119_hid_entries(hid: HidModule) -> list[HidDeviceEntry]:
     """One entry per distinct HID path (one DRA per path)."""
     return _cm119_hid_candidates(hid)
 
 
-def open_cm119_hid_at(hid, path: bytes):
+def open_cm119_hid_at(hid: HidModule, path: bytes) -> HidDevice:
     dev = hid.device()
     dev.open_path(path)
     dev.set_nonblocking(True)
     return dev
 
 
-def set_gpio3_ptt(dev, keyed: bool) -> None:
+def set_gpio3_ptt(dev: HidDevice, keyed: bool) -> None:
     mask = 0x04
     data = 0x04 if keyed else 0x00
     n = dev.write(bytes([0x00, 0x00, mask, data, 0x00]))
@@ -125,7 +185,7 @@ def set_gpio3_ptt(dev, keyed: bool) -> None:
         raise OSError(f"CM119 HID PTT write failed (returned {n})")
 
 
-def read_hid_input_report(dev) -> bytes | None:
+def read_hid_input_report(dev: HidDevice | None) -> bytes | None:
     if dev is None:
         return None
     try:
@@ -134,7 +194,7 @@ def read_hid_input_report(dev) -> bytes | None:
         return None
 
 
-def drain_hid_interrupt(dev, *, max_packets: int = 32) -> bytes | None:
+def drain_hid_interrupt(dev: HidDevice, *, max_packets: int = 32) -> bytes | None:
     latest: bytes | None = None
     try:
         dev.set_nonblocking(True)
@@ -148,7 +208,7 @@ def drain_hid_interrupt(dev, *, max_packets: int = 32) -> bytes | None:
     return latest
 
 
-def read_hid_sample(dev, timeout_ms: int = HID_READ_TIMEOUT_MS) -> HidSample:
+def read_hid_sample(dev: HidDevice | None, timeout_ms: int = HID_READ_TIMEOUT_MS) -> HidSample:
     if dev is None:
         return HidSample(None, "not-open")
     ctrl: bytes | None = None
@@ -193,7 +253,7 @@ def read_hid_sample(dev, timeout_ms: int = HID_READ_TIMEOUT_MS) -> HidSample:
     return HidSample(None, "none")
 
 
-def sample_cm119_hid_once(hid, path: bytes) -> HidSample:
+def sample_cm119_hid_once(hid: HidModule, path: bytes) -> HidSample:
     """Open HID, read one COS sample, close (macOS recovers after COS this way)."""
     for delay in (0.0, 0.04, 0.1, 0.22, 0.45):
         if delay:
@@ -240,11 +300,11 @@ class Cm119HidAdapter:
 
     def read_cos_busy(
         self,
-        hid,
+        hid: HidModule,
         *,
         line: str,
         active_low: bool,
-        persistent_dev=None,
+        persistent_dev: HidDevice | None = None,
     ) -> bool | None:
         if sys.platform == "darwin":
             sample = sample_cm119_hid_once(hid, self.path)
@@ -256,11 +316,11 @@ class Cm119HidAdapter:
 
     def read_cos_tri_state(
         self,
-        hid,
+        hid: HidModule,
         *,
         line: str,
         active_low: bool,
-        persistent_dev=None,
+        persistent_dev: HidDevice | None = None,
     ) -> bool | None:
         """Idle/busy from HID bytes only; ``None`` if no report (does not map stall → busy)."""
         if persistent_dev is not None:

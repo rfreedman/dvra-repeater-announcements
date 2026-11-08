@@ -12,6 +12,9 @@ from datetime import datetime, timedelta
 from app.audio import PcmChunk
 from app.cm119 import (
     Cm119HidAdapter,
+    HidDevice,
+    HidDeviceEntry,
+    HidModule,
     cos_line_busy,
     ensure_hid_module,
     list_cm119_hid_entries,
@@ -76,11 +79,11 @@ class DraRadio:
         self._cos_line = cos_line
         self._cos_active_low = not cos_active_high
         self._lock = threading.Lock()
-        self._ptt_devices: list[object] = []
+        self._ptt_devices: list[HidDevice] = []
         self._ptt_keyed = False
         self._idle_since_mono: float | None = None
         self._last_cos_busy: bool | None = None
-        self._cos_devices: list[object | None] = [None] * len(hid_adapters)
+        self._cos_devices: list[HidDevice | None] = [None] * len(hid_adapters)
         self._last_cos_raw_hex: str | None = None
         self._usb_hid_absent = False
         self._usb_hid_reconnected_pending = False
@@ -218,7 +221,7 @@ class DraRadio:
             pass
         self._cos_devices[index] = None
 
-    def _enumerate_hid_entries(self) -> list[dict]:
+    def _enumerate_hid_entries(self) -> list[HidDeviceEntry]:
         hid = ensure_hid_module()
         entries = list_cm119_hid_entries(hid)
         if DRA_HID_PATH_BYTES is not None:
@@ -459,7 +462,7 @@ class DraRadio:
             self._last_cos_busy = None
             log.info("DRA USB replug: closed cached CM119 HID handles and cleared COS idle credit")
 
-    def _open_hid_path(self, hid, path: bytes):
+    def _open_hid_path(self, hid: HidModule, path: bytes) -> HidDevice:
         """Open CM119 HID; macOS often needs a brief pause after a prior close on the same path."""
         last: OSError | None = None
         for delay in PTT_HID_OPEN_RETRY_DELAYS_SECONDS:
@@ -472,7 +475,9 @@ class DraRadio:
         assert last is not None
         raise last
 
-    def _ensure_adapter_hid_locked(self, hid, index: int, adapter: Cm119HidAdapter):
+    def _ensure_adapter_hid_locked(
+        self, hid: HidModule, index: int, adapter: Cm119HidAdapter
+    ) -> HidDevice:
         dev = self._cos_devices[index]
         if dev is not None:
             return dev
@@ -703,7 +708,7 @@ class DraRadio:
                 return
             # Track each radio as soon as it keys so a failure on a later adapter
             # can unkey the ones already transmitting.
-            keyed_devices: list[object] = []
+            keyed_devices: list[HidDevice] = []
             try:
                 for index, adapter in enumerate(self._hid_adapters):
                     dev = self._ensure_adapter_hid_locked(hid, index, adapter)
