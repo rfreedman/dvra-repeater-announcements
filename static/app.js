@@ -822,11 +822,10 @@ function renderUpcoming() {
       statusEl.textContent = "Deferred · channel busy";
       statusEl.classList.add("is-deferred");
       statusEl.classList.remove("is-clear-hold");
-      const hold =
+      whenEl.textContent =
         pending.clear_seconds > 0
           ? `Then ${Math.ceil(pending.clear_seconds)}s clear hold before transmit`
           : "Will play when the channel is clear";
-      whenEl.textContent = hold;
       const giveUp = interpolatedGiveUpRemaining(pending);
       countEl.textContent =
         giveUp != null ? `Give up in ${formatCountdown(giveUp * 1000)}` : "Waiting for channel";
@@ -1310,8 +1309,7 @@ function syncNewslineCheckButton() {
   if (!button) return;
   const checking = newslineCheckActive(lastNewsline);
   const playing = newslinePlaying || Boolean(lastNewsline?.playing);
-  const blocked = readOnly || checking || playing;
-  button.disabled = blocked;
+  button.disabled = readOnly || checking || playing;
   if (readOnly) {
     button.title = "";
   } else if (playing) {
@@ -2142,7 +2140,15 @@ async function speak() {
       signal: controller.signal,
     });
     if (mySession !== session) return;
-    if (!res.ok) throw new Error(await errorDetail(res));
+    if (!res.ok) {
+      const detail = await errorDetail(res);
+      if (mySession !== session) return;
+      if (!controller.signal.aborted) {
+        setStatus(detail || "Playback failed", "error");
+        setEditorPlaying(false);
+      }
+      return;
+    }
     const sampleRate = Number(res.headers.get("X-Sample-Rate") || "22050");
     const totalSeconds = Number(res.headers.get("X-Play-Seconds") || "0");
     const knownTotal = Number.isFinite(totalSeconds) && totalSeconds > 0 ? totalSeconds : 0;
@@ -2288,12 +2294,16 @@ async function playNewsline() {
         setStatus(detail, "error");
         return;
       }
-      throw new Error(detail);
+      if (mySession !== session) return;
+      setStatus(detail || "Playback failed", "error");
+      return;
     }
     const sampleRate = Number(res.headers.get("X-Sample-Rate") || "22050");
     setStatus("Streaming…", "playing");
     if (res.headers.get("X-Preview-Framing") !== "name32+length32") {
-      throw new Error("Restart the app to play Newsline with PTT gaps.");
+      if (mySession !== session) return;
+      setStatus("Restart the app to play Newsline with PTT gaps.", "error");
+      return;
     }
     await currentPlayer.playFramed(res.body, sampleRate, controller.signal, {
       leadSeconds,
@@ -2306,8 +2316,7 @@ async function playNewsline() {
     if (err.name === "AbortError" || controller.signal.aborted) setStatus("Stopped");
     else setStatus(err.message || "Playback failed", "error");
   } finally {
-    if (mySession !== session) return;
-    setEditorPlaying(false);
+    if (mySession === session) setEditorPlaying(false);
   }
 }
 
@@ -2507,48 +2516,7 @@ class PcmPlayer {
       return;
     }
     try {
-      if (!this.ctx) this.ctx = new AudioContext({ sampleRate });
-      await this.ctx.resume();
-      let leftover = new Uint8Array(0);
-      const first = await readExact(reader, leftover, 4);
-      leftover = first.leftover;
-      let nextNameHeader = first.bytes;
-      while (nextNameHeader && !this.stopped && !signal.aborted) {
-        const nameLen = uint32be(nextNameHeader);
-        if (nameLen > 4096) throw new Error("Newsline preview piece name is too long");
-        const namePart = await readExact(reader, leftover, nameLen);
-        leftover = namePart.leftover;
-        if (!namePart.bytes) throw new Error("Newsline preview ended in the middle of a piece");
-        const label = new TextDecoder().decode(namePart.bytes);
-        const pcmHeader = await readExact(reader, leftover, 4);
-        leftover = pcmHeader.leftover;
-        if (!pcmHeader.bytes) throw new Error("Newsline preview ended in the middle of a piece");
-        const pcmLen = uint32be(pcmHeader.bytes);
-        const piece = await readExact(reader, leftover, pcmLen);
-        leftover = piece.leftover;
-        if (!piece.bytes) throw new Error("Newsline preview ended in the middle of a piece");
-        await this.playTone(PTT_ENGAGE_HZ, PTT_TONE_SECONDS, signal);
-        if (this.stopped || signal.aborted) return;
-        if (leadSeconds > 0) setStatus("PTT lead…", "playing");
-        await abortableWait(leadSeconds, signal, this.ctx);
-        if (this.stopped || signal.aborted) return;
-        this._startSegmentClock(label, signal);
-        try {
-          await this.playBuffer(piece.bytes, sampleRate, signal);
-        } finally {
-          this._stopSegmentClock();
-        }
-        if (this.stopped || signal.aborted) return;
-        await this.playTone(PTT_RELEASE_HZ, PTT_TONE_SECONDS, signal);
-        if (this.stopped || signal.aborted) return;
-        const following = await readExact(reader, leftover, 4);
-        leftover = following.leftover;
-        nextNameHeader = following.bytes;
-        if (nextNameHeader) {
-          if (gapSeconds > 0) setStatus("Unkey gap…", "playing");
-          await abortableWait(gapSeconds, signal, this.ctx);
-        }
-      }
+      await this._playFramedLoop(reader, sampleRate, signal, leadSeconds, gapSeconds);
     } catch (err) {
       if (this.stopped || signal.aborted || err.name === "AbortError" || err.name === "InvalidStateError") return;
       throw err;
@@ -2556,6 +2524,51 @@ class PcmPlayer {
       this._stopSegmentClock();
       signal.removeEventListener("abort", onAbort);
       this._cancelReader();
+    }
+  }
+
+  async _playFramedLoop(reader, sampleRate, signal, leadSeconds, gapSeconds) {
+    if (!this.ctx) this.ctx = new AudioContext({ sampleRate });
+    await this.ctx.resume();
+    let leftover = new Uint8Array(0);
+    const first = await readExact(reader, leftover, 4);
+    leftover = first.leftover;
+    let nextNameHeader = first.bytes;
+    while (nextNameHeader && !this.stopped && !signal.aborted) {
+      const nameLen = uint32be(nextNameHeader);
+      if (nameLen > 4096) throw new Error("Newsline preview piece name is too long");
+      const namePart = await readExact(reader, leftover, nameLen);
+      leftover = namePart.leftover;
+      if (!namePart.bytes) throw new Error("Newsline preview ended in the middle of a piece");
+      const label = new TextDecoder().decode(namePart.bytes);
+      const pcmHeader = await readExact(reader, leftover, 4);
+      leftover = pcmHeader.leftover;
+      if (!pcmHeader.bytes) throw new Error("Newsline preview ended in the middle of a piece");
+      const pcmLen = uint32be(pcmHeader.bytes);
+      const piece = await readExact(reader, leftover, pcmLen);
+      leftover = piece.leftover;
+      if (!piece.bytes) throw new Error("Newsline preview ended in the middle of a piece");
+      await this.playTone(PTT_ENGAGE_HZ, PTT_TONE_SECONDS, signal);
+      if (this.stopped || signal.aborted) return;
+      if (leadSeconds > 0) setStatus("PTT lead…", "playing");
+      await abortableWait(leadSeconds, signal, this.ctx);
+      if (this.stopped || signal.aborted) return;
+      this._startSegmentClock(label, signal);
+      try {
+        await this.playBuffer(piece.bytes, sampleRate, signal);
+      } finally {
+        this._stopSegmentClock();
+      }
+      if (this.stopped || signal.aborted) return;
+      await this.playTone(PTT_RELEASE_HZ, PTT_TONE_SECONDS, signal);
+      if (this.stopped || signal.aborted) return;
+      const following = await readExact(reader, leftover, 4);
+      leftover = following.leftover;
+      nextNameHeader = following.bytes;
+      if (nextNameHeader) {
+        if (gapSeconds > 0) setStatus("Unkey gap…", "playing");
+        await abortableWait(gapSeconds, signal, this.ctx);
+      }
     }
   }
 
@@ -2758,7 +2771,12 @@ async function route() {
         editingScheduleId = parts[1];
         document.getElementById("schedule-title").textContent = readOnly ? "View schedule" : "Edit schedule";
         const res = await fetch(`/api/schedules/${parts[1]}`);
-        if (!res.ok) throw new Error("Schedule not found");
+        if (!res.ok) {
+          const message = "Schedule not found";
+          if (isBootScreenActive() || serverStarting) showBootError(message);
+          else window.alert(message);
+          return;
+        }
         fillScheduleForm(await res.json());
       }
       applyEditorReadOnly();
@@ -2974,6 +2992,8 @@ window.addEventListener("beforeunload", (event) => {
   stopEditorPlayback();
   if (!isEditorDirty()) return;
   event.preventDefault();
+  // Chrome still requires returnValue for the leave prompt.
+  // noinspection JSDeprecatedSymbols
   event.returnValue = "";
 });
 
