@@ -8,7 +8,7 @@ from datetime import date
 import pytest
 
 from app.audio import PcmChunk
-from app.models import Announcement
+from app.models import TtsAnnouncement
 from app.newsline.poll import run_check
 from app.newsline.split_job import SplitError
 from app.newsline.preview import (
@@ -43,9 +43,10 @@ def test_newsline_item_requires_a_station_id_and_protects_it(client):
         },
     )
     assert created.status_code == 200
-    assert created.json()["kind"] == "newsline"
-    assert created.json()["text"] == ""
-    assert created.json()["resume_announcement_id"] == station["id"]
+    body = created.json()
+    assert body["kind"] == "newsline"
+    assert "text" not in body
+    assert body["resume_announcement_id"] == station["id"]
     removed = client.delete(f"/api/announcements/{station['id']}")
     assert removed.status_code == 409
 
@@ -251,7 +252,7 @@ def test_preview_plays_the_latest_report_stories(client, store, monkeypatch, tmp
         ],
     )
     save_state(NewsState(report_number=2556, split_ok=True), tmp_path)
-    station = store.save_announcement(Announcement(name="ID", text="This is the station."))
+    station = store.save_announcement(TtsAnnouncement(name="ID", text="This is the station."))
 
     def fake_mp3(path, sample_rate=22050):
         return [PcmChunk(pcm_int16=path.stem[-2:].encode(), sample_rate=sample_rate)]

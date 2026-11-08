@@ -19,6 +19,8 @@ def inhibit_idle_sleep() -> None:
     if sys.platform != "darwin" or _idle_assertion is not None:
         return
     try:
+        from app.config import STATION_CALL
+
         cf = ctypes.cdll.LoadLibrary(
             "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation"
         )
@@ -34,12 +36,13 @@ def inhibit_idle_sleep() -> None:
         ]
         iokit.IOPMAssertionCreateWithName.restype = c_int32
         assertion_id = c_uint32(0)
+        assertion_name = f"{STATION_CALL} announcement scheduler".encode()
         status = cast(
             int,
             iokit.IOPMAssertionCreateWithName(
                 cf.CFStringCreateWithCString(None, b"PreventUserIdleSystemSleep", k_utf8),
                 255,
-                cf.CFStringCreateWithCString(None, b"W2ZQ announcement scheduler", k_utf8),
+                cf.CFStringCreateWithCString(None, assertion_name, k_utf8),
                 byref(assertion_id),
             ),
         )

@@ -230,6 +230,14 @@ TRIGGER_NOW = _env_flag("TTS_TRIGGER_NOW", False)
 FIRE_VERBOSE_LOG = _env_flag("TTS_FIRE_VERBOSE_LOG", False)
 SESSION_IDLE_SECONDS = int(os.environ.get("TTS_SESSION_IDLE_SECONDS", str(30 * 60)))
 
+# Station identity for UI / FastAPI title / idle assertion (defaults match W2ZQ / DVRA).
+STATION_CALL = os.environ.get("TTS_STATION_CALL", "W2ZQ").strip() or "W2ZQ"
+STATION_NAME = (
+    os.environ.get("TTS_STATION_NAME", "Delaware Valley Radio Association").strip()
+    or "Delaware Valley Radio Association"
+)
+APP_TITLE = os.environ.get("TTS_APP_TITLE", "").strip() or f"{STATION_CALL} Announcements"
+
 
 def login_max_failures() -> int:
     """Failed sign-ins allowed per client+username before HTTP 429."""

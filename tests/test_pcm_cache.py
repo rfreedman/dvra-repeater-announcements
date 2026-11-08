@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 
 from app.audio import PcmChunk
-from app.models import Announcement
+from app.models import parse_announcement as Announcement
 from app.pcm_cache import (
     PcmCache,
     chunks_for_announcement,

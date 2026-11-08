@@ -12,7 +12,7 @@ def test_resolve_bench_dra_pairs_two_of_two(monkeypatch):
         return [{"path": p, "interface_number": 3} for p in paths]
 
     monkeypatch.setattr("app.cm119.list_cm119_hid_entries", fake_entries)
-    monkeypatch.setattr("app.dra_playback.resolve_dra_audio_indices", lambda: [10, 11])
+    monkeypatch.setattr("app.dra_portaudio.resolve_dra_audio_indices", lambda: [10, 11])
     monkeypatch.setattr("app.config.DRA_HID_PATH_BYTES", None)
 
     pairs = resolve_bench_dra_pairs(object(), min_pairs=2)
@@ -28,7 +28,7 @@ def test_resolve_bench_dra_pairs_mismatch_raises(monkeypatch):
         "app.cm119.list_cm119_hid_entries",
         lambda _hid: [{"path": b"\x01"}],
     )
-    monkeypatch.setattr("app.dra_playback.resolve_dra_audio_indices", lambda: [3, 4])
+    monkeypatch.setattr("app.dra_portaudio.resolve_dra_audio_indices", lambda: [3, 4])
     monkeypatch.setattr("app.config.DRA_HID_PATH_BYTES", None)
 
     with pytest.raises(BenchPairingError, match="HID count \\(1\\) != PortAudio"):
@@ -40,7 +40,7 @@ def test_resolve_bench_dra_pairs_min_pairs(monkeypatch):
         "app.cm119.list_cm119_hid_entries",
         lambda _hid: [{"path": b"\x01"}],
     )
-    monkeypatch.setattr("app.dra_playback.resolve_dra_audio_indices", lambda: [3])
+    monkeypatch.setattr("app.dra_portaudio.resolve_dra_audio_indices", lambda: [3])
     monkeypatch.setattr("app.config.DRA_HID_PATH_BYTES", None)
 
     with pytest.raises(BenchPairingError, match="Need at least 2"):

@@ -9,7 +9,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 import app.scheduler as scheduler_mod
 import app.scheduler_instance as scheduler_instance
-from app.models import Announcement, Schedule
+import app.scheduler_jobs as scheduler_jobs
+from app.models import parse_announcement as Announcement, parse_schedule as Schedule
 
 TZ = ZoneInfo("America/New_York")
 
@@ -29,7 +30,7 @@ def paused(monkeypatch, store):
     sched = BackgroundScheduler(timezone=TZ)
     sched.start(paused=True)
     monkeypatch.setattr(scheduler_instance, "_scheduler", sched)
-    monkeypatch.setattr(scheduler_mod, "datetime", _FrozenDatetime)
+    monkeypatch.setattr(scheduler_jobs, "datetime", _FrozenDatetime)
     yield sched
     sched.shutdown(wait=False)
 

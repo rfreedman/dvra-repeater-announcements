@@ -24,13 +24,13 @@ def test_usb_loss_drop_notice_detail():
 
 
 def test_manual_trigger_usb_drop_maps_notice(monkeypatch, radio, store):
-    from app.fire import FIRE_OUTCOME_DROPPED_USB
+    from app.fire import FireOutcome
 
     _announcement, schedule = _seed_baseline(store)
     clear_manual_trigger_drop_notice()
     monkeypatch.setattr(
-        "app.scheduler.handle_fire",
-        lambda *_a, **_k: FIRE_OUTCOME_DROPPED_USB,
+        "app.scheduler_fire.handle_fire",
+        lambda *_a, **_k: FireOutcome.DROPPED_USB,
     )
     result = run_manual_trigger(schedule.id)
     assert result == "dropped"
@@ -59,7 +59,7 @@ def test_record_and_peek_manual_drop_notice():
 
 
 def test_run_manual_trigger_drop_records_notice(radio, store, monkeypatch):
-    monkeypatch.setattr("app.scheduler.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr("app.scheduler_fire.time.sleep", lambda _seconds: None)
     _announcement, schedule = _seed_baseline(store)
     radio.busy = True
     clear_manual_trigger_drop_notice()

@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Annotated, Literal, cast
 
-from typing import Literal
-
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    Field,
+    TypeAdapter,
+    field_validator,
+    model_validator,
+)
 
 from app.config import (
     DEFAULT_BUSY_GIVE_UP_SECONDS,
@@ -21,7 +27,17 @@ from app.config import (
     MIN_SPEECH_SPEED,
     TIMEZONE,
 )
-from app.models import Announcement, Schedule, ScheduleKind, normalize_announcement_text
+from app.models import (
+    Announcement,
+    BaselineSchedule,
+    EmergencySchedule,
+    MonthlyRangeSchedule,
+    MonthlySchedule,
+    RangeSchedule,
+    Schedule,
+    WeeklySchedule,
+    normalize_announcement_text,
+)
 from app.users import Role
 
 
@@ -53,45 +69,95 @@ class PrepareRequest(BaseModel):
     voice: str | None = None
 
 
-class ScheduleIn(BaseModel):
+class ScheduleInCommon(BaseModel):
     id: str | None = None
     name: str
     enabled: bool = True
-    kind: ScheduleKind
     timezone: str = TIMEZONE
     announcement_id: str | None = None
     offset_minutes: int = 0
+    priority: int | None = None
+
+
+class BaselineScheduleIn(ScheduleInCommon):
+    kind: Literal["baseline"]
+
+
+class WeeklyScheduleIn(ScheduleInCommon):
+    kind: Literal["weekly"]
+    # Accepted as free strings; Schedule validators normalize to DayName.
+    days: list[str] = Field(default_factory=list)
     slots: list[str] = Field(default_factory=list)
+
+
+class MonthlyScheduleIn(ScheduleInCommon):
+    kind: Literal["monthly"]
     days: list[str] = Field(default_factory=list)
     occurrence: int | None = None
     skip_months: list[int] = Field(default_factory=list)
+    slots: list[str] = Field(default_factory=list)
+
+
+class RangeScheduleIn(ScheduleInCommon):
+    kind: Literal["range"]
     start_date: date | None = None
     event_date: date | None = None
+    event_slot: str | None = None
+    slots: list[str] = Field(default_factory=list)
+
+
+class MonthlyRangeScheduleIn(ScheduleInCommon):
+    kind: Literal["monthly_range"]
+    days: list[str] = Field(default_factory=list)
+    occurrence: int | None = None
+    skip_months: list[int] = Field(default_factory=list)
     days_before: int | None = None
     event_slot: str | None = None
-    priority: int | None = None
+    slots: list[str] = Field(default_factory=list)
+
+
+class EmergencyScheduleIn(ScheduleInCommon):
+    kind: Literal["emergency"]
+
+
+ScheduleIn = Annotated[
+    BaselineScheduleIn
+    | WeeklyScheduleIn
+    | MonthlyScheduleIn
+    | RangeScheduleIn
+    | MonthlyRangeScheduleIn
+    | EmergencyScheduleIn,
+    Field(discriminator="kind"),
+]
 
 
 class SchedulePatch(BaseModel):
     enabled: bool | None = None
 
 
-class AnnouncementIn(TtsSpeechParams):
+def _default_kind_tts(data: object) -> object:
+    if isinstance(data, dict):
+        payload = cast(dict[str, object], data)
+        if "kind" not in payload:
+            return {**payload, "kind": "tts"}
+        return payload
+    return data
+
+
+class AnnouncementInCommon(BaseModel):
     name: str
-    kind: Literal["tts", "newsline"] = "tts"
-    text: str = Field(default="", max_length=MAX_TEXT_CHARS)
-    voice: str | None = None
     busy_retry_seconds: float = Field(
         default=DEFAULT_BUSY_RETRY_SECONDS, gt=0, le=MAX_BUSY_RETRY_SECONDS
     )
     busy_give_up_seconds: float = Field(
         default=DEFAULT_BUSY_GIVE_UP_SECONDS, gt=0, le=MAX_BUSY_GIVE_UP_SECONDS
     )
-    opening_announcement_id: str | None = None
-    station_id_announcement_id: str | None = None
-    closing_announcement_id: str | None = None
-    resume_announcement_id: str | None = None
-    ptt_gap_seconds: float = Field(default=2.0, ge=0.0, le=30.0)
+
+
+class TtsAnnouncementIn(AnnouncementInCommon, TtsSpeechParams):
+    kind: Literal["tts"] = "tts"
+    text: str = Field(default="", max_length=MAX_TEXT_CHARS)
+    voice: str | None = None
 
     @field_validator("text")
     @classmethod
@@ -99,14 +165,33 @@ class AnnouncementIn(TtsSpeechParams):
         return value.strip()
 
     @model_validator(mode="after")
-    def text_for_spoken(self) -> AnnouncementIn:
-        if self.kind == "tts":
-            self.text = normalize_announcement_text(self.text)
-        else:
-            self.text = ""
-            if not self.station_id_announcement_id:
-                raise ValueError("A station ID announcement is required")
+    def text_for_spoken(self) -> TtsAnnouncementIn:
+        self.text = normalize_announcement_text(self.text)
         return self
+
+
+class NewslineAnnouncementIn(AnnouncementInCommon):
+    kind: Literal["newsline"]
+    opening_announcement_id: str | None = None
+    station_id_announcement_id: str | None = None
+    closing_announcement_id: str | None = None
+    resume_announcement_id: str | None = None
+    ptt_gap_seconds: float = Field(default=2.0, ge=0.0, le=30.0)
+
+    @model_validator(mode="after")
+    def require_station_id(self) -> NewslineAnnouncementIn:
+        if not self.station_id_announcement_id:
+            raise ValueError("A station ID announcement is required")
+        return self
+
+
+AnnouncementIn = Annotated[
+    Annotated[
+        TtsAnnouncementIn | NewslineAnnouncementIn,
+        Field(discriminator="kind"),
+    ],
+    BeforeValidator(_default_kind_tts),
+]
 
 
 class SettingsIn(BaseModel):
@@ -143,7 +228,43 @@ class AnnouncementsListOut(BaseModel):
     announcements: list[Announcement]
 
 
-class ScheduleDetail(Schedule):
-    """Schedule JSON plus an optional home/editor warning string."""
-
+class BaselineScheduleDetail(BaselineSchedule):
     warning: str | None = None
+
+
+class WeeklyScheduleDetail(WeeklySchedule):
+    warning: str | None = None
+
+
+class MonthlyScheduleDetail(MonthlySchedule):
+    warning: str | None = None
+
+
+class RangeScheduleDetail(RangeSchedule):
+    warning: str | None = None
+
+
+class MonthlyRangeScheduleDetail(MonthlyRangeSchedule):
+    warning: str | None = None
+
+
+class EmergencyScheduleDetail(EmergencySchedule):
+    warning: str | None = None
+
+
+ScheduleDetail = Annotated[
+    BaselineScheduleDetail
+    | WeeklyScheduleDetail
+    | MonthlyScheduleDetail
+    | RangeScheduleDetail
+    | MonthlyRangeScheduleDetail
+    | EmergencyScheduleDetail,
+    Field(discriminator="kind"),
+]
+
+schedule_detail_adapter: TypeAdapter[ScheduleDetail] = TypeAdapter(ScheduleDetail)
+
+
+def build_schedule_detail(schedule: Schedule, warning: str | None) -> ScheduleDetail:
+    """Attach an optional home/editor warning to a persisted schedule row."""
+    return schedule_detail_adapter.validate_python({**schedule.model_dump(), "warning": warning})

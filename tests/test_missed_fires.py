@@ -10,7 +10,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 
 from app.fire import handle_fire
-from app.models import Announcement, Schedule
+from app.models import parse_announcement as Announcement, parse_schedule as Schedule
 from app.radio import StubRadio
 from app.scheduler import PromptBackgroundScheduler, get_scheduler, start_scheduler, stop_scheduler
 from tests.test_fire import _announcement, _ctx, _deps

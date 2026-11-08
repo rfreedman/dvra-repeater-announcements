@@ -15,12 +15,12 @@ def test_manual_busy_defers_then_transmits_via_scheduler(
     radio, store, client, monkeypatch, busy_retry_seconds
 ):
     monkeypatch.setattr("app.config.TRIGGER_NOW", True)
-    monkeypatch.setattr("app.scheduler.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr("app.scheduler_fire.time.sleep", lambda _seconds: None)
     monkeypatch.setattr(
-        "app.scheduler.chunks_for_announcement",
+        "app.scheduler_fire.chunks_for_announcement",
         lambda _item: [PcmChunk(pcm_int16=b"\x00\x00", sample_rate=22050)],
     )
-    monkeypatch.setattr("app.scheduler.play_chunks", lambda _chunks: None)
+    monkeypatch.setattr("app.scheduler_fire.play_chunks", lambda _chunks: None)
 
     announcement, schedule = _seed_baseline(store)
     store.save_announcement(

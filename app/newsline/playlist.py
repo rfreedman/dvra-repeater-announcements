@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-from app.models import Announcement, StoreDocument
+from app.models import Announcement, NewslineAnnouncement, StoreDocument, TtsAnnouncement
 from app.newsline.release import friday_from_script, in_air_window, station_today
 from app.newsline.state import NewsState
 
@@ -59,7 +59,7 @@ def newsline_unavailable_reason(
 
 
 def build_playlist(
-    bulletin: Announcement,
+    bulletin: NewslineAnnouncement,
     document: StoreDocument,
     stories_dir: Path,
     *,
@@ -91,7 +91,7 @@ def build_playlist(
     return pieces
 
 
-def resume_piece(bulletin: Announcement, document: StoreDocument) -> Piece | None:
+def resume_piece(bulletin: NewslineAnnouncement, document: StoreDocument) -> Piece | None:
     """Spoken line after a COS busy wait, or ``None`` if unset or too long."""
     item = _spoken(document, bulletin.resume_announcement_id)
     if item is None:
@@ -102,7 +102,7 @@ def resume_piece(bulletin: Announcement, document: StoreDocument) -> Piece | Non
     return Piece(label=item.name, announcement=item)
 
 
-def _spoken(document: StoreDocument, announcement_id: str | None) -> Announcement | None:
+def _spoken(document: StoreDocument, announcement_id: str | None) -> TtsAnnouncement | None:
     if not announcement_id:
         return None
     item = document.announcement_by_id(announcement_id)

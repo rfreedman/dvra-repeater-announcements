@@ -4,11 +4,16 @@ import importlib
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import cast
+from typing import TypedDict, cast
 
 import psutil
 
-from app.manual_trigger_types import SystemStats
+
+class SystemStats(TypedDict):
+    celsius: float | None
+    thermal_state: str | None
+    cpu_percent: float | None
+    memory_percent: float | None
 
 _THERMAL_ROOT = Path("/sys/class/thermal")
 

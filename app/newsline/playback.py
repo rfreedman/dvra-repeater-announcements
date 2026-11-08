@@ -9,9 +9,9 @@ from datetime import datetime, timedelta
 from functools import partial
 
 from app.audio import PcmChunk, materialize_chunks
-from app.fire_types import FireDeps, RunningOnKeyRadio
+from app.fire_types import FireDeps, FireOutcome
 from app.fire_trace import fire_trace
-from app.models import Announcement, Schedule
+from app.models import NewslineAnnouncement, Schedule
 from app.newsline.decode import mp3_to_chunks
 from app.newsline.playlist import Piece
 from app.newsline.session import PendingEmergency, bulletin_session
@@ -124,15 +124,16 @@ def _transmit_chunks(
 ) -> None:
     transmit(
         chunks,
-        radio=RunningOnKeyRadio(deps.radio, on_key),
+        radio=deps.radio,
         play_fn=deps.play_fn,
         sleep_fn=deps.sleep_fn,
         lead_seconds=deps.ptt_lead_seconds,
         clear_seconds=0,
+        on_ptt_keyed=on_key,
     )
 
 
-def _play_emergency(deps: FireDeps, pending: PendingEmergency) -> str:
+def _play_emergency(deps: FireDeps, pending: PendingEmergency) -> FireOutcome:
     announcement = pending.announcement
     schedule = pending.schedule
     label = announcement.name
@@ -144,30 +145,30 @@ def _play_emergency(deps: FireDeps, pending: PendingEmergency) -> str:
     if wait.outcome != "clear":
         log.info("Emergency %s dropped; channel did not clear before its give-up", label)
         fire_trace("Emergency dropped during Newsline label=%s", label)
-        return "dropped"
+        return FireOutcome.DROPPED
     on_key = partial(deps.set_running, announcement, schedule.id) if deps.set_running else None
     try:
         _transmit_chunks(deps, materialize_chunks(deps.synthesize(announcement)), on_key=on_key)
     except (TransmitAbortError, BrokenPipeError):
         log.warning("Emergency %s aborted; DRA USB lost", label)
-        return "dropped_usb"
+        return FireOutcome.DROPPED_USB
     except ChannelBusyError:
         log.info("Emergency %s dropped; channel busy at PTT", label)
-        return "dropped"
+        return FireOutcome.DROPPED
     if deps.update_schedule:
         deps.mark_last_run(announcement.id, schedule.id, _now(deps))
     log.info("Emergency %s transmitted during Newsline", label)
     fire_trace("Emergency transmitted during Newsline label=%s", label)
-    return "transmitted"
+    return FireOutcome.TRANSMITTED
 
 
-def _drain_emergencies(deps: FireDeps) -> str | None:
+def _drain_emergencies(deps: FireDeps) -> FireOutcome | None:
     while bulletin_session.waiting():
         pending = bulletin_session.take()
         if pending is None:
             break
         outcome = _play_emergency(deps, pending)
-        if outcome == "dropped_usb":
+        if outcome == FireOutcome.DROPPED_USB:
             return outcome
     return None
 
@@ -194,9 +195,9 @@ def _transmit_piece(
     try:
         _transmit_chunks(deps, chunks, on_key=on_key)
     except (TransmitAbortError, BrokenPipeError):
-        return "dropped_usb"
+        return FireOutcome.DROPPED_USB
     except ChannelBusyError:
-        return "busy"
+        return FireOutcome.BUSY
     return None
 
 
@@ -204,24 +205,24 @@ def transmit_newsline(
     deps: FireDeps,
     pieces: list[Piece],
     *,
-    bulletin: Announcement,
+    bulletin: NewslineAnnouncement,
     schedule: Schedule,
     initial_deadline: datetime,
     resume: Piece | None = None,
-) -> str:
+) -> FireOutcome:
     """Play every piece. The initial clear wait still honors ``initial_deadline``."""
     label = bulletin.name
     wait = wait_until_clear(deps, deadline=initial_deadline, gap_seconds=0.0)
     if wait.outcome == "emergency":
         drained = _drain_emergencies(deps)
-        if drained == "dropped_usb":
-            return "dropped_usb"
+        if drained == FireOutcome.DROPPED_USB:
+            return FireOutcome.DROPPED_USB
     elif wait.outcome == "deadline":
         if _now(deps) >= initial_deadline and _blocked(deps):
             log.info("Newsline deferred; %s; channel not clear before %s", label, initial_deadline.isoformat())
-            return "not_clear"
+            return FireOutcome.NOT_CLEAR
         if _fresh_busy(deps):
-            return "not_clear"
+            return FireOutcome.NOT_CLEAR
     story_total = sum(1 for piece in pieces if _is_story_piece(piece))
 
     def _mark_running(
@@ -253,16 +254,16 @@ def transmit_newsline(
     played_story = False
     for index, piece in enumerate(pieces):
         drained = _drain_emergencies(deps)
-        if drained == "dropped_usb":
-            return "dropped_usb"
+        if drained == FireOutcome.DROPPED_USB:
+            return FireOutcome.DROPPED_USB
         interrupted = False
         if index > 0 or bulletin_session.waiting():
             gap_wait = wait_until_clear(deps, deadline=None, gap_seconds=gap)
             interrupted = gap_wait.interrupted
             if gap_wait.outcome == "emergency":
                 drained = _drain_emergencies(deps)
-                if drained == "dropped_usb":
-                    return "dropped_usb"
+                if drained == FireOutcome.DROPPED_USB:
+                    return FireOutcome.DROPPED_USB
                 gap_wait = wait_until_clear(deps, deadline=None, gap_seconds=gap)
                 interrupted = interrupted or gap_wait.interrupted
             if gap_wait.outcome != "clear":
@@ -283,10 +284,10 @@ def transmit_newsline(
         result = _transmit_piece(
             deps, piece, resume=resume, with_resume=with_resume, on_key=on_key
         )
-        if result == "dropped_usb":
+        if result == FireOutcome.DROPPED_USB:
             log.warning("Newsline aborted; %s; DRA USB lost during %s", label, piece.label)
-            return "dropped_usb"
-        if result == "busy":
+            return FireOutcome.DROPPED_USB
+        if result == FireOutcome.BUSY:
             log.info("Newsline waiting; %s; channel busy before %s", label, piece.label)
             gap_wait = wait_until_clear(deps, deadline=None, gap_seconds=0.0)
             if gap_wait.outcome == "emergency":
@@ -306,9 +307,9 @@ def transmit_newsline(
             result = _transmit_piece(
                 deps, piece, resume=resume, with_resume=with_resume, on_key=on_key
             )
-            if result == "dropped_usb":
-                return "dropped_usb"
-            if result == "busy":
+            if result == FireOutcome.DROPPED_USB:
+                return FireOutcome.DROPPED_USB
+            if result == FireOutcome.BUSY:
                 log.warning("Newsline skipped piece %s; channel stayed busy", piece.label)
                 continue
         log.info("Newsline played %s", piece.label)
@@ -316,8 +317,8 @@ def transmit_newsline(
             played_story = True
         _mark_running(piece, index)
     drained = _drain_emergencies(deps)
-    if drained == "dropped_usb":
-        return "dropped_usb"
+    if drained == FireOutcome.DROPPED_USB:
+        return FireOutcome.DROPPED_USB
     log.info("Newsline transmitted; %s", label)
     fire_trace("Newsline transmitted label=%s", label)
-    return "transmitted"
+    return FireOutcome.TRANSMITTED

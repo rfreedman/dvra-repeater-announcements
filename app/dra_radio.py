@@ -38,20 +38,6 @@ log = logging.getLogger("app.dra_radio")
 PTT_HID_OPEN_RETRY_DELAYS_SECONDS = (0.0, 0.03, 0.08, 0.15, 0.3)
 
 
-def dra_radio_from(radio: object) -> DraRadio | None:
-    """Unwrap ``RunningOnKeyRadio`` (and similar) for DRA-only helpers."""
-    candidate = getattr(radio, "_inner", radio)
-    return candidate if isinstance(candidate, DraRadio) else None
-
-
-def dra_usb_transmit_lost(radio: object) -> bool:
-    """True when CM119 USB dropped during an in-flight DRA transmit."""
-    dra = dra_radio_from(radio)
-    if dra is None:
-        return False
-    return (not dra.usb_hid_present) or dra.transmit_abort_is_set()
-
-
 class DraRadio:
     """One or two DRA-36M units: OR busy, parallel PTT, mirrored USB audio."""
 
@@ -159,7 +145,7 @@ class DraRadio:
                 )
             log.info("DRA HID pinned via TTS_DRA_HID_PATH (%s)", DRA_HID_PATH_BYTES.hex())
 
-        from app.dra_playback import resolve_dra_audio_indices
+        from app.dra_portaudio import resolve_dra_audio_indices
 
         adapters = [
             Cm119HidAdapter(path=entry["path"], label=f"dra-hid-{i + 1}")
@@ -379,7 +365,7 @@ class DraRadio:
 
     def sync_audio_output_indices_if_changed(self, *, after_usb_event: bool = False) -> bool:
         """Refresh PortAudio output indices after USB replug (hw index often changes)."""
-        from app.dra_playback import refresh_portaudio_device_list, resolve_dra_audio_indices
+        from app.dra_portaudio import refresh_portaudio_device_list, resolve_dra_audio_indices
 
         if after_usb_event:
             refresh_portaudio_device_list()
@@ -405,7 +391,7 @@ class DraRadio:
                     new_indices,
                 )
                 return False
-            from app.dra_playback import portaudio_index_is_dra_output
+            from app.dra_portaudio import portaudio_index_is_dra_output
 
             if not all(portaudio_index_is_dra_output(index) for index in new_indices):
                 log.warning(
@@ -438,7 +424,7 @@ class DraRadio:
         )
 
     def audio_output_indices_look_valid(self) -> bool:
-        from app.dra_playback import portaudio_index_is_dra_output
+        from app.dra_portaudio import portaudio_index_is_dra_output
 
         return all(portaudio_index_is_dra_output(index) for index in self._audio_indices)
 
@@ -818,3 +804,16 @@ class DraRadio:
             if self._transmit_abort.is_set() or self._usb_hid_absent:
                 raise TransmitAbortError("DRA USB playback aborted") from exc
             raise
+
+
+def as_dra_radio(radio: object) -> DraRadio | None:
+    """Narrow to ``DraRadio`` when the backend is concrete DRA."""
+    return radio if isinstance(radio, DraRadio) else None
+
+
+# Back-compat alias for call sites / tests still importing the old name.
+def dra_radio_from(radio: object) -> DraRadio | None:
+    return as_dra_radio(radio)
+
+
+

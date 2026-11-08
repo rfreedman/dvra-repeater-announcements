@@ -66,7 +66,7 @@ def test_unauthenticated_api_is_rejected(users, admin_user):
 
 
 def test_readonly_can_view_and_speak_but_not_mutate(readonly_client, store, monkeypatch, tmp_path):
-    from app.models import Announcement
+    from app.models import parse_announcement as Announcement
 
     item = store.save_announcement(Announcement(name="ID", text="Hello."))
     assert readonly_client.get("/api/announcements").status_code == 200
@@ -110,7 +110,7 @@ def test_readonly_can_view_and_speak_but_not_mutate(readonly_client, store, monk
 
 
 def test_readonly_cannot_trigger(readonly_client, store, monkeypatch):
-    from app.models import Announcement, Schedule
+    from app.models import parse_announcement as Announcement, parse_schedule as Schedule
 
     monkeypatch.setattr("app.config.TRIGGER_NOW", True)
     announcement = store.save_announcement(Announcement(name="ID", text="Hello."))

@@ -6,6 +6,8 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import NotRequired, Protocol, TypedDict
 
+from app.fire_types import FireOutcome
+
 
 class ScheduledDeferJobKwargs(TypedDict):
     slot_key: str
@@ -39,7 +41,7 @@ class ScheduledDeferFn(Protocol):
         slot_key: str,
         fired_at_iso: str | None = None,
         deadline_iso: str | None = None,
-    ) -> str: ...
+    ) -> FireOutcome: ...
 
 
 class ManualDeferFn(Protocol):
@@ -50,7 +52,7 @@ class ManualDeferFn(Protocol):
         fired_at_iso: str | None = None,
         deadline_iso: str | None = None,
         defer_kind: str | None = None,
-    ) -> str: ...
+    ) -> FireOutcome: ...
 
 
 def manual_job_deadline_iso(job: SchedulerJob) -> str | None:

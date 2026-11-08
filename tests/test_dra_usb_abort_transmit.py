@@ -201,7 +201,7 @@ def test_handle_fire_runtime_error_dropped_when_usb_absent(monkeypatch):
     deps.dra_clear_seconds = 0
     from app.fire import handle_fire
 
-    from app.fire import FIRE_OUTCOME_DROPPED_USB
+    from app.fire import FireOutcome
 
-    assert handle_fire(_ctx(), deps) == FIRE_OUTCOME_DROPPED_USB
+    assert handle_fire(_ctx(), deps) == FireOutcome.DROPPED_USB
     assert extras["played"] == []

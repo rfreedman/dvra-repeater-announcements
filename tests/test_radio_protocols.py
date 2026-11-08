@@ -6,22 +6,23 @@ from collections.abc import Callable, Iterable
 from datetime import datetime
 
 from app.audio import PcmChunk
-from app.fire_types import RunningOnKeyRadio
 from app.radio import (
     AudioReplugRadio,
     ClearWaitRadio,
     CosPollingRadio,
     CosSnapshotRadio,
     IdleCreditRadio,
-    Radio,
     StubRadio,
-    UsbPlayRadio,
+    UsbAbortRadio,
+    UsbTransmitRadio,
     as_audio_replug,
     as_clear_wait,
     as_cos_polling,
     as_cos_snapshot,
     as_idle_credit,
-    as_usb_play,
+    as_usb_abort,
+    as_usb_transmit,
+    transmit,
 )
 
 
@@ -63,6 +64,15 @@ class _FullDraLike(_MinimalRadio):
     def cos_defer_snapshot(self) -> tuple[bool | None, float]:
         return False, 1.0
 
+    def prepare_for_transmit(self) -> None:
+        pass
+
+    def begin_usb_transmit(self) -> None:
+        pass
+
+    def end_usb_transmit(self) -> None:
+        pass
+
     def play_transmit_audio(
         self,
         chunks: Iterable[PcmChunk],
@@ -70,6 +80,13 @@ class _FullDraLike(_MinimalRadio):
         lead_seconds: float,
     ) -> None:
         pass
+
+    @property
+    def usb_hid_present(self) -> bool:
+        return True
+
+    def transmit_abort_is_set(self) -> bool:
+        return False
 
     def warm_open_hid(self) -> None:
         pass
@@ -87,9 +104,6 @@ class _FullDraLike(_MinimalRadio):
         return False
 
 
-# --- StubRadio matches only CosSnapshotRadio ---
-
-
 def test_stub_matches_cos_snapshot():
     stub = StubRadio()
     assert as_cos_snapshot(stub) is stub
@@ -103,8 +117,12 @@ def test_stub_does_not_match_clear_wait():
     assert as_clear_wait(StubRadio()) is None
 
 
-def test_stub_does_not_match_usb_play():
-    assert as_usb_play(StubRadio()) is None
+def test_stub_does_not_match_usb_transmit():
+    assert as_usb_transmit(StubRadio()) is None
+
+
+def test_stub_does_not_match_usb_abort():
+    assert as_usb_abort(StubRadio()) is None
 
 
 def test_stub_does_not_match_cos_polling():
@@ -115,20 +133,15 @@ def test_stub_does_not_match_audio_replug():
     assert as_audio_replug(StubRadio()) is None
 
 
-# --- MinimalRadio matches nothing optional ---
-
-
 def test_minimal_matches_no_optional():
     radio = _MinimalRadio()
     assert as_idle_credit(radio) is None
     assert as_clear_wait(radio) is None
     assert as_cos_snapshot(radio) is None
-    assert as_usb_play(radio) is None
+    assert as_usb_transmit(radio) is None
+    assert as_usb_abort(radio) is None
     assert as_cos_polling(radio) is None
     assert as_audio_replug(radio) is None
-
-
-# --- Single-capability fake ---
 
 
 def test_idle_credit_fake_matches_only_idle():
@@ -141,49 +154,37 @@ def test_idle_credit_fake_matches_only_idle():
     assert as_cos_snapshot(radio) is None
 
 
-# --- Full DRA-like fake ---
-
-
 def test_full_dra_like_matches_all():
     radio = _FullDraLike()
     assert as_idle_credit(radio) is radio
     assert as_clear_wait(radio) is radio
     assert as_cos_snapshot(radio) is radio
-    assert as_usb_play(radio) is radio
+    assert as_usb_transmit(radio) is radio
+    assert as_usb_abort(radio) is radio
     assert as_cos_polling(radio) is radio
     assert as_audio_replug(radio) is radio
 
 
-# --- RunningOnKeyRadio proxy preserves capabilities ---
+def test_on_ptt_keyed_runs_when_keyed(monkeypatch):
+    radio = _MinimalRadio()
+    events: list[str] = []
 
+    def play(_chunks: Iterable[PcmChunk]) -> None:
+        events.append("play")
 
-def test_proxy_preserves_idle_credit():
-    inner = _IdleCreditFake()
-    wrapped = RunningOnKeyRadio(inner, on_key=None)
-    idle = as_idle_credit(wrapped)
-    assert idle is not None
-    assert idle.continuous_idle_seconds() == 5.0
-
-
-def test_proxy_preserves_full_capabilities():
-    inner = _FullDraLike()
-    wrapped = RunningOnKeyRadio(inner, on_key=None)
-    assert as_idle_credit(wrapped) is not None
-    assert as_clear_wait(wrapped) is not None
-    assert as_cos_snapshot(wrapped) is not None
-    assert as_usb_play(wrapped) is not None
-    assert as_cos_polling(wrapped) is not None
-    assert as_audio_replug(wrapped) is not None
-
-
-def test_proxy_minimal_matches_nothing():
-    inner = _MinimalRadio()
-    wrapped = RunningOnKeyRadio(inner, on_key=None)
-    assert as_idle_credit(wrapped) is None
-    assert as_clear_wait(wrapped) is None
-
-
-# --- isinstance checks ---
+    monkeypatch.setattr(
+        "app.radio.channel_blocks_transmit",
+        lambda _radio, clear_seconds=0: False,
+    )
+    transmit(
+        [PcmChunk(pcm_int16=b"\x00\x00", sample_rate=22050)],
+        radio=radio,
+        play_fn=play,
+        sleep_fn=lambda _s: None,
+        lead_seconds=0,
+        on_ptt_keyed=lambda: events.append("keyed"),
+    )
+    assert events == ["keyed", "play"]
 
 
 def test_isinstance_checks():
@@ -191,7 +192,8 @@ def test_isinstance_checks():
     assert not isinstance(_MinimalRadio(), IdleCreditRadio)
     assert isinstance(_FullDraLike(), ClearWaitRadio)
     assert isinstance(_FullDraLike(), CosPollingRadio)
-    assert isinstance(_FullDraLike(), UsbPlayRadio)
+    assert isinstance(_FullDraLike(), UsbTransmitRadio)
+    assert isinstance(_FullDraLike(), UsbAbortRadio)
     assert isinstance(_FullDraLike(), AudioReplugRadio)
     assert isinstance(StubRadio(), CosSnapshotRadio)
     assert not isinstance(StubRadio(), IdleCreditRadio)

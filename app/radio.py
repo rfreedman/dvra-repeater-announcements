@@ -1,7 +1,7 @@
 """Radio backend protocol (stub vs DRA).
 
 Required: ``channel_busy``, ``set_ptt``. Optional capability Protocols and ``as_*``
-helpers for clear-hold, COS polling, USB playback, etc. are documented in
+helpers for clear-hold, COS polling, USB transmit, etc. are documented in
 ``docs/radio-backend.md``.
 """
 from __future__ import annotations
@@ -17,7 +17,6 @@ from app.playback import play_chunks
 from app.radio_errors import ChannelBusyError, TransmitAbortError
 
 log = logging.getLogger("app.radio")
-
 
 
 class Radio(Protocol):
@@ -61,8 +60,14 @@ class CosSnapshotRadio(Protocol):
 
 
 @runtime_checkable
-class UsbPlayRadio(Protocol):
-    """Radio that streams PCM on USB audio devices (DRA)."""
+class UsbTransmitRadio(Protocol):
+    """DRA USB session: prepare, begin/end transmit window, stream PCM + lead."""
+
+    def prepare_for_transmit(self) -> None: ...
+
+    def begin_usb_transmit(self) -> None: ...
+
+    def end_usb_transmit(self) -> None: ...
 
     def play_transmit_audio(
         self,
@@ -70,6 +75,16 @@ class UsbPlayRadio(Protocol):
         *,
         lead_seconds: float,
     ) -> None: ...
+
+
+@runtime_checkable
+class UsbAbortRadio(Protocol):
+    """USB-loss detection during an in-flight DRA transmit."""
+
+    @property
+    def usb_hid_present(self) -> bool: ...
+
+    def transmit_abort_is_set(self) -> bool: ...
 
 
 @runtime_checkable
@@ -94,44 +109,43 @@ class AudioReplugRadio(Protocol):
 
 # ---------------------------------------------------------------------------
 # Typed helpers — return the narrowed Protocol or None.
-# Unwrap proxies (e.g. RunningOnKeyRadio) since runtime_checkable isinstance
-# uses static attribute lookup and does not trigger __getattr__.
 # ---------------------------------------------------------------------------
 
 
-def _unwrap_radio(radio: object) -> object:
-    inner = getattr(radio, "_inner", None)
-    return inner if inner is not None else radio
-
-
 def as_idle_credit(radio: Radio) -> IdleCreditRadio | None:
-    target = _unwrap_radio(radio)
-    return target if isinstance(target, IdleCreditRadio) else None
+    return radio if isinstance(radio, IdleCreditRadio) else None
 
 
 def as_clear_wait(radio: Radio) -> ClearWaitRadio | None:
-    target = _unwrap_radio(radio)
-    return target if isinstance(target, ClearWaitRadio) else None
+    return radio if isinstance(radio, ClearWaitRadio) else None
 
 
 def as_cos_snapshot(radio: Radio) -> CosSnapshotRadio | None:
-    target = _unwrap_radio(radio)
-    return target if isinstance(target, CosSnapshotRadio) else None
+    return radio if isinstance(radio, CosSnapshotRadio) else None
 
 
-def as_usb_play(radio: Radio) -> UsbPlayRadio | None:
-    target = _unwrap_radio(radio)
-    return target if isinstance(target, UsbPlayRadio) else None
+def as_usb_transmit(radio: Radio) -> UsbTransmitRadio | None:
+    return radio if isinstance(radio, UsbTransmitRadio) else None
+
+
+def as_usb_abort(radio: Radio) -> UsbAbortRadio | None:
+    return radio if isinstance(radio, UsbAbortRadio) else None
 
 
 def as_cos_polling(radio: Radio) -> CosPollingRadio | None:
-    target = _unwrap_radio(radio)
-    return target if isinstance(target, CosPollingRadio) else None
+    return radio if isinstance(radio, CosPollingRadio) else None
 
 
 def as_audio_replug(radio: Radio) -> AudioReplugRadio | None:
-    target = _unwrap_radio(radio)
-    return target if isinstance(target, AudioReplugRadio) else None
+    return radio if isinstance(radio, AudioReplugRadio) else None
+
+
+def usb_transmit_lost(radio: Radio) -> bool:
+    """True when CM119 USB dropped during an in-flight DRA transmit."""
+    abort = as_usb_abort(radio)
+    if abort is None:
+        return False
+    return (not abort.usb_hid_present) or abort.transmit_abort_is_set()
 
 
 def channel_blocks_transmit(radio: Radio, *, clear_seconds: float = 0) -> bool:
@@ -191,48 +205,47 @@ def transmit(
     sleep_fn: Callable[[float], None] | None = None,
     lead_seconds: float | None = None,
     clear_seconds: float = 0,
+    on_ptt_keyed: Callable[[], None] | None = None,
 ) -> None:
     import time
 
     play = play_fn or play_chunks
     sleep = sleep_fn or time.sleep
     lead = PTT_LEAD_SECONDS if lead_seconds is None else lead_seconds
-    usb_play = as_usb_play(radio)
+    usb = as_usb_transmit(radio)
 
     if channel_blocks_transmit(radio, clear_seconds=clear_seconds):
         raise ChannelBusyError("channel busy immediately before PTT")
 
-    if usb_play is not None:
-        from app.dra_radio import dra_radio_from
+    def _key() -> None:
+        radio.set_ptt(True)
+        if on_ptt_keyed is not None:
+            on_ptt_keyed()
 
-        dra = dra_radio_from(radio)
-        if dra is not None:
-            dra.prepare_for_transmit()
-            dra.begin_usb_transmit()
+    if usb is not None:
+        usb.prepare_for_transmit()
+        usb.begin_usb_transmit()
         try:
-            radio.set_ptt(True)
+            _key()
             try:
                 # Lead must be the same continuous USB stream as speech. A separate
                 # lead aplay exits before speech starts, COMM OK drops, and RF unkeys
                 # briefly even though GPIO3 PTT stays asserted.
-                usb_play.play_transmit_audio(chunks, lead_seconds=lead)
+                usb.play_transmit_audio(chunks, lead_seconds=lead)
             finally:
                 radio.set_ptt(False)
         except TransmitAbortError:
             raise
         except RuntimeError as exc:
-            if dra is not None and (
-                dra.transmit_abort_is_set() or not dra.usb_hid_present
-            ):
+            if usb_transmit_lost(radio):
                 raise TransmitAbortError("DRA USB playback aborted") from exc
             raise
         finally:
-            if dra is not None:
-                dra.end_usb_transmit()
+            usb.end_usb_transmit()
         return
 
     # play locally, not on-air
-    radio.set_ptt(True)
+    _key()
     try:
         if lead > 0:
             sleep(lead)

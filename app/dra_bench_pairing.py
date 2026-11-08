@@ -35,7 +35,7 @@ def resolve_bench_dra_pairs(hid: HidModule, *, min_pairs: int = 2) -> list[DraBe
     """
     from app.cm119 import list_cm119_hid_entries
     from app.config import DRA_HID_PATH_BYTES
-    from app.dra_playback import resolve_dra_audio_indices
+    from app.dra_portaudio import resolve_dra_audio_indices
 
     if DRA_HID_PATH_BYTES is not None:
         log.warning(

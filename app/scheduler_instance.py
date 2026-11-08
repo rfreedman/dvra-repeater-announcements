@@ -7,12 +7,12 @@ itself, which imports them back.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
+from app.scheduler_types import ManualDeferFn, ScheduledDeferFn
 from app.slots import as_local
 
 # A slot job may run this late (App Nap, busy host) and still fire.
@@ -21,7 +21,8 @@ DEFER_MISFIRE_GRACE_SECONDS = 120
 MANUAL_KEY_PREFIX = "manual:"
 
 _scheduler: BackgroundScheduler | None = None
-_manual_trigger_runner: Callable[..., str] | None = None
+_manual_trigger_runner: ManualDeferFn | None = None
+_scheduled_fire_runner: ScheduledDeferFn | None = None
 
 
 def get_scheduler() -> BackgroundScheduler | None:
@@ -33,14 +34,24 @@ def set_scheduler(scheduler: BackgroundScheduler | None) -> None:
     _scheduler = scheduler
 
 
-def register_manual_trigger_runner(runner: Callable[..., str]) -> None:
+def register_manual_trigger_runner(runner: ManualDeferFn) -> None:
     """``app.scheduler`` publishes its manual-trigger job here so retries can re-add it."""
     global _manual_trigger_runner
     _manual_trigger_runner = runner
 
 
-def get_manual_trigger_runner() -> Callable[..., str] | None:
+def get_manual_trigger_runner() -> ManualDeferFn | None:
     return _manual_trigger_runner
+
+
+def register_scheduled_fire_runner(runner: ScheduledDeferFn) -> None:
+    """``app.scheduler`` publishes slot fires so ``sync_jobs`` need not import fire code."""
+    global _scheduled_fire_runner
+    _scheduled_fire_runner = runner
+
+
+def get_scheduled_fire_runner() -> ScheduledDeferFn | None:
+    return _scheduled_fire_runner
 
 
 def slot_job_id(slot_key: str) -> str:

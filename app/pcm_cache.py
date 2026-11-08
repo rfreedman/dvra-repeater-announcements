@@ -12,7 +12,7 @@ from typing import cast
 
 from app.audio import PcmChunk
 from app.config import PCM_CACHE_DIR
-from app.models import Announcement
+from app.models import Announcement, TtsAnnouncement
 from app.spoken_length import apply_played_length, pcm_duration_seconds
 
 log = logging.getLogger("app.pcm_cache")
@@ -144,7 +144,7 @@ def set_pcm_cache(cache: PcmCache | None) -> None:
     _cache = cache
 
 
-def _fingerprint_for(announcement: Announcement, voice_id: str, voice_mtime_ns: int | None) -> str:
+def _fingerprint_for(announcement: TtsAnnouncement, voice_id: str, voice_mtime_ns: int | None) -> str:
     return fingerprint(
         announcement.text,
         voice_id,
@@ -157,6 +157,8 @@ def _fingerprint_for(announcement: Announcement, voice_id: str, voice_mtime_ns: 
 def chunks_for_announcement(announcement: Announcement) -> list[PcmChunk]:
     from app.registry import get_registry
 
+    if announcement.kind != "tts":
+        raise ValueError(f"PCM cache only applies to spoken announcements, got {announcement.kind}")
     started = time.perf_counter()
     registry = get_registry()
     voice_id = registry.prepare(announcement.voice)
@@ -229,6 +231,8 @@ def warm_all(announcements: list[Announcement] | None = None) -> None:
     timeout = document.settings.repeater_timeout_seconds
     cached = 0
     for item in to_warm:
+        if item.kind != "tts":
+            continue
         chunks = warm_announcement(item)
         if chunks is None:
             continue
@@ -237,6 +241,8 @@ def warm_all(announcements: list[Announcement] | None = None) -> None:
             continue
         measured = apply_played_length(item, pcm_duration_seconds(chunks), timeout)
         _ = store.save_announcement(measured)
+        if measured.kind != "tts":
+            continue
         if measured.too_long:
             log.warning(
                 "Announcement %s is %.1fs, over the repeater limit",

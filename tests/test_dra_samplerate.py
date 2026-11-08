@@ -6,7 +6,7 @@ import subprocess
 
 
 def test_dra_device_samplerate_prefers_alsa_hw_rate(monkeypatch):
-    monkeypatch.setattr("app.dra_playback.sys.platform", "linux")
+    monkeypatch.setattr("app.dra_portaudio.sys.platform", "linux")
 
     def fake_query(index: int) -> dict:
         return {"name": "USB PnP Sound Device: Audio (hw:1,0)", "default_samplerate": 44100.0}
@@ -20,7 +20,7 @@ def test_dra_device_samplerate_prefers_alsa_hw_rate(monkeypatch):
             cmd, 0, stdout="RATE: 48000 (48000-48000)\n", stderr=""
         )
 
-    monkeypatch.setattr("app.dra_playback.subprocess.run", fake_arecord)
-    from app.dra_playback import dra_device_samplerate
+    monkeypatch.setattr("app.dra_portaudio.subprocess.run", fake_arecord)
+    from app.dra_portaudio import dra_device_samplerate
 
     assert dra_device_samplerate(3) == 48000

@@ -7,7 +7,13 @@ from zoneinfo import ZoneInfo
 
 from app.audio import PcmChunk
 from app.fire import FireContext, FireDeps, LoadedFire, handle_fire
-from app.models import Announcement, Schedule, StoreDocument
+from app.models import (
+    NewslineAnnouncement,
+    StoreDocument,
+    TtsAnnouncement,
+    parse_announcement as Announcement,
+    parse_schedule as Schedule,
+)
 from app.newsline.playlist import Piece, build_playlist, resume_piece
 from app.newsline.session import bulletin_session
 from app.radio import StubRadio
@@ -64,7 +70,7 @@ def test_playlist_substitutes_station_id_and_keeps_story_order(tmp_path):
 
 
 def test_playlist_can_skip_a_missing_station_id(tmp_path):
-    bulletin = Announcement.model_construct(name="Newsline", kind="newsline")
+    bulletin = NewslineAnnouncement.model_construct(name="Newsline", kind="newsline")
     stories = tmp_path / "stories"
     stories.mkdir()
     (stories / "2554_01.mp3").write_bytes(b"a")

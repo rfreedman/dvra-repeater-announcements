@@ -9,7 +9,7 @@ from pydantic import ValidationError
 
 from app.deps import AdminUser, AuthUser
 from app.live_notify import notify_home_data_changed
-from app.models import Announcement
+from app.models import Announcement, validate_announcement
 from app.pcm_cache import (
     get_pcm_cache,
     measure_announcement,
@@ -47,53 +47,72 @@ def _referenced(
 
 def _from_request(req: AnnouncementIn, existing: Announcement | None) -> Announcement:
     store = get_store()
-    previous_opening = existing.opening_announcement_id if existing else None
-    previous_station = existing.station_id_announcement_id if existing else None
-    previous_closing = existing.closing_announcement_id if existing else None
-    previous_resume = existing.resume_announcement_id if existing else None
+    previous_opening = (
+        existing.opening_announcement_id if existing is not None and existing.kind == "newsline" else None
+    )
+    previous_station = (
+        existing.station_id_announcement_id
+        if existing is not None and existing.kind == "newsline"
+        else None
+    )
+    previous_closing = (
+        existing.closing_announcement_id if existing is not None and existing.kind == "newsline" else None
+    )
+    previous_resume = (
+        existing.resume_announcement_id if existing is not None and existing.kind == "newsline" else None
+    )
     if req.kind == "newsline":
         _referenced(store, req.opening_announcement_id, role="Opening", previous=previous_opening)
         _referenced(store, req.station_id_announcement_id, role="Station ID", previous=previous_station)
         _referenced(store, req.closing_announcement_id, role="Closing", previous=previous_closing)
         _referenced(store, req.resume_announcement_id, role="Resume", previous=previous_resume)
-    data = {
-        "name": req.name,
-        "kind": req.kind,
-        "text": req.text,
-        "voice": req.voice,
-        "speed": req.speed,
-        "sentence_pause": req.sentence_pause,
-        "busy_retry_seconds": req.busy_retry_seconds,
-        "busy_give_up_seconds": req.busy_give_up_seconds,
-        "opening_announcement_id": req.opening_announcement_id,
-        "station_id_announcement_id": req.station_id_announcement_id,
-        "closing_announcement_id": req.closing_announcement_id,
-        "resume_announcement_id": req.resume_announcement_id,
-        "ptt_gap_seconds": req.ptt_gap_seconds,
-    }
+        data: dict[str, object] = {
+            "name": req.name,
+            "kind": "newsline",
+            "busy_retry_seconds": req.busy_retry_seconds,
+            "busy_give_up_seconds": req.busy_give_up_seconds,
+            "opening_announcement_id": req.opening_announcement_id,
+            "station_id_announcement_id": req.station_id_announcement_id,
+            "closing_announcement_id": req.closing_announcement_id,
+            "resume_announcement_id": req.resume_announcement_id,
+            "ptt_gap_seconds": req.ptt_gap_seconds,
+        }
+    else:
+        data = {
+            "name": req.name,
+            "kind": "tts",
+            "text": req.text,
+            "voice": req.voice,
+            "speed": req.speed,
+            "sentence_pause": req.sentence_pause,
+            "busy_retry_seconds": req.busy_retry_seconds,
+            "busy_give_up_seconds": req.busy_give_up_seconds,
+        }
+        if existing is not None and existing.kind == "tts":
+            data["play_seconds"] = existing.play_seconds
+            data["too_long"] = existing.too_long
     if existing is not None:
         data["id"] = existing.id
-        data["play_seconds"] = existing.play_seconds
-        data["too_long"] = existing.too_long
     try:
-        item = Announcement.model_validate(data)
+        item = validate_announcement(data)
     except ValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    if item.kind == "tts":
-        timeout = store.document().settings.repeater_timeout_seconds
-        try:
-            item = measure_announcement(item, timeout)
-        except Exception as exc:
-            from app.routes.speak import raise_engine_http
+    if item.kind != "tts":
+        return item
+    timeout = store.document().settings.repeater_timeout_seconds
+    try:
+        measured = measure_announcement(item, timeout)
+    except Exception as exc:
+        from app.routes.speak import raise_engine_http
 
-            raise_engine_http(exc, where="announcement timing")
-        if item.too_long:
-            log.warning(
-                "Saved %s as too long (%.1fs)",
-                item.name,
-                item.play_seconds or 0,
-            )
-    return item
+        raise_engine_http(exc, where="announcement timing")
+    if measured.kind == "tts" and measured.too_long:
+        log.warning(
+            "Saved %s as too long (%.1fs)",
+            measured.name,
+            measured.play_seconds or 0,
+        )
+    return measured
 
 
 @router.get("/api/announcements")

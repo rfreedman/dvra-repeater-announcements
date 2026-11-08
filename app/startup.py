@@ -28,7 +28,7 @@ def init_radio_at_startup() -> None:
 
     try:
         if sys.platform.startswith("linux") and radio_backend() in ("dra", "cm119"):
-            from app.dra_playback import refresh_portaudio_device_list
+            from app.dra_portaudio import refresh_portaudio_device_list
 
             refresh_portaudio_device_list()
         radio = create_radio_from_config()

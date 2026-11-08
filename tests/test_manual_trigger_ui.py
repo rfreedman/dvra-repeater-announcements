@@ -42,16 +42,16 @@ def live_server(page: Page, store, admin_user, radio, monkeypatch):
     release = threading.Event()
     monkeypatch.setattr("app.config.TRIGGER_NOW", True)
     monkeypatch.setattr("app.server.start_scheduler", lambda: None)
-    monkeypatch.setattr("app.scheduler.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr("app.scheduler_fire.time.sleep", lambda _seconds: None)
     monkeypatch.setattr(
-        "app.scheduler.chunks_for_announcement",
+        "app.scheduler_fire.chunks_for_announcement",
         lambda _item: [PcmChunk(pcm_int16=b"\x00\x00", sample_rate=22050)],
     )
 
     def play(_chunks) -> None:
         release.wait(30)
 
-    monkeypatch.setattr("app.scheduler.play_chunks", play)
+    monkeypatch.setattr("app.scheduler_fire.play_chunks", play)
     _announcement, schedule = _seed_baseline(store)
 
     port = _free_port()

@@ -14,28 +14,32 @@ Do **not** change inheritance patterns just for typing. Prefer `Protocol`, `Type
 
 1. Annotate **every** parameter and return (including nested helpers). Prefer `X | None` over bare `Optional`.
 2. Never reach for `dict[str, Any]` / `Any`. Use a `TypedDict`, Pydantic model, dataclass, or `dict[str, object]` only when the value is truly opaque.
-3. Branching on `kind` / `phase` / status strings → `Literal` (or existing aliases) and exhaustiveness (`assert_never` when matching).
-4. Pluggable capabilities → `Protocol` + narrow helpers (same style as `as_idle_credit` in `app/radio.py`), not `getattr` / `Callable[..., None]`.
+3. Branching on `kind` / `phase` / status strings → `Literal` (or existing aliases) and exhaustiveness (`assert_never` when matching). Fire results use `FireOutcome` (`app/fire_types.py`).
+4. Pluggable capabilities → `Protocol` + narrow helpers (same style as `as_idle_credit` in `app/radio.py`), not `getattr` / `Callable[..., None]`. Do **not** wrap radios with `__getattr__` proxies — use `transmit(..., on_ptt_keyed=...)` for UI hooks.
 5. Keep types honest: update annotations when behavior changes. Run `uv run basedpyright` before finishing Python work.
 
 ## Where to put shapes
 
 | Kind of data | Prefer |
 |---|---|
-| Persisted / HTTP request bodies | Pydantic (`app/models.py`, `app/schemas.py`) |
-| REST/SSE JSON snapshots | `TypedDict` (see `app/manual_trigger_types.py`) |
-| Internal bags of callables/state | `@dataclass` (see `FireDeps` in `app/fire.py`) |
+| Persisted / HTTP request bodies | Pydantic (`app/models.py`, `app/schedule_models.py`, `app/announcement_models.py`, `app/schemas.py`) |
+| REST/SSE JSON snapshots | `TypedDict` (see `app/manual_trigger_types.py`, `app/api_types.py`) |
+| Internal bags of callables/state | `@dataclass` (see `FireDeps` in `app/fire_types.py`) |
 | Backend capabilities | `Protocol` (`app/radio.py`) |
+| Fire / transmit results | `FireOutcome` StrEnum (`app/fire_types.py`) |
 
 ## Boundaries and escapes
 
 - Untyped libs (`hid`, PortAudio device dicts, Cocoa): thin typed wrappers at the edge; keep `# type: ignore[import-untyped]` / `# pyright: ignore[...]` **coded and local**.
 - Test fakes should structurally satisfy Protocols, or use one `cast(...)` at construction — avoid scattered `# type: ignore[arg-type]`.
-- Scope: checker includes `app/` only for now; still type `tests/` helpers you touch when cheap.
+- Scope: checker includes `app/` and `tests/`. Prefer fixing types over growing `.basedpyright/baseline.json`.
+
+## Domain unions
+
+- `Schedule` / `Announcement` are Pydantic discriminated unions on `kind` (`app/schedule_models.py`, `app/announcement_models.py`). Validate with `parse_schedule` / `parse_announcement` (also re-exported from `app.models`). Narrow on `kind` before reading kind-specific fields; use `assert_never` for exhaustiveness.
+- HTTP bodies mirror that layout in `app/schemas.py` (`ScheduleIn`, `AnnouncementIn`, `ScheduleDetail` via `build_schedule_detail`).
 
 ## Incremental debt (do when touching the file)
 
 - Replace remaining `dict[str, object]` API returns with TypedDict / response models.
-- Tighten `Callable[..., …]` (e.g. leftover wait/setter signatures).
-- Prefer `DayName = Literal["mon", …]` over `list[str]` where values are fixed.
-- Do **not** wholesale rewrite `Schedule` into a discriminated union unless that issue is in scope.
+- Tighten leftover `Callable[..., …]` at registry boundaries.

@@ -13,7 +13,7 @@ def test_from_config_logs_dual_pairing_without_dual_nuc_wording(monkeypatch, cap
 
     monkeypatch.setattr("app.dra_radio.ensure_hid_module", lambda: object())
     monkeypatch.setattr("app.dra_radio.list_cm119_hid_entries", fake_entries)
-    monkeypatch.setattr("app.dra_playback.resolve_dra_audio_indices", lambda **_: [3, 4])
+    monkeypatch.setattr("app.dra_portaudio.resolve_dra_audio_indices", lambda **_: [3, 4])
     monkeypatch.setattr("app.dra_radio.DRA_HID_PATH_BYTES", None)
 
     caplog.set_level(logging.INFO, logger="app.dra_radio")
@@ -31,7 +31,7 @@ def test_from_config_mismatch_warning_mentions_unset_hid_path(monkeypatch, caplo
         "app.dra_radio.list_cm119_hid_entries",
         lambda _hid: [{"path": b"\x01"}],
     )
-    monkeypatch.setattr("app.dra_playback.resolve_dra_audio_indices", lambda **_: [3, 4])
+    monkeypatch.setattr("app.dra_portaudio.resolve_dra_audio_indices", lambda **_: [3, 4])
     monkeypatch.setattr("app.dra_radio.DRA_HID_PATH_BYTES", None)
 
     caplog.set_level(logging.WARNING, logger="app.dra_radio")

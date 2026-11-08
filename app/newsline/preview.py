@@ -8,7 +8,7 @@ from pathlib import Path
 
 from app.audio import PcmChunk
 from app.config import NEWSLINE_DIR
-from app.models import Announcement
+from app.models import NewslineAnnouncement
 from app.newsline.decode import SAMPLE_RATE, ffmpeg_available, mp3_to_chunks
 from app.newsline.playlist import Piece, build_playlist, stories_ready
 from app.newsline.state import load_state
@@ -62,7 +62,7 @@ def _playlist(
     if not ffmpeg_available():
         raise OSError("ffmpeg and ffprobe are required to play Newsline audio")
     document = get_store().document()
-    bulletin = Announcement.model_construct(
+    bulletin = NewslineAnnouncement.model_construct(
         name="Preview",
         kind="newsline",
         opening_announcement_id=opening_announcement_id,

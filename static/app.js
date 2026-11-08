@@ -2031,10 +2031,26 @@ function renderVoices(preferred) {
   }
 }
 
+function applyBrandingFromCatalog() {
+  if (!catalog) return;
+  const title = catalog.app_title || "Announcements";
+  document.title = title;
+  const heading = document.getElementById("app-heading");
+  if (heading) heading.textContent = title;
+  const logo = document.getElementById("station-logo");
+  if (logo && catalog.station_name) logo.alt = catalog.station_name;
+  const maxChars = catalog.max_text_chars;
+  if (maxChars != null && textEl) {
+    textEl.maxLength = maxChars;
+    updateCount();
+  }
+}
+
 async function loadVoices() {
   const res = await fetch("/api/voices");
   if (!res.ok) throw new Error("Could not load voices");
   catalog = await res.json();
+  applyBrandingFromCatalog();
   const saved = readPrefs();
   speedEl.value = String(saved.speed ?? catalog.speed ?? 1);
   pauseEl.value = String(saved.sentence_pause ?? catalog.sentence_pause ?? 0.25);
@@ -2851,7 +2867,7 @@ async function route() {
       }
       stopHomePolling();
       showScreen("view-announcement");
-      await ensureVoices();
+      await Promise.all([ensureVoices(), boot]);
       if (parts[1] === "new") blankAnnouncement();
       else await loadAnnouncement(parts[1]);
       applyEditorReadOnly();

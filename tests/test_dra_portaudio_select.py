@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.dra_playback import _prefer_cm119_hw_devices
+from app.dra_portaudio import _prefer_cm119_hw_devices
 
 
 def test_prefer_cm119_hw_devices_filters_non_cm119(monkeypatch):

@@ -1,11 +1,9 @@
 """Inspect intro, break, and close handoffs and place quiet cuts from landmarks.
 
-Deferred structure work: this module is about 1,100 lines, and cut/QA code
-imports private helpers from ``align`` and ``verify_fulltext``
-(``signoff_phrases``, ``match_score``, ``flatten_words``,
-``opening_speech_time``, line matchers). Do not split this file or rename
-those helpers until tests cover handoff inspection and quiet-cut placement.
-Packing tests are not that coverage. See ``docs/ALIGNMENT_ROADMAP.md``.
+Structural split is tracked in GitHub issue #62. Cut/QA code still imports
+private helpers from ``align`` and ``verify_fulltext``. Do not split this file
+or rename those helpers until tests cover handoff inspection and quiet-cut
+placement. Packing tests are not that coverage.
 """
 
 from __future__ import annotations

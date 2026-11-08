@@ -78,7 +78,7 @@ def too_long_parts(document: StoreDocument, announcement: Announcement) -> list[
         if not announcement_id:
             continue
         ref = document.announcement_by_id(announcement_id)
-        if ref is None or not ref.too_long or ref.play_seconds is None:
+        if ref is None or ref.kind != "tts" or not ref.too_long or ref.play_seconds is None:
             continue
         parts.append(
             f"{_role_label(role)} “{ref.name}” is {format_seconds(ref.play_seconds)}s, "

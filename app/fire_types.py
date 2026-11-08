@@ -10,7 +10,8 @@ import threading
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal, Protocol, cast
+from enum import StrEnum
+from typing import Literal, Protocol
 
 from app.audio import PcmChunk
 from app.config import (
@@ -24,6 +25,23 @@ from app.models import Announcement, Schedule
 from app.radio import Radio
 
 FireTrigger = Literal["scheduled", "manual"]
+
+
+class FireOutcome(StrEnum):
+    """Result of a fire attempt (scheduled, manual, or Newsline piece)."""
+
+    TRANSMITTED = "transmitted"
+    DEFERRED = "deferred"
+    DROPPED = "dropped"
+    DROPPED_USB = "dropped_usb"
+    MISSING = "missing"
+    SILENCE = "silence"
+    DISABLED = "disabled"
+    YIELDED = "yielded"
+    SKIPPED_LOCK = "skipped_lock"
+    BUSY = "busy"
+    # Newsline: first piece could not start before the slot clear wait gave up.
+    NOT_CLEAR = "not_clear"
 
 
 class SetRunningFn(Protocol):
@@ -90,25 +108,3 @@ class FireDeps:
     update_schedule: bool = True
     nonblocking_clear_wait: bool = False
     not_ready_deadline: datetime | None = None
-
-
-class RunningOnKeyRadio:
-    """Mark UI running only after PTT keys (DRA uses play_transmit_audio, not play_fn)."""
-
-    _inner: Radio
-    _on_key: Callable[[], None] | None
-
-    def __init__(self, inner: Radio, on_key: Callable[[], None] | None) -> None:
-        self._inner = inner
-        self._on_key = on_key
-
-    def __getattr__(self, name: str) -> object:
-        return cast(object, getattr(self._inner, name))
-
-    def channel_busy(self) -> bool:
-        return self._inner.channel_busy()
-
-    def set_ptt(self, keyed: bool) -> None:
-        self._inner.set_ptt(keyed)
-        if keyed and self._on_key is not None:
-            self._on_key()

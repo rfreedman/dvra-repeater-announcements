@@ -1,6 +1,6 @@
 [project]
 name = "dvra-repeater-announcements"
-version = "0.17.0"
+version = "0.18.0"
 description = "Piper TTS repeater announcements with a FastAPI UI, scheduler, and DRA-36M radio control"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -56,7 +56,7 @@ torchaudio = [{ index = "pytorch-cpu" }]
 # Static typing (basedpyright). Existing debt is in .basedpyright/baseline.json;
 # new diagnostics outside the baseline fail CI. Prefer fixing types over growing the baseline.
 [tool.basedpyright]
-include = ["app"]
+include = ["app", "tests"]
 exclude = ["**/__pycache__"]
 pythonVersion = "3.12"
 typeCheckingMode = "recommended"

@@ -7,12 +7,12 @@ from pathlib import Path
 from typing import TypedDict, cast
 
 import feedparser
-import requests
 
 from app.newsline.download import (
     FEED_URL,
     Feed,
     FeedEntry,
+    download_file as download_file_to_path,
     entry_download_urls,
     extract_report_number,
 )
@@ -55,16 +55,12 @@ def find_entry_for_report(feed: Feed, report_number: int) -> FeedEntry | None:
 
 
 def download_file(url: str, dest_path: str) -> bool:
-    """Download url to dest_path. Returns True on success."""
-    response = requests.get(url, stream=True)
-    if response.status_code != 200:
-        print(f"Failed to download {url} (HTTP {response.status_code})")
+    """Download url to dest_path. Returns True on success (CLI-friendly wrapper)."""
+    try:
+        download_file_to_path(url, Path(dest_path))
+    except OSError as exc:
+        print(f"Failed to download {url} ({exc})")
         return False
-
-    with open(dest_path, "wb") as f:
-        for chunk in response.iter_content(chunk_size=1024):
-            if chunk:
-                _ = f.write(chunk)
     print(f"Successfully saved to {dest_path}")
     return True
 

@@ -54,11 +54,13 @@ from app.cm119 import open_cm119_hid_at as _open_cm119_hid_at  # noqa: E402
 from app.dra_bench_pairing import BenchPairingError, DraBenchPair, resolve_bench_dra_pairs  # noqa: E402
 from app.dra_playback import (  # noqa: E402
     DraUsbPlayback,
+    mono_to_channel,
+    play_pcm_chunks_to_dra_devices,
+)
+from app.dra_portaudio import (  # noqa: E402
     auto_select_dra_outputs,
     dra_device_samplerate,
     list_dra_output_devices,
-    mono_to_channel,
-    play_pcm_chunks_to_dra_devices,
 )
 from app.cm119 import list_cm119_hid_entries  # noqa: E402
 
@@ -810,7 +812,8 @@ def cmd_tone(args) -> int:
     idx, audio = find_dra_audio_device()
     if idx is None:
         raise SystemExit("DRA audio device not found")
-    from app.dra_playback import dra_device_samplerate, play_mono_f32_to_dra_device
+    from app.dra_playback import play_mono_f32_to_dra_device
+    from app.dra_portaudio import dra_device_samplerate
 
     sr = dra_device_samplerate(idx)
     pa_sr = int(audio["default_samplerate"])
@@ -888,7 +891,7 @@ def cmd_smoke(args) -> int:
         raise SystemExit("DRA audio device not found")
     dev = _open_cm119_hid(hid)
     lead = args.lead
-    from app.dra_playback import dra_device_samplerate
+    from app.dra_portaudio import dra_device_samplerate
 
     sr = dra_device_samplerate(idx)
     duration = args.seconds

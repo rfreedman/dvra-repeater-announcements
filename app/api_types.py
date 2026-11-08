@@ -4,13 +4,9 @@ from __future__ import annotations
 
 from typing import TypedDict
 
-from app.manual_trigger_types import (
-    ManualDropNotice,
-    PendingManualTriggerRow,
-    SkipNotice,
-    UpcomingRow,
-)
+from app.manual_trigger_types import HomeLiveStatus
 from app.models import DAY_LABELS, DAY_NAMES, DEFAULT_PRIORITY, MONTH_LABELS, DayName, ScheduleKind, Settings
+from app.newsline.state import NewslineOutcome, NewslinePhase
 
 
 class DayMeta(TypedDict):
@@ -94,14 +90,14 @@ class NewslineStatus(TypedDict):
     report_number: int | None
     split_ok: bool
     ready: bool
-    phase: str
+    phase: NewslinePhase
     error: str | None
     completed_at: str | None
     last_check_at: str | None
     in_progress: bool
     playing: bool
     working_report: int | None
-    outcome: str | None
+    outcome: NewslineOutcome | None
     step: str | None
     elapsed_seconds: float | None
 
@@ -111,13 +107,7 @@ class NewslineProgress(TypedDict):
     elapsed_seconds: float | None
 
 
-class SchedulesListPayload(TypedDict):
-    now: str
-    upcoming: UpcomingRow | None
-    pending_manual_triggers: list[PendingManualTriggerRow]
-    manual_trigger_drop_notice: ManualDropNotice | None
-    skip_notice: SkipNotice | None
-    newsline_playing: bool
+class SchedulesListPayload(HomeLiveStatus):
     warnings: list[str]
     settings: SettingsPayload
     clock_date: str

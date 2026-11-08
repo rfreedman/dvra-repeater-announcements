@@ -3,7 +3,16 @@ from __future__ import annotations
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
-from app.models import Announcement, Schedule, Settings, StoreDocument
+from app.models import (
+    Announcement,
+    BaselineSchedule,
+    NewslineAnnouncement,
+    Schedule,
+    Settings,
+    StoreDocument,
+    TtsAnnouncement,
+    validate_schedule,
+)
 from app.schedule_logic import (
     find_conflicts,
     next_rotation,
@@ -20,11 +29,14 @@ ZONE = zone_for("America/New_York")
 
 
 def _ann(name: str = "Station ID", text: str = "This is w2-zee-q.", **kwargs) -> Announcement:
-    return Announcement(name=name, text=text, **kwargs)
+    kind = kwargs.pop("kind", "tts")
+    if kind == "newsline":
+        return NewslineAnnouncement(name=name, **kwargs)
+    return TtsAnnouncement(name=name, text=text, **kwargs)
 
 
 def _baseline(announcement_id: str, name: str = "Baseline ID", **kwargs) -> Schedule:
-    return Schedule(name=name, kind="baseline", announcement_id=announcement_id, **kwargs)
+    return BaselineSchedule(name=name, announcement_id=announcement_id, **kwargs)
 
 
 def _weekly(**kwargs) -> Schedule:
@@ -36,7 +48,7 @@ def _weekly(**kwargs) -> Schedule:
         "offset_minutes": -5,
         **kwargs,
     }
-    return Schedule.model_validate(data)
+    return validate_schedule(data)
 
 
 def _doc(*announcements: Announcement, schedules: list[Schedule] | None = None) -> StoreDocument:
@@ -122,7 +134,7 @@ def test_monthly_first_wednesday_skips_august():
         net,
         schedules=[
             _baseline("a1", id="s1"),
-            Schedule.model_validate(
+            validate_schedule(
                 {
                     "id": "s2",
                     "name": "Monthly",
@@ -147,7 +159,7 @@ def test_monthly_first_wednesday_skips_august():
 
 def test_range_fills_until_event_slot_not_after():
     promo = _ann(id="a2", name="Meeting promo")
-    overlay = Schedule.model_validate(
+    overlay = validate_schedule(
         {
             "id": "s2",
             "name": "September meeting",
@@ -171,7 +183,7 @@ def test_range_fills_until_event_slot_not_after():
 
 def test_monthly_range_starts_n_days_before_each_month():
     promo = _ann(id="a2", name="Meeting promo")
-    overlay = Schedule.model_validate(
+    overlay = validate_schedule(
         {
             "id": "s2",
             "name": "Monthly countdown",
@@ -194,7 +206,7 @@ def test_monthly_range_starts_n_days_before_each_month():
 
 
 def test_monthly_range_skip_month_leaves_baseline():
-    overlay = Schedule.model_validate(
+    overlay = validate_schedule(
         {
             "name": "Monthly countdown",
             "kind": "monthly_range",
@@ -219,7 +231,7 @@ def test_weekly_beats_range_on_the_net_slot():
         _ann(id="a3", name="Tech Net"),
         schedules=[
             _baseline("a1", id="s1"),
-            Schedule.model_validate(
+            validate_schedule(
                 {
                     "id": "range1",
                     "name": "Promo week",
@@ -263,7 +275,7 @@ def test_silence_occupies_slot_without_announcement():
 
 
 def test_emergency_wins_every_slot_until_cleared():
-    emergency = Schedule.model_validate(
+    emergency = validate_schedule(
         {
             "id": "e1",
             "name": "Emergency",
@@ -311,7 +323,7 @@ def test_weekly_newsline_overlay_plays_the_newsline_item(monkeypatch):
         station_id_announcement_id="sid",
     )
     tech = _ann(id="tech", name="Tech Net Pre-Announcement")
-    overlay = Schedule.model_validate(
+    overlay = validate_schedule(
         {
             "name": "Newsline Test",
             "kind": "weekly",
@@ -348,7 +360,7 @@ def test_unavailable_newsline_overlay_plays_the_baseline_instead(monkeypatch):
         station_id_announcement_id="sid",
     )
     tech = _ann(id="tech", name="Tech Net Pre-Announcement")
-    overlay = Schedule.model_validate(
+    overlay = validate_schedule(
         {
             "name": "Newsline Test",
             "kind": "weekly",
@@ -376,7 +388,7 @@ def test_unavailable_newsline_overlay_plays_the_baseline_instead(monkeypatch):
 
 
 def test_offset_example_is_fifteen_twenty_five_not_fifteen_ten():
-    overlay = Schedule.model_validate(
+    overlay = validate_schedule(
         {
             "name": "Shifted",
             "kind": "weekly",

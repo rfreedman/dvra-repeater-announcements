@@ -1,102 +1,26 @@
-# Announcements
+# DVRA Repeater Announcements
 
-Local Piper text-to-speech with a FastAPI UI and a CLI. Audio is generated and played **entirely in memory** — nothing is written to disk as a WAV/MP3.
-
-Piper streams one sentence at a time and has many English voices (plus any [Piper voice](https://rhasspy.github.io/piper-samples/)).
+Station software for scheduled **Piper TTS** (and Amateur Radio Newsline) announcements on a repeater. A FastAPI web UI manages the library and schedules; on the NUC a DRA-36M backend keys PTT, watches COS, and plays USB audio. Audio is generated and played **in memory** — nothing is written as WAV/MP3 for on-air use.
 
 ## Requirements
 
-- macOS or **64-bit Linux** (production station hardware: [docs/final-hardware/README.md](docs/final-hardware/README.md); DRA bench tests: [dra36m-check-tests.md](docs/final-hardware/dra36m-check-tests.md), [scripts/README.md](scripts/README.md)).
+- macOS or **64-bit Linux** (production: [docs/final-hardware/README.md](docs/final-hardware/README.md); DRA bench: [dra36m-check-tests.md](docs/final-hardware/dra36m-check-tests.md), [scripts/README.md](scripts/README.md))
 - Python 3.12+
-- [uv](https://docs.astral.sh/uv/) (`brew install uv` on macOS, or `curl -LsSf https://astral.sh/uv/install.sh | sh`)
-- For CLI playback: PortAudio (`brew install portaudio` on macOS, `sudo apt install libportaudio2` on Debian/Ubuntu)
+- [uv](https://docs.astral.sh/uv/)
+- PortAudio for CLI/local playback (`brew install portaudio` / `sudo apt install libportaudio2`)
 
 ## Setup
 
-Dependencies are declared in `pyproject.toml` and pinned in `uv.lock` (commit both). There is no hand-maintained `requirements.txt`.
-
 ```bash
-uv sync                    # creates .venv and installs the app + dev/test packages
-source .venv/bin/activate  # optional; or prefix commands with `uv run`
+uv sync
+source .venv/bin/activate   # optional; or use uv run …
 ```
 
-Add or remove a dependency with uv so `pyproject.toml` and `uv.lock` stay in step (don't `pip install` into the venv; the next `uv sync` removes anything undeclared):
+Dependencies live in `pyproject.toml` + `uv.lock` (commit both). Use `uv add` / `uv remove` — do not `pip install` into the venv.
 
-```bash
-uv add some-package        # runtime dependency
-uv add --dev some-package  # test/dev only (not installed in production)
-uv remove some-package
-uv lock --upgrade          # move every dependency to the newest allowed version
-```
+**Deploy to the NUC:** [docs/deploy-nuc.md](docs/deploy-nuc.md) (`scripts/deploy`, `serve.sh`, version bumps, restart behavior).
 
-### Deploying (NUC)
-
-The NUC runs the app the same way as dev: a git clone, uv, and `./serve.sh`. Install uv once on the NUC (it goes in `~/.local/bin`):
-
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-From the dev machine, deploy whatever is pushed to `origin/main`:
-
-```bash
-scripts/deploy                    # default host repeater-nuc
-scripts/deploy other-host         # or DEPLOY_HOST=other-host; DEPLOY_PATH overrides the NUC repo path
-```
-
-The script refuses to run with uncommitted or unpushed local changes. On the NUC it checks that uv is present, that the clone is clean, and that `origin/main` fast-forwards, all before touching the app. If `origin/main` has new commits, its `pyproject.toml` version must be greater than the one the NUC is running (bump with `uv version --bump patch`, commit, push); otherwise the deploy stops and leaves the app running. A redeploy with no new commits just restarts the app. Then it stops the running `python -m app serve` with SIGTERM, pulls, and starts `./serve.sh` in the background, which syncs dependencies. It waits for `Startup complete` in the log and warns if the radio mode is `stub`. Background output goes to `data/logs/serve.out` on the NUC. If the app does not stop within `DEPLOY_STOP_TIMEOUT` seconds (default 30), the deploy aborts without updating; it never SIGKILLs the app, because that can leave PTT keyed. Startup must log `Startup complete` within `DEPLOY_START_TIMEOUT` seconds (default 180) or the deploy reports failure. Both values are positive integer seconds.
-
-If deploy reports **NUC working tree has local changes** and `git status` shows only `uv.lock`, an older `./serve.sh` may have rewritten the lock on Linux. On the NUC, discard that change, then redeploy after `origin/main` includes `./serve.sh` with `uv sync --frozen`:
-
-```bash
-ssh repeater-nuc 'cd /home/rfreedman/projects/dvra-repeater-announcements && git restore uv.lock'
-```
-
-After `./serve.sh` is frozen, restarts should not modify `uv.lock` again; confirm with `git status` on the NUC if you want to be sure.
-
-#### Process restart and in-memory state
-
-Deploy and any manual restart start a **new process**. Nothing below is written to disk:
-
-- **Busy retries** — APScheduler `defer:` jobs and in-flight manual-trigger retries are dropped. A slot whose fire time has already passed is **not** played late after restart (see startup behavior below).
-- **Login rate limit** — Failed sign-in counters (`429` after `TTS_LOGIN_MAX_FAILURES` failures, default five, per username from the same client within `TTS_LOGIN_WINDOW_SECONDS`, default 300 seconds) reset. Legitimate sessions in cookies may still work until they expire.
-
-After an outage or restart, use **Trigger now** or wait for the next slot if something did not air; check logs for deferred fires that will not run until you trigger again.
-
-To install the locked versions by hand, without test packages:
-
-```bash
-uv sync --frozen --no-dev
-```
-
-Without uv on the NUC, generate a pinned `requirements.txt` on the dev machine and install it with pip:
-
-```bash
-uv export --format requirements-txt --no-dev -o requirements.txt   # dev machine
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt  # NUC, from the repo root
-```
-
-The exported file pins every package (with hashes) and keeps platform markers, so the macOS-only `pyobjc-framework-Cocoa` is skipped on Linux. It ends with `-e .`, which installs this project in editable mode (that is where the app gets its version), so run the `pip install` from the repo root. It is gitignored: regenerate it after any dependency change rather than editing it.
-
-`./serve.sh` runs `uv sync --frozen --inexact --no-dev` before starting (when uv is installed), so the venv matches the committed `uv.lock` and the lock file itself is left unchanged.
-
-### Versioning
-
-The version is written once, in `pyproject.toml`. The app reads it from the installed package (`importlib.metadata`), and it appears in the UI header and the API (`/docs`, `/openapi.json`). Do not add a version literal anywhere else.
-
-```bash
-uv version                 # show the current version
-uv version --bump patch    # 0.2.0 -> 0.2.1 (also minor / major); updates pyproject.toml and uv.lock
-```
-
-The project is installed in editable mode, but the version is recorded at install time, so a bump shows up after the next `uv sync`. `./serve.sh` and any `uv run ...` command do that automatically. If you start the app another way, run `uv sync` first. `tests/test_api.py::test_installed_version_matches_pyproject` fails when the installed version is stale.
-
-The first run downloads the default voice into `voices/` (gitignored).
-
-```bash
-python -m app download
-python -m app download amy ryan
-```
+**Environment variables:** [docs/env-reference.md](docs/env-reference.md) and [`.env.example`](.env.example). Station branding defaults (`TTS_STATION_CALL`, `TTS_STATION_NAME`, `TTS_APP_TITLE`) can white-label the UI title.
 
 ## Web UI
 
@@ -104,300 +28,40 @@ python -m app download amy ryan
 python -m app serve
 ```
 
-Open [http://127.0.0.1:8000](http://127.0.0.1:8000). On first visit, create the initial **Admin** account. After that, sign in with:
+Open [http://127.0.0.1:8000](http://127.0.0.1:8000). First visit creates the Admin account; afterward **Admin** has full access and **Read-Only** can view and use Speak preview.
 
-- **Admin** — full access, including user management
-- **Read-Only** — view schedules and announcements, Speak preview only (no edits, no Users page)
+Operator guides:
 
-The home screen shows the next run, today’s half-hour slots, schedules, and the announcement library. **How to schedule** (in the header, and in [docs/how-to-schedule.md](docs/how-to-schedule.md)) is the operator guide.
+- [How to schedule](docs/how-to-schedule.md) — baselines, overlays, spoken length / repeater timeout
+- [Amateur Radio Newsline](docs/arnewsline.md) — download window, playlist, resume after busy
+- [Radio backend](docs/radio-backend.md) — `stub` vs `dra` Protocols
 
-Write the spoken text under **New announcement**. On save, the app measures how long that text takes to play. If it is longer than the repeater timeout minus 2 seconds (178 seconds at the default 180 second timeout), the text is kept and marked too long: it cannot be newly scheduled, and a schedule that already uses it plays the baseline for that slot instead. Shorten the text and save again to clear the mark. See [How to schedule](docs/how-to-schedule.md#spoken-length).
-
-An **Amateur Radio Newsline** item plays the current week's report (opening, stories, station ID, closing). A weekly schedule points at it. Download times and the repeater timeout are on the home screen. See [Amateur Radio Newsline](docs/arnewsline.md).
-
-Timing lives on **schedules**, which point at that text:
-
-- A **baseline** fills every hour and half-hour unless something else claims the slot. Several baselines take turns.
-- An **overlay** (weekly net, monthly net, event countdown, silence, or emergency) replaces the baseline for the slots it matches. You can slide an overlay a few minutes early or late inside the slot window; it still occupies that slot. Example: the 15:30 slot at −5 minutes fires at 15:25, and 15:30 stays silent.
-
-Scheduled playback uses the configured **radio backend** (`TTS_RADIO_BACKEND`: **stub** by default, or **dra** for DRA-36M PTT/COS/USB audio on the NUC). The Speak button is preview only (default output, no PTT). See [final hardware](docs/final-hardware/README.md), [radio backend protocol](docs/radio-backend.md), and configuration below.
-
-Insert a timed silence in the script with `[pause:SECONDS]` (optional trailing `s`). The tag is not spoken. Duration is capped at 10 seconds; invalid tags such as `[pause]` are left as ordinary text.
-
-```text
-This is w2-zee-q. [pause:2] The Delaware Valley Radio Association...
-```
-
-`[pause:1.5]` and `[pause:1.5s]` both pause 1.5 seconds. Tagged pauses are extra silence at that location; the **Sentence pause** slider still applies between Piper’s sentence chunks.
+Insert timed silence with `[pause:SECONDS]` (optional trailing `s`, max 10s). Invalid tags are left as ordinary text.
 
 ## CLI
 
-Run commands from the project root with the virtualenv active:
+```bash
+python -m app <command> …
+```
+
+Commands include `speak`, `serve`, `voices`, `download` (Piper voices), and `users`. Full flags and examples stay in `python -m app <command> --help`.
+
+## Configuration and API
+
+- Env / defer timing / Piper voices: [docs/env-reference.md](docs/env-reference.md)
+- HTTP routes overview: [docs/api-overview.md](docs/api-overview.md)
 
 ```bash
-python -m app <command> ...
+uv run basedpyright   # static types for app/
+uv run pytest -q      # suite sets TTS_SKIP_DOTENV=1 so a local .env cannot affect results
 ```
 
-If the first argument is not a known command (`speak`, `serve`, `voices`, `download`, `users`), it is treated as **speak** text. These are equivalent:
-
-```bash
-python -m app speak "Hello"
-python -m app "Hello"
-```
-
-CLI behavior respects the same [configuration](#configuration) and optional `.env` as the web app (voices directory, default voice, speed, host/port, `TTS_USERS_PATH`, and so on). User accounts are stored in `data/users.json` by default.
-
-| Exit code | Meaning |
-| --- | --- |
-| `0` | Success |
-| `1` | Usage error or unexpected failure |
-| `2` | User input error (missing text, unknown user, validation error, voice error) |
-
-### `speak`
-
-Synthesize text with Piper and play it on the local audio device (in memory; no WAV file).
-
-```bash
-python -m app speak [options] [text ...]
-```
-
-| Option | Default | Description |
-| --- | --- | --- |
-| `-v`, `--voice` | default voice | Piper voice id or alias from `config/piper-voices.json` |
-| `--speed` | `TTS_SPEED` (`1.0`) | Speaking rate; lower is slower |
-| `--pause`, `--sentence-pause` | `TTS_SENTENCE_PAUSE` (`0.25`) | Silence between sentences (seconds) |
-| `--stdin` | off | Read all text from standard input instead of arguments |
-
-The resolved voice id is printed on stderr. Script tags such as `[pause:2]` in the text are honored the same way as in the web UI.
-
-Examples:
-
-```bash
-python -m app speak "Hello from the announcements."
-python -m app speak --voice amy "Piper voice aliases work too."
-python -m app speak --speed 0.75 --pause 0.6 "Hello. Take your time with this."
-echo "From a pipe" | python -m app speak --stdin
-```
-
-### `serve`
-
-Start the FastAPI web UI and HTTP API (announcements, schedules, auth, scheduler).
-
-```bash
-python -m app serve [--host HOST] [--port PORT]
-```
-
-| Option | Default | Description |
-| --- | --- | --- |
-| `--host` | `TTS_HOST` (`0.0.0.0`) | Bind address |
-| `--port` | `TTS_PORT` (`8000`) | Listen port |
-
-```bash
-python -m app serve
-```
-
-Open [http://127.0.0.1:8000](http://127.0.0.1:8000) (or your host/port). Scheduled announcements play on the **server’s** audio output, not the browser.
-
-After voices preload and the scheduler starts, a successful startup logs a line like:
-
-```text
-Startup complete in 12.3s (radio mode: stub)
-```
-
-If the server restarts after a slot's fire time has passed, that slot is skipped rather than played late. Busy retries and defer jobs only exist while the process is running — see [Process restart and in-memory state](#process-restart-and-in-memory-state) under Deploying.
-
-`radio mode` is **`stub`** or **`dra`**, derived from the radio instance registered during startup (`StubRadio` vs `DraRadio`), not from re-reading `.env` at log time. On the NUC you should see **`dra`** when `TTS_RADIO_BACKEND=dra` and HID/audio init succeeded; dev machines without hardware typically show **`stub`**. DRA misconfiguration still fails before this line (process exits with an error on stderr). The same message is written to the console and to `TTS_LOG_DIR`/`announcements.log` (see `TTS_LOG_DIR` below).
-
-### `voices`
-
-List Piper voices known to the app (featured catalog plus models on disk), with id, alias, name, locale, quality, and whether the model is already downloaded.
-
-```bash
-python -m app voices
-```
-
-### `download`
-
-Download (if needed) and load voice models into `voices/piper/` without speaking. Useful before going on-air or on a slow link.
-
-```bash
-python -m app download [voice ...]
-```
-
-Each argument is a voice id or alias. With no arguments, prepares the **default** voice (`TTS_DEFAULT_VOICE`).
-
-```bash
-python -m app download
-python -m app download amy ryan
-```
-
-### `users`
-
-Manage web UI logins stored in `TTS_USERS_PATH` (default `data/users.json`). These commands work even when you cannot sign in to the UI—use them for recovery on the server console.
-
-```bash
-python -m app users list
-python -m app users create USERNAME [options]
-python -m app users passwd USERNAME [--password PASSWORD]
-python -m app users delete USERNAME
-```
-
-**`users list`** — Print `username`, `role`, and internal `id` (tab-separated). If no users exist, the CLI suggests creating the first admin or using the web setup screen.
-
-**`users create`** — Add a user.
-
-| Option | Description |
-| --- | --- |
-| `--password` | Password on the command line (avoid on shared hosts); otherwise prompted twice |
-| `--role` | `admin` or `readonly` (default: `readonly`) |
-| `--admin` | Same as `--role admin` |
-
-Passwords must be at least **8 characters**. Roles match the web UI: **admin** (full access, user management) and **readonly** (view and Speak preview only).
-
-```bash
-python -m app users create --admin alice
-python -m app users create bob --role readonly
-```
-
-**`users passwd`** — Set a new password for an existing user (forgotten password / lockout recovery). Prompts twice unless `--password` is given.
-
-```bash
-python -m app users passwd alice
-```
-
-**`users delete`** — Remove a user. The **last admin** cannot be deleted or demoted via the API; the CLI enforces the same rule when deleting would leave no admin.
-
-```bash
-python -m app users delete bob
-```
-
-## Configuration
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `TTS_DEFAULT_VOICE` | `en_US-ryan-medium` | Default Piper voice |
-| `TTS_VOICES_DIR` | `./voices` | Model cache (`voices/piper/` holds `.onnx` files) |
-| `TTS_PIPER_VOICES_FILE` | `config/piper-voices.json` | Featured voice catalog (UI list, aliases, startup preload) |
-| `TTS_PIPER_QUALITIES` | `all` | `all` = list/preload every `voices/piper/*.onnx`; `medium` = only `*-medium` |
-| `TTS_SPEED` | `1.0` | Speaking rate (`< 1` is slower) |
-| `TTS_SENTENCE_PAUSE` | `0.25` | Silence between sentences, in seconds |
-| `TTS_HOST` / `TTS_PORT` | `0.0.0.0` / `8000` | Bind address |
-| `TTS_TIMEZONE` | `America/New_York` | Clock for schedules |
-| `TTS_DATA_DIR` | `./data` | Saved announcements JSON |
-| `TTS_USERS_PATH` | `$TTS_DATA_DIR/users.json` | Web UI users |
-| `TTS_SESSION_SECRET` | auto (`data/.session_secret`) | Signs login session cookies |
-| `TTS_SESSION_IDLE_SECONDS` | `1800` (30 min) | Log out after this much idle time (the UI's automatic 15 s refreshes do not count as activity) |
-| `TTS_LOGIN_MAX_FAILURES` | `5` | Failed sign-ins for the same username from the same client before `429` |
-| `TTS_LOGIN_WINDOW_SECONDS` | `300` | How long those failures stay counted, in seconds |
-| `TTS_PCM_CACHE_DIR` | `./data/pcm` | Pre-rendered announcement PCM (written on save and at startup; scheduled fires play this) |
-| `TTS_LOG_DIR` | `./data/logs` | Daily rotating `announcements.log` (app + uvicorn server) and filtered `access.log` (page/asset/major API hits; home polls/health/SSE omitted). Access is file-only (not stdout/stderr). Kept 30 days (`TTS_LOG_KEEP_DAYS`). |
-| `TTS_PTT_LEAD_SECONDS` | `0.4` | Delay after PTT before audio (on **dra**, silence is streamed on USB; on **stub**, host sleep) |
-| `TTS_RADIO_BACKEND` | `stub` | `stub` = in-memory PTT/COS; `dra` = CM119A HID + DRA USB audio (requires `hidapi`). Confirm the active mode in the startup log: `(radio mode: stub)` or `(radio mode: dra)` |
-| `TTS_DRA_USB_CHANNEL` | `left` | USB channel for DATA IN (**JU3=L** → `left`) |
-| `TTS_DRA_COS_LINE` | `vol_dn` | HID COS decode (`vol_dn` or `allstar3`) |
-| `TTS_DRA_COS_ACTIVE_HIGH` | `false` | Set `true` if idle/busy labels swap on `monitor` |
-| `TTS_DRA_AUDIO_DEVICES` | *(auto)* | Optional comma list of PortAudio substrings or indices (**one per DRA**). On the NUC with **two radios**, use fixed USB ports; set this only if auto-detection order is wrong |
-| `TTS_DRA_CLEAR_SECONDS` | `0` | Continuous COS idle required after synthesize, before PTT (`10` matches bench voice-gate) |
-| `TTS_DRA_CLEAR_POLL_SECONDS` | `0.25` | COS poll interval during clear wait and background idle tracking |
-| `TTS_DRA_FINAL_CHECK_SECONDS` | `1.0` | After the clear hold, keep reading COS this long before PTT; any busy read cancels (catches a key-up as the UI countdown ends). Only applies when `TTS_DRA_CLEAR_SECONDS` > 0 |
-| `TTS_DRA_COS_TRACK` | `true` | Background COS polls while the scheduler runs (idle before Trigger now counts toward clear) |
-| `TTS_DRA_HID_PATH` | *(auto)* | Hex HID path to pin **one** CM119 (Mac dev or **single** DRA on the NUC). **Omit when two DRAs are on the NUC** — each radio needs its own CM119 HID |
-| `TTS_DRA_ALSA_UNMUTE` | `true` | Linux **dra** only: run `amixer` to unmute CM119 **Speaker** at startup (see [NUC notes](docs/NUC-notes.md)). Set `false` to skip |
-| `TTS_DRA_ALSA_SPEAKER_LEVEL` | `100%` | ALSA **Speaker** level passed to `amixer sset` when unmuting |
-| `TTS_BUSY_RETRY_SECONDS` | `5` | Retry interval while the channel is busy; also the value pre-filled for a **new announcement** in the UI |
-| `TTS_BUSY_GIVE_UP_SECONDS` | `45` | Drop this fire if still busy after this long; also pre-filled for a new announcement |
-| `TTS_SCHEDULER_MAX_WAIT_SECONDS` | `5` | How long the scheduler may sleep before checking the clock again |
-| `TTS_SLOT_HALF_WINDOW_MINUTES` | `10` | How far an overlay may shift from its slot center |
-| `TTS_TRIGGER_NOW` | `false` | Dev only: show **Trigger now** on schedule rows (does not change Last or the next slot) |
-
-### Defer timing (fixed in code, not env vars)
-
-These complement `TTS_BUSY_RETRY_SECONDS` on each announcement and `TTS_DRA_CLEAR_SECONDS` / `TTS_DRA_CLEAR_POLL_SECONDS` for COS. They are **not** configurable today; names live in `app/fire.py` and `app/scheduler.py` if you need to tune behavior in a fork.
-
-| Constant | Default | Role |
-| --- | --- | --- |
-| `DEFER_CLEAR_NONBLOCKING_MAX_SECONDS` | `0.5` | After **Trigger now**, first clear-hold retry is scheduled within this cap so the HTTP request returns while the COS poll thread keeps waiting. |
-| `DEFER_RETRY_WHEN_CLEAR_MET_CAP_SECONDS` | `1.0` | When the clear hold is already satisfied, defer retries run at most this often instead of the full per-announcement busy retry interval. |
-| `SCHEDULER_MIN_WAKE_SECONDS` | `0.5` | Shortest sleep between APScheduler wakeups (avoids missing fires under macOS App Nap). |
-| `MANUAL_NUDGE_SKIP_IF_RUN_WITHIN_SECONDS` | `0.2` | Background COS nudge does not reschedule a manual defer that is already about to run. |
-| `MANUAL_NUDGE_PTT_TIMER_PROTECT_SECONDS` | `2.0` | Short PTT defer retries keep their scheduled time instead of being pulled forward when the channel clears. |
-| `MANUAL_NUDGE_MIN_WAIT_FOR_UNKNOWN_KIND_SECONDS` | `2.0` | Only `busy` / `clear` / `ptt` defers with a longer wait are nudged when idle credit meets the clear hold. |
-| `MANUAL_NUDGE_RUN_DELAY_MS` | `50` | How soon to run a nudged manual defer after the clear hold is met. |
-
-On a low-RAM host, set `TTS_PIPER_QUALITIES=medium` so only medium models are listed and preloaded. High-quality voices use more CPU and RAM.
-
-### Piper voices
-
-Browse samples at [piper-samples](https://rhasspy.github.io/piper-samples/) and downloadable models on Hugging Face [`rhasspy/piper-voices`](https://huggingface.co/rhasspy/piper-voices).
-
-**Featured voices** live in [`config/piper-voices.json`](config/piper-voices.json) (override with `TTS_PIPER_VOICES_FILE`). They appear in the UI with friendly names/aliases, are **preloaded at startup**, and are **re-downloaded automatically** if the matching `.onnx` under `voices/piper/` is missing. Deleting a featured model file without removing it from the JSON means it comes back on the next start (Hugging Face or custom URLs).
-
-**Download source:** omit `onnx_url` / `config_url` to use Piper’s Hugging Face download for standard voice ids (`en_US-…-medium`, etc.). Set optional `onnx_url` (and usually `config_url`) to HTTP(S) URLs for custom or mirrored models; files are still stored as `{id}.onnx` and `{id}.onnx.json` under `voices/piper/`.
-
-**Extra voices on disk:** copy `{id}.onnx` and `{id}.onnx.json` into `voices/piper/`. They show up in the UI (subject to `TTS_PIPER_QUALITIES`) and are loaded from disk when present. They are **not** re-downloaded if you delete them, unless something later asks for that exact voice id (for example Speak / prepare for an announcement that still references it).
-
-**Add a featured voice**
-
-1. Edit `config/piper-voices.json` and copy an existing object in the `voices` array.
-2. Set `id` to the Piper voice id (for example `en_US-libritts_r-medium`), or any filename stem you want on disk for a custom download.
-3. Choose a unique `alias` (used by the CLI, e.g. `--voice libritts`).
-4. Fill `name`, `gender`, `locale`, `quality`, and `description`.
-5. Optionally set `onnx_url` and `config_url` to HTTPS (or HTTP) download locations; leave them out to use Hugging Face for standard Piper ids.
-6. Restart the app. The first startup downloads the model into `voices/piper/` if it is not already there.
-
-Example with custom URLs (commented — do not paste live secrets into the default JSON):
-
-```json
-{
-  "id": "norman",
-  "alias": "norman",
-  "name": "Norman",
-  "gender": "male",
-  "locale": "en_US",
-  "quality": "medium",
-  "description": "Custom voice.",
-  "onnx_url": "https://example.com/voices/norman.onnx",
-  "config_url": "https://example.com/voices/norman.onnx.json"
-}
-```
-
-Optional `.env` in the project root (see [`.env.example`](.env.example)). Variables already set in the shell override that file.
-
-## API
-
-`POST /api/speak`
-
-```json
-{ "text": "Hello. Pause after this.", "voice": "en_US-lessac-medium", "speed": 0.75, "sentence_pause": 0.6 }
-```
-
-Streams 16-bit little-endian mono PCM. Format headers:
-
-- `X-Voice`
-- `X-Sample-Rate` (usually 22050)
-- `X-Sample-Width` (`2`), `X-Channels` (`1`)
-
-Audio is produced one Piper sentence at a time and sent as it is ready.
-
-`GET /api/voices` lists voices and the server defaults for new announcements (speed, sentence pause, busy retry / give-up). `POST /api/prepare` downloads/loads a model without speaking. Most `/api/*` routes require a login session cookie. Failed sign-ins for the same username from the same address return `429` after `TTS_LOGIN_MAX_FAILURES` attempts (default 5) within `TTS_LOGIN_WINDOW_SECONDS` (default 300) until the window passes; that limit is **in-memory** and clears on process restart (see [Process restart and in-memory state](#process-restart-and-in-memory-state)). Requests carrying an `X-Background-Poll` header (any value; only its presence is checked) are authenticated but do not reset the idle timer. User management is under `/api/users` (Admin only). Auth helpers: `/api/auth/status`, `/api/auth/setup`, `/api/auth/login`, `/api/auth/logout`, `/api/auth/me`.
-
-`GET /api/system/stats` returns `{"celsius", "thermal_state", "cpu_percent", "memory_percent"}` (authenticated). The UI uses `GET /api/events/stats` (SSE): an initial `snapshot` event, then `stats` events about every 15s from a single server broadcast (one sample shared across tabs). If the stream drops, the client falls back to REST polling every 15s. CPU% uses `psutil.cpu_percent(interval=None)` (average since the previous sample); memory uses psutil. Temperature is °C from Linux thermal sysfs, or macOS `ProcessInfo.thermalState` (`nominal` / `fair` / `serious` / `critical`) when Celsius is unavailable.
-
-`GET /api/schedules` returns upcoming fire, today’s slot clock, warnings, settings, Newsline status, and schedule rows. **Earlier today** on that clock is simulated from the current baseline rotation (not a play log); see [Today’s schedule grid vs what played](docs/how-to-schedule.md#todays-schedule-grid-vs-what-played). Announcements are `GET/POST /api/announcements` and `PUT/DELETE /api/announcements/{id}`. Schedules are `GET/POST /api/schedules` and `PUT/PATCH/DELETE /api/schedules/{id}`. `PUT /api/settings` updates baseline shuffle, the slot window, the Thursday–Friday Newsline check times, and the repeater timeout. `POST /api/newsline/check` starts one Newsline download (admin). `POST /api/newsline/preview` streams the latest split report for the editor Play button.
-
-```bash
-uv run pytest -q
-uv run basedpyright   # static types for app/; known debt is baselined
-```
-
-Pushes and pull requests to `main` run the same default suite plus basedpyright in GitHub Actions (see the **Test** workflow; you can also re-run it manually from the Actions tab). Existing typing debt is recorded in `.basedpyright/baseline.json` so only **new** diagnostics fail the check — prefer fixing types over growing the baseline. Tests set `TTS_SKIP_DOTENV=1` (in `tests/conftest.py`) so your local `.env` cannot change their results. Browser tests for the manual-trigger countdown are opt-in locally: `uv run playwright install chromium` once, then `uv run pytest -m e2e`. On GitHub, run the **E2E** workflow manually from the Actions tab.
-
-To catch Linux-only test paths before push (macOS dev machines skip some ALSA/PortAudio code), run `./scripts/ci-local.sh` (Docker + Ubuntu 24.04). It uses a temporary venv inside the container and does not change your Mac `.venv`.
+CI runs pytest + basedpyright on `main`. Optional e2e: `uv run pytest -m e2e` (install Chromium once). Linux-only paths before push: `./scripts/ci-local.sh`.
 
 ## Data files
 
-`data/announcements.json` (version 2) and `data/users.json` (version 1) are read on every request. If either file exists but is not the expected version, the app refuses to start (and API calls fail) instead of treating it as empty — an empty read followed by any save would overwrite your data. Move the file aside or restore a backup. An empty file or `{}` is treated as a fresh install.
+`data/announcements.json` (version 2) and `data/users.json` (version 1) are read on every request. An unrecognized version refuses to start instead of treating the file as empty (which would risk overwriting data on the next save). Empty / `{}` means a fresh install.
 
 ## Review history
 
-Historical notes on review fixes that were not filed as GitHub issues are in [docs/code-review-findings.md](docs/code-review-findings.md). Bugs and minor enhancements are tracked on GitHub.
+Historical review-fix notes: [docs/code-review-findings.md](docs/code-review-findings.md). Bugs and enhancements are tracked on GitHub.

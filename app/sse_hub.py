@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 from app.home_live import build_home_live_status
 from app.live_notify import register_home_live_publishers
-from app.manual_trigger_types import SystemStats
+from app.system_status import SystemStats
 
 log = logging.getLogger("app.sse_hub")
 

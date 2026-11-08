@@ -5,7 +5,13 @@ from __future__ import annotations
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from app.models import Announcement, Schedule, Settings, StoreDocument
+from app.models import (
+    Settings,
+    StoreDocument,
+    TtsAnnouncement,
+    parse_announcement as Announcement,
+    parse_schedule as Schedule,
+)
 from app.schedule_logic import resolve_slot, schedule_warning
 from app.slots import slot_from_parts
 from app.spoken_length import apply_played_length, recompute_too_long
@@ -14,16 +20,18 @@ ZONE = ZoneInfo("America/New_York")
 
 
 def test_length_over_timeout_minus_two_is_too_long():
-    item = Announcement(name="Long", text="Hello.")
+    item = TtsAnnouncement(name="Long", text="Hello.")
     marked = apply_played_length(item, 178.1, 180)
-    assert marked.too_long
-    assert not apply_played_length(item, 178, 180).too_long
-    assert not recompute_too_long(marked, 200).too_long
+    assert marked.kind == "tts" and marked.too_long
+    cleared = apply_played_length(item, 178, 180)
+    assert cleared.kind == "tts" and not cleared.too_long
+    recomputed = recompute_too_long(marked, 200)
+    assert recomputed.kind == "tts" and not recomputed.too_long
 
 
 def test_too_long_schedule_is_replaced_by_the_baseline():
-    short = Announcement(name="ID", text="id")
-    long = apply_played_length(Announcement(name="Net", text="net"), 200, 180)
+    short = TtsAnnouncement(name="ID", text="id")
+    long = apply_played_length(TtsAnnouncement(name="Net", text="net"), 200, 180)
     baseline = Schedule(name="Baseline", kind="baseline", announcement_id=short.id)
     weekly = Schedule(
         name="Friday net",

@@ -22,7 +22,7 @@ from app.api_types import (
 from app.deps import AdminUser, AuthUser
 from app.home_live import build_home_live_status
 from app.live_notify import notify_home_data_changed, notify_home_live_status
-from app.models import Schedule, Settings, StoreDocument
+from app.models import Schedule, Settings, StoreDocument, validate_schedule
 from app.schedule_logic import (
     clock_for_day,
     document_warnings,
@@ -35,8 +35,15 @@ from app.manual_trigger_state import (
     clear_manual_trigger_drop_notice,
     peek_manual_trigger_drop_notice,
 )
+from app.fire_types import FireOutcome
 from app.scheduler import run_manual_trigger, sync_jobs
-from app.schemas import ScheduleDetail, ScheduleIn, SchedulePatch, SettingsIn
+from app.schemas import (
+    ScheduleDetail,
+    ScheduleIn,
+    SchedulePatch,
+    SettingsIn,
+    build_schedule_detail,
+)
 from app.store import AnnouncementStore, get_store
 
 router = APIRouter()
@@ -52,8 +59,10 @@ def _recompute_lengths(store: AnnouncementStore, timeout: int) -> None:
     from app.spoken_length import recompute_too_long
 
     for item in store.document().announcements:
+        if item.kind != "tts":
+            continue
         updated = recompute_too_long(item, timeout)
-        if updated.too_long != item.too_long:
+        if updated.kind == "tts" and updated.too_long != item.too_long:
             _ = store.save_announcement(updated)
 
 
@@ -71,7 +80,7 @@ def _build_schedule(payload: ScheduleIn) -> Schedule:
     if not data.get("id"):
         data.pop("id", None)
     try:
-        return Schedule.model_validate(data)
+        return validate_schedule(data)
     except ValidationError as exc:
         raise HTTPException(status_code=400, detail=_validation_detail(exc)) from exc
 
@@ -239,9 +248,7 @@ def get_schedule(schedule_id: str, _user: AuthUser) -> ScheduleDetail:
     document = store.document()
     from app.schedule_logic import schedule_warning
 
-    return ScheduleDetail.model_validate(
-        {**item.model_dump(), "warning": schedule_warning(item, document)}
-    )
+    return build_schedule_detail(item, schedule_warning(item, document))
 
 
 @router.put("/api/schedules/{schedule_id}")
@@ -282,13 +289,13 @@ def trigger_schedule_now(schedule_id: str, _admin: AdminUser) -> TriggerResult:
     if get_store().get_schedule(schedule_id) is None:
         raise HTTPException(status_code=404, detail="Schedule not found")
     result = run_manual_trigger(schedule_id)
-    if result == "missing":
+    if result == FireOutcome.MISSING:
         raise HTTPException(status_code=404, detail="Schedule not found")
-    if result == "disabled":
+    if result == FireOutcome.DISABLED:
         raise HTTPException(status_code=400, detail="Schedule is disabled")
-    if result == "skipped_lock":
+    if result == FireOutcome.SKIPPED_LOCK:
         raise HTTPException(status_code=409, detail="Another announcement is playing")
-    if result == "dropped":
+    if result == FireOutcome.DROPPED:
         notice = peek_manual_trigger_drop_notice()
         detail = (
             str(notice.get("detail"))
@@ -296,11 +303,11 @@ def trigger_schedule_now(schedule_id: str, _admin: AdminUser) -> TriggerResult:
             else "Channel still busy"
         )
         raise HTTPException(status_code=409, detail=detail)
-    if result == "deferred":
+    if result == FireOutcome.DEFERRED:
         notify_home_live_status(force=True)
-        return {"result": "deferred"}
+        return {"result": FireOutcome.DEFERRED}
     notify_home_live_status(force=True)
-    return {"result": result}
+    return {"result": str(result)}
 
 
 @router.delete("/api/schedules/{schedule_id}")

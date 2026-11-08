@@ -4,12 +4,16 @@ from collections.abc import Iterator, Sequence
 
 from app.audio import PcmChunk, materialize_chunks
 from app.config import (
+    APP_TITLE,
     DEFAULT_BUSY_GIVE_UP_SECONDS,
     DEFAULT_BUSY_RETRY_SECONDS,
     DEFAULT_SENTENCE_PAUSE,
     DEFAULT_SPEED,
     MAX_BUSY_GIVE_UP_SECONDS,
+    MAX_TEXT_CHARS,
     PTT_LEAD_SECONDS,
+    STATION_CALL,
+    STATION_NAME,
 )
 from app.tts.base import VoiceInfo, VoicesPayload
 from app.tts.piper import PiperEngine
@@ -67,6 +71,10 @@ class EngineRegistry:
             "busy_give_up_seconds": DEFAULT_BUSY_GIVE_UP_SECONDS,
             "max_busy_give_up_seconds": MAX_BUSY_GIVE_UP_SECONDS,
             "ptt_lead_seconds": PTT_LEAD_SECONDS,
+            "max_text_chars": MAX_TEXT_CHARS,
+            "station_call": STATION_CALL,
+            "station_name": STATION_NAME,
+            "app_title": APP_TITLE,
             "voices": [voice.to_dict() for voice in self.engine.list_voices()],
         }
 

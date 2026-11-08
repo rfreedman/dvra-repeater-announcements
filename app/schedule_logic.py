@@ -12,7 +12,7 @@ import calendar
 import random
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, assert_never
 from zoneinfo import ZoneInfo
 
 from app.models import (
@@ -20,6 +20,7 @@ from app.models import (
     DAY_NAMES,
     MONTH_LABELS,
     Announcement,
+    DayName,
     Schedule,
     StoreDocument,
     format_hhmm,
@@ -84,7 +85,8 @@ def overlay_matches(schedule: Schedule, slot: Slot) -> bool:
         if stamp not in schedule.slots:
             return False
         weekday = DAY_NAMES.index(schedule.days[0])
-        wanted = nth_weekday_date(slot.day.year, slot.day.month, weekday, schedule.occurrence or 1)
+        occurrence = schedule.occurrence if schedule.occurrence is not None else 1
+        wanted = nth_weekday_date(slot.day.year, slot.day.month, weekday, occurrence)
         return slot.day == wanted
     if schedule.kind == "range":
         return _range_matches(schedule, slot)
@@ -115,6 +117,8 @@ def _countdown_occupies(
 
 
 def _range_matches(schedule: Schedule, slot: Slot) -> bool:
+    if schedule.kind != "range":
+        return False
     if schedule.start_date is None or schedule.event_date is None or not schedule.event_slot:
         return False
     return _countdown_occupies(
@@ -134,7 +138,14 @@ def _shift_month(year: int, month: int, delta: int) -> tuple[int, int]:
 
 
 def _monthly_range_matches(schedule: Schedule, slot: Slot) -> bool:
-    if not schedule.days or schedule.occurrence is None or not schedule.event_slot or schedule.days_before is None:
+    if schedule.kind != "monthly_range":
+        return False
+    if (
+        not schedule.days
+        or schedule.occurrence is None
+        or not schedule.event_slot
+        or schedule.days_before is None
+    ):
         return False
     weekday = DAY_NAMES.index(schedule.days[0])
     skip = set(schedule.skip_months)
@@ -503,7 +514,7 @@ def _stamp_from_index(index: int) -> str:
     return format_hhmm(index // 2, 0 if index % 2 == 0 else 30)
 
 
-def _day_phrase(days: list[str], plural: bool) -> str:
+def _day_phrase(days: list[str] | list[DayName], plural: bool) -> str:
     if not days:
         return ""
     if set(days) >= set(DAY_NAMES):
@@ -519,7 +530,7 @@ def _day_phrase(days: list[str], plural: bool) -> str:
     return _join_en(parts)
 
 
-def _on_days(days: list[str], *, plural: bool) -> str:
+def _on_days(days: list[str] | list[DayName], *, plural: bool) -> str:
     phrase = _day_phrase(days, plural)
     if not phrase:
         return ""
@@ -566,7 +577,7 @@ def summarize(schedule: Schedule) -> str:
     if schedule.kind == "weekly":
         return f"{_slot_phrase(schedule.slots)}{_on_days(schedule.days, plural=True)}{offset}{silence}"
     if schedule.kind == "monthly":
-        occ = _ordinal(schedule.occurrence or 1)
+        occ = _ordinal(schedule.occurrence if schedule.occurrence is not None else 1)
         weekday = DAY_LABELS[schedule.days[0]] if schedule.days else "day"
         extra = ""
         if schedule.skip_months:
@@ -582,7 +593,7 @@ def summarize(schedule: Schedule) -> str:
             f"(not that slot or later that day){offset}{silence}"
         )
     if schedule.kind == "monthly_range":
-        occ = _ordinal(schedule.occurrence or 1)
+        occ = _ordinal(schedule.occurrence if schedule.occurrence is not None else 1)
         weekday = DAY_LABELS[schedule.days[0]] if schedule.days else "day"
         lead = schedule.days_before if schedule.days_before is not None else "?"
         event_slot = schedule.event_slot or "?"
@@ -595,7 +606,7 @@ def summarize(schedule: Schedule) -> str:
             f"{which} for {lead} {unit} before the {occ} {weekday} {event_slot} slot "
             f"each month (not that slot or later that day){offset}{extra}{silence}"
         )
-    return schedule.kind
+    assert_never(schedule.kind)
 
 
 def schedule_warning(
@@ -622,11 +633,15 @@ def schedule_warning(
             )
         if parts:
             return f"Plays, but {'; '.join(parts)} will be left out."
-        if announcement.kind == "tts" and not (announcement.text or "").strip():
+        if announcement.kind == "tts" and not announcement.text.strip():
             return "Won't play — announcement text is empty."
     zone = zone_for(document.settings.timezone)
     when = now or datetime.now(zone)
-    if schedule.kind == "range" and schedule.event_date and schedule.event_date < when.date():
+    if (
+        schedule.kind == "range"
+        and schedule.event_date is not None
+        and schedule.event_date < when.date()
+    ):
         return "Won't play — the event date has already passed."
     if schedule.kind == "baseline" and not schedule.enabled:
         return "Won't play — this schedule is disabled."

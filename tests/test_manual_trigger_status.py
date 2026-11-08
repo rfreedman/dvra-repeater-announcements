@@ -64,7 +64,9 @@ def test_inflight_row_reports_give_up_remaining(store, monkeypatch):
     monkeypatch.setattr(manual_trigger_state, "radio_status_for_ui", lambda: (True, 0.0, 10.0))
     set_manual_inflight(schedule.id, "x")
     try:
-        zone = scheduler.zone_for(store.document().settings.timezone)
+        from app.slots import zone_for
+
+        zone = zone_for(store.document().settings.timezone)
         set_manual_inflight_deadline(schedule.id, datetime.now(zone) + timedelta(seconds=60))
         (row,) = pending_manual_triggers()
     finally:
@@ -76,9 +78,9 @@ def test_inflight_row_reports_give_up_remaining(store, monkeypatch):
 def test_schedules_poll_reports_running_during_immediate_manual_transmit(
     client, store, radio, monkeypatch
 ):
-    monkeypatch.setattr("app.scheduler.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr("app.scheduler_fire.time.sleep", lambda _seconds: None)
     monkeypatch.setattr(
-        "app.scheduler.chunks_for_announcement",
+        "app.scheduler_fire.chunks_for_announcement",
         lambda _item: [PcmChunk(pcm_int16=b"\x00\x00", sample_rate=22050)],
     )
     on_air = threading.Event()
@@ -88,7 +90,7 @@ def test_schedules_poll_reports_running_during_immediate_manual_transmit(
         on_air.set()
         release.wait(5)
 
-    monkeypatch.setattr("app.scheduler.play_chunks", play)
+    monkeypatch.setattr("app.scheduler_fire.play_chunks", play)
     _announcement, schedule = _seed_baseline(store)
     result: dict[str, str] = {}
     worker = threading.Thread(target=lambda: result.update(r=run_manual_trigger(schedule.id)))
@@ -112,7 +114,7 @@ def test_clear_running_while_manual_inflight_skips_intermediate_notify(store, mo
     announcement, schedule = _seed_baseline(store)
     notifies: list[dict] = []
     monkeypatch.setattr(
-        "app.scheduler._notify_home_live",
+        "app.scheduler_fire._notify_home_live",
         lambda *, force=False: notifies.append({"force": force}),
     )
     set_manual_inflight(schedule.id, announcement.name)
@@ -139,7 +141,7 @@ def test_clear_running_without_inflight_still_notifies(store, monkeypatch):
     announcement, schedule = _seed_baseline(store)
     notifies: list[dict] = []
     monkeypatch.setattr(
-        "app.scheduler._notify_home_live",
+        "app.scheduler_fire._notify_home_live",
         lambda *, force=False: notifies.append({"force": force}),
     )
     _set_running(announcement, schedule.id)

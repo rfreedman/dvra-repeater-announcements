@@ -17,14 +17,15 @@ _thread: threading.Thread | None = None
 def _poll_loop() -> None:
     # Imported here, not at module scope: the DRA stack is only loaded once polling starts.
     from app.dra_alsa_mixer import apply_cm119_replug_recovery
-    from app.dra_radio import dra_radio_from
+    from app.dra_radio import as_dra_radio
     from app.manual_trigger_state import nudge_manual_defer_jobs_if_clear_ready
+    from app.radio import as_usb_abort
 
     poll = max(0.05, DRA_CLEAR_POLL_SECONDS)
     while not _stop.is_set():
         try:
             radio = get_radio()
-            dra = dra_radio_from(radio)
+            dra = as_dra_radio(radio)
             if dra is not None and not dra.usb_hid_present:
                 if not dra.note_usb_hid_presence():
                     notify_home_live_status_throttled()
@@ -44,8 +45,8 @@ def _poll_loop() -> None:
             notify_home_live_status_throttled()
         except Exception as exc:
             try:
-                dra_poll = dra_radio_from(get_radio())
-                absent = dra_poll is not None and not dra_poll.usb_hid_present
+                abort = as_usb_abort(get_radio())
+                absent = abort is not None and not abort.usb_hid_present
             except Exception:
                 absent = False
             if absent:

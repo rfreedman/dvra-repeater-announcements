@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import sys
-from typing import Protocol, cast, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 from app.dra_alsa_unmute import (
     alsa_card_from_portaudio_device as alsa_card_from_portaudio_device,
@@ -22,7 +22,9 @@ log = logging.getLogger("app.dra_alsa_mixer")
 
 
 @runtime_checkable
-class _DraRadioLike(Protocol):
+class DraAlsaRadio(Protocol):
+    """DRA surface needed for ALSA unmute / USB replug recovery."""
+
     @property
     def audio_device_indices(self) -> list[int]: ...
 
@@ -52,9 +54,8 @@ class _DraRadioLike(Protocol):
     def prepare_for_transmit(self) -> None: ...
 
 
-def _as_dra_radio(radio: object) -> _DraRadioLike | None:
-    candidate = cast(object, getattr(radio, "_inner", radio))
-    return candidate if isinstance(candidate, _DraRadioLike) else None
+def _as_dra_radio(radio: object) -> DraAlsaRadio | None:
+    return radio if isinstance(radio, DraAlsaRadio) else None
 
 
 def cm119_alsa_cards_to_unmute(

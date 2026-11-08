@@ -89,10 +89,3 @@ class HomeLiveStatus(TypedDict):
     manual_trigger_drop_notice: ManualDropNotice | None
     skip_notice: SkipNotice | None
     newsline_playing: bool
-
-
-class SystemStats(TypedDict):
-    celsius: float | None
-    thermal_state: str | None
-    cpu_percent: float | None
-    memory_percent: float | None

@@ -14,7 +14,7 @@ from pydantic import ValidationError
 from starlette.middleware.sessions import SessionMiddleware
 
 from app import __version__
-from app.config import STATIC_DIR, session_secret
+from app.config import APP_TITLE, STATIC_DIR, session_secret
 from app.deps import AuthUser
 from app.home_live import build_home_live_status
 from app.pcm_cache import warm_all
@@ -39,8 +39,7 @@ from app.startup import StartupError, fail_startup, init_radio_at_startup
 from app.startup_gate import clear_startup_ready, is_startup_ready, mark_startup_ready
 from app.stats_sse import stats_broadcast_loop
 from app.store import DataFileError, get_store
-from app.manual_trigger_types import SystemStats
-from app.system_status import read_system_stats
+from app.system_status import SystemStats, read_system_stats
 from app.users import get_user_store
 from app.uvicorn_shutdown import register_stats_broadcast_stop
 
@@ -121,7 +120,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         stop_scheduler()
 
 
-app = FastAPI(title="DVRA Repeater Announcements", version=__version__, lifespan=lifespan)
+app = FastAPI(title=APP_TITLE, version=__version__, lifespan=lifespan)
 app.add_middleware(
     SessionMiddleware,
     secret_key=session_secret(),

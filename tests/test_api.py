@@ -6,15 +6,15 @@ from datetime import date, datetime
 import pytest
 
 from app.audio import PcmChunk
-from app.models import Announcement, Schedule
+from app.models import BaselineSchedule, TtsAnnouncement, validate_schedule
 from app.radio import StubRadio, set_radio
 from app.store import DataFileError
 
 
 def _seed_baseline(store, name="Station ID"):
-    announcement = store.save_announcement(Announcement(name=name, text="This is the ID."))
+    announcement = store.save_announcement(TtsAnnouncement(name=name, text="This is the ID."))
     schedule = store.save_schedule(
-        Schedule(name="Baseline ID", kind="baseline", announcement_id=announcement.id)
+        BaselineSchedule(name="Baseline ID", announcement_id=announcement.id)
     )
     return announcement, schedule
 
@@ -25,7 +25,7 @@ def test_unversioned_json_is_refused_not_overwritten(store):
     with pytest.raises(DataFileError):
         store.list_announcements()
     with pytest.raises(DataFileError):
-        store.save_announcement(Announcement(name="New", text="Hello"))
+        store.save_announcement(TtsAnnouncement(name="New", text="Hello"))
     assert store.path.read_text(encoding="utf-8") == legacy
 
 
@@ -136,7 +136,7 @@ def test_duplicate_baseline_announcement_is_conflict(client, store):
 
 def test_equal_priority_overlays_conflict(client, store):
     announcement, _baseline = _seed_baseline(store)
-    extra = store.save_announcement(Announcement(name="Other", text="Other text."))
+    extra = store.save_announcement(TtsAnnouncement(name="Other", text="Other text."))
     first = client.post(
         "/api/schedules",
         json={
@@ -227,7 +227,7 @@ def test_upcoming_is_running_when_a_fire_is_in_progress(client, store, monkeypat
 def test_weekly_overlay_shows_on_sunday_clock(client, store):
     announcement, _baseline = _seed_baseline(store)
     store.save_schedule(
-        Schedule.model_validate(
+        validate_schedule(
             {
                 "name": "Tech Net",
                 "kind": "weekly",
@@ -266,12 +266,12 @@ def test_trigger_now_disabled_hides_endpoint(client, store, monkeypatch):
 
 def test_trigger_now_plays_without_changing_last_or_next(client, store, radio, monkeypatch):
     monkeypatch.setattr("app.config.TRIGGER_NOW", True)
-    monkeypatch.setattr("app.scheduler.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr("app.scheduler_fire.time.sleep", lambda _seconds: None)
     monkeypatch.setattr(
-        "app.scheduler.chunks_for_announcement",
+        "app.scheduler_fire.chunks_for_announcement",
         lambda _item: [PcmChunk(pcm_int16=b"\x00\x00", sample_rate=22050)],
     )
-    monkeypatch.setattr("app.scheduler.play_chunks", lambda _chunks: None)
+    monkeypatch.setattr("app.scheduler_fire.play_chunks", lambda _chunks: None)
     _announcement, schedule = _seed_baseline(store)
     before = client.get("/api/schedules").json()
     assert before["trigger_now_enabled"] is True

@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 from app.audio import PcmChunk
 from app.fire import FireContext, FireDeps, LoadedFire, handle_fire
-from app.models import Announcement, Schedule
+from app.models import parse_announcement as Announcement, Schedule, parse_schedule
 from app.radio import StubRadio, transmit
 
 TZ = ZoneInfo("America/New_York")
@@ -28,7 +28,7 @@ def _announcement(**kwargs) -> Announcement:
 
 
 def _schedule(**kwargs) -> Schedule:
-    return Schedule.model_validate(
+    return parse_schedule(
         {
             "id": "sched1",
             "name": "Baseline ID",
@@ -230,7 +230,7 @@ def test_play_error_still_unkeys_ptt():
 def test_silence_does_not_key_or_play(caplog):
     radio = StubRadio()
     announcement = _announcement()
-    schedule = Schedule.model_validate(
+    schedule = parse_schedule(
         {
             "id": "quiet",
             "name": "Net in progress",
@@ -253,7 +253,7 @@ def test_silence_does_not_key_or_play(caplog):
 def test_overlay_transmit_does_not_consume_baseline():
     radio = StubRadio()
     announcement = _announcement(name="Tech Net")
-    schedule = Schedule.model_validate(
+    schedule = parse_schedule(
         {
             "id": "net",
             "name": "Weekly",

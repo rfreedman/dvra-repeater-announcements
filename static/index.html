@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>W2ZQ Announcements</title>
+    <title>Announcements</title>
     <link rel="icon" href="/static/favicon.ico" sizes="any" />
     <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/static/favicon-32.png" type="image/png" sizes="32x32" />
@@ -20,9 +20,9 @@
   <body>
     <main class="shell wide">
       <header class="mast">
-        <img class="logo" src="/static/logo.png" alt="Delaware Valley Radio Association" width="48" height="48" />
+        <img class="logo" src="/static/logo.png" alt="" width="48" height="48" id="station-logo" />
         <div class="mast-title">
-          <h1>W2ZQ Announcements</h1>
+          <h1 id="app-heading">Announcements</h1>
           <span class="mast-version">v{{APP_VERSION}}</span>
         </div>
         <nav class="mast-nav">
@@ -517,7 +517,7 @@
               <label class="label" for="speed">Speech Rate</label>
               <span id="speed-value">1.00×</span>
             </div>
-            <input id="speed" type="range" min="0.5" max="1.5" step="0.05" value="0.8" />
+            <input id="speed" type="range" min="0.5" max="1.5" step="0.05" value="1" />
           </div>
           <div class="control">
             <div class="control-head">

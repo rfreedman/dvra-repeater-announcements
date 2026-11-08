@@ -4,11 +4,15 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel
 
 from app.config import NEWSLINE_DIR
 from app.json_io import write_json_atomic
+
+NewslinePhase = Literal["idle", "checking", "downloading", "splitting"]
+NewslineOutcome = Literal["new", "current"]
 
 
 class NewsState(BaseModel):
@@ -18,12 +22,12 @@ class NewsState(BaseModel):
     split_ok: bool = False
     completed_at: datetime | None = None
     error: str | None = None
-    phase: str = "idle"
+    phase: NewslinePhase = "idle"
     last_check_at: datetime | None = None
     # Report number being downloaded or split. Cleared when the check goes idle.
     working_report: int | None = None
     # "new" after a split, "current" when a check finds that report already split.
-    last_outcome: str | None = None
+    last_outcome: NewslineOutcome | None = None
     # Downloaded this report but split failed; scheduled checks skip it.
     split_failed_report: int | None = None
 
