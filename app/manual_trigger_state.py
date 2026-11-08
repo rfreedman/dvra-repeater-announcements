@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 from datetime import datetime, timedelta
+from typing import cast
 from zoneinfo import ZoneInfo
 
 from apscheduler.triggers.date import DateTrigger
@@ -18,6 +19,11 @@ from app.manual_trigger_types import (
     PendingManualTriggerRow,
 )
 from app.radio import as_clear_wait, as_cos_snapshot, as_idle_credit, get_radio
+from app.scheduler_types import (
+    SchedulerJob,
+    manual_job_deadline_iso,
+    manual_job_defer_kind,
+)
 from app.slots import as_local, zone_for
 from app.store import get_store
 
@@ -194,16 +200,18 @@ def nudge_manual_defer_jobs_if_clear_ready() -> None:
     zone = ZoneInfo(TIMEZONE)
     now = datetime.now(zone)
     for job in list(sched.get_jobs()):
-        if _manual_schedule_id(job.id or "") is None:
+        typed_job = cast(SchedulerJob, job)
+        job_id = typed_job.id or ""
+        if _manual_schedule_id(job_id) is None:
             continue
-        next_run = job.next_run_time
+        next_run = typed_job.next_run_time
         if next_run is None:
             continue
         wait_s = (as_local(next_run, zone) - now).total_seconds()
         if wait_s <= MANUAL_NUDGE_SKIP_IF_RUN_WITHIN_SECONDS:
             continue
-        kwargs = dict(job.kwargs or {})
-        defer_kind = kwargs.get("defer_kind")
+        raw_kwargs = dict(typed_job.kwargs or {})
+        defer_kind = manual_job_defer_kind(typed_job)
         # Short PTT retries (~1s) should run on their timer, not yanked to MANUAL_NUDGE_RUN_DELAY_MS.
         if defer_kind == "ptt" and wait_s <= MANUAL_NUDGE_PTT_TIMER_PROTECT_SECONDS:
             continue
@@ -212,17 +220,23 @@ def nudge_manual_defer_jobs_if_clear_ready() -> None:
             and defer_kind not in ("busy", "clear", "ptt")
         ):
             continue
+        schedule_id = str(raw_kwargs.get("schedule_id") or "") or _manual_schedule_id(job_id)
+        if not schedule_id:
+            continue
+        # Preserve original kwargs; only ensure schedule_id is present for the retry call.
+        nudge_kwargs = dict(raw_kwargs)
+        nudge_kwargs["schedule_id"] = schedule_id
         sched.add_job(
             run_manual_trigger,
             DateTrigger(run_date=now + timedelta(milliseconds=MANUAL_NUDGE_RUN_DELAY_MS)),
-            id=job.id,
+            id=job_id,
             replace_existing=True,
-            kwargs=kwargs,
+            kwargs=nudge_kwargs,
             misfire_grace_time=DEFER_MISFIRE_GRACE_SECONDS,
         )
         fire_trace(
             "Nudged manual defer job %s (idle=%.1fs, was %.1fs until run)",
-            job.id,
+            job_id,
             idle_s,
             wait_s,
         )
@@ -251,12 +265,13 @@ def pending_manual_triggers() -> list[PendingManualTriggerRow]:
     from app.scheduler import _manual_schedule_id, _parse_local, get_scheduler
 
     sched = get_scheduler()
-    deferred: dict[str, object] = {}
+    deferred: dict[str, SchedulerJob] = {}
     if sched is not None:
         for job in sched.get_jobs():
-            schedule_id = _manual_schedule_id(job.id or "")
+            typed_job = cast(SchedulerJob, job)
+            schedule_id = _manual_schedule_id(typed_job.id or "")
             if schedule_id is not None:
-                deferred[schedule_id] = job
+                deferred[schedule_id] = typed_job
     with _manual_inflight_lock:
         inflight_deadlines = {
             key: entry.get("deadline_iso") for key, entry in _manual_inflight.items()
@@ -282,7 +297,7 @@ def pending_manual_triggers() -> list[PendingManualTriggerRow]:
         retry_in: float | None = 0.0
         deadline_iso = inflight_deadlines.get(schedule_id)
         if job is not None:
-            deadline_iso = (job.kwargs or {}).get("deadline_iso") or deadline_iso
+            deadline_iso = manual_job_deadline_iso(job) or deadline_iso
         if deadline_iso:
             deadline = _parse_local(str(deadline_iso), zone)
             give_up_remaining = max(0.0, (deadline - now).total_seconds())

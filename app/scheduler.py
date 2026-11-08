@@ -3,9 +3,9 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime, timedelta
+from typing import overload
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -53,6 +53,12 @@ from app.pcm_cache import chunks_for_announcement
 from app.playback import play_chunks
 from app.radio import get_radio
 from app.schedule_logic import resolve_slot, resolve_window
+from app.scheduler_types import (
+    ManualDeferFn,
+    ManualDeferJobKwargs,
+    ScheduledDeferFn,
+    ScheduledDeferJobKwargs,
+)
 from app.slots import as_local, slot_from_key, zone_for
 from app.store import get_store
 
@@ -85,11 +91,16 @@ class PromptBackgroundScheduler(BackgroundScheduler):
     App-Napped for well over the 30s misfire window.
     """
 
-    def __init__(self, *args, max_wait_seconds: float = SCHEDULER_MAX_WAIT_SECONDS, **kwargs):
+    def __init__(
+        self,
+        *args: object,
+        max_wait_seconds: float = SCHEDULER_MAX_WAIT_SECONDS,
+        **kwargs: object,
+    ) -> None:
         super().__init__(*args, **kwargs)
         self.max_wait_seconds = max(SCHEDULER_MIN_WAKE_SECONDS, float(max_wait_seconds))
 
-    def _process_jobs(self):
+    def _process_jobs(self) -> float | None:
         wait = super()._process_jobs()
         if wait is None:
             return self.max_wait_seconds
@@ -248,11 +259,29 @@ def _fire_window(
     return fired_at, fired_at + timedelta(seconds=give_up)
 
 
+@overload
 def _add_defer_job(
-    func: Callable[..., str],
+    func: ScheduledDeferFn,
     slot_key: str,
     run_at: datetime,
-    kwargs: dict[str, object],
+    kwargs: ScheduledDeferJobKwargs,
+) -> bool: ...
+
+
+@overload
+def _add_defer_job(
+    func: ManualDeferFn,
+    slot_key: str,
+    run_at: datetime,
+    kwargs: ManualDeferJobKwargs,
+) -> bool: ...
+
+
+def _add_defer_job(
+    func: ScheduledDeferFn | ManualDeferFn,
+    slot_key: str,
+    run_at: datetime,
+    kwargs: ScheduledDeferJobKwargs | ManualDeferJobKwargs,
 ) -> bool:
     sched = get_scheduler()
     if sched is None:
@@ -263,7 +292,7 @@ def _add_defer_job(
         DateTrigger(run_date=as_local(run_at, ZoneInfo(TIMEZONE))),
         id=_defer_id(slot_key),
         replace_existing=True,
-        kwargs=kwargs,
+        kwargs=dict(kwargs),
         misfire_grace_time=DEFER_MISFIRE_GRACE_SECONDS,
     )
     return True
@@ -307,16 +336,12 @@ def run_scheduled_fire(
         )
 
     def defer(run_at: datetime, fire_ctx: FireContext) -> None:
-        _add_defer_job(
-            run_scheduled_fire,
-            slot_key,
-            run_at,
-            {
-                "slot_key": fire_ctx.slot_key,
-                "fired_at_iso": fire_ctx.fired_at.isoformat(),
-                "deadline_iso": fire_ctx.deadline.isoformat(),
-            },
-        )
+        defer_kwargs: ScheduledDeferJobKwargs = {
+            "slot_key": fire_ctx.slot_key,
+            "fired_at_iso": fire_ctx.fired_at.isoformat(),
+            "deadline_iso": fire_ctx.deadline.isoformat(),
+        }
+        _ = _add_defer_job(run_scheduled_fire, slot_key, run_at, defer_kwargs)
 
     deps = FireDeps(
         now=datetime.now(zone),
@@ -446,17 +471,13 @@ def _run_manual_trigger_body(
         )
 
     def defer(run_at: datetime, fire_ctx: FireContext) -> None:
-        added = _add_defer_job(
-            run_manual_trigger,
-            slot_key,
-            run_at,
-            {
-                "schedule_id": schedule_id,
-                "fired_at_iso": fire_ctx.fired_at.isoformat(),
-                "deadline_iso": fire_ctx.deadline.isoformat(),
-                "defer_kind": fire_ctx.defer_kind,
-            },
-        )
+        defer_kwargs: ManualDeferJobKwargs = {
+            "schedule_id": schedule_id,
+            "fired_at_iso": fire_ctx.fired_at.isoformat(),
+            "deadline_iso": fire_ctx.deadline.isoformat(),
+            "defer_kind": fire_ctx.defer_kind,
+        }
+        added = _add_defer_job(run_manual_trigger, slot_key, run_at, defer_kwargs)
         if added:
             fire_trace(
                 "Manual defer job added schedule=%s job=%s run_at=%s defer_kind=%s",
