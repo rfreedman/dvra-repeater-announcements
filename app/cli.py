@@ -3,11 +3,38 @@ from __future__ import annotations
 import argparse
 import getpass
 import sys
+from typing import Literal, Protocol, cast
 
 from app.config import DEFAULT_SENTENCE_PAUSE, DEFAULT_SPEED, HOST, PORT
-from app.tts.base import VoiceError
 from app.playback import play_chunks
 from app.registry import get_registry
+from app.tts.base import VoiceError
+from app.users import Role
+
+
+class SpeakArgs(Protocol):
+    stdin: bool
+    text: list[str]
+    voice: str | None
+    speed: float
+    sentence_pause: float
+
+
+class ServeArgs(Protocol):
+    host: str
+    port: int
+
+
+class DownloadArgs(Protocol):
+    voices: list[str]
+
+
+class UsersArgs(Protocol):
+    users_command: Literal["list", "create", "passwd", "delete"] | None
+    username: str
+    password: str | None
+    role: Role
+    admin: bool
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -73,20 +100,20 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return 1
     if args.command == "speak":
-        return _cmd_speak(args)
+        return _cmd_speak(cast(SpeakArgs, cast(object, args)))
     if args.command == "serve":
-        return _cmd_serve(args)
+        return _cmd_serve(cast(ServeArgs, cast(object, args)))
     if args.command == "voices":
         return _cmd_voices()
     if args.command == "download":
-        return _cmd_download(args)
+        return _cmd_download(cast(DownloadArgs, cast(object, args)))
     if args.command == "users":
-        return _cmd_users(args)
+        return _cmd_users(cast(UsersArgs, cast(object, args)))
     parser.print_help()
     return 1
 
 
-def _cmd_speak(args: argparse.Namespace) -> int:
+def _cmd_speak(args: SpeakArgs) -> int:
     if args.stdin:
         text = sys.stdin.read().strip()
     else:
@@ -110,7 +137,7 @@ def _cmd_speak(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_serve(args: argparse.Namespace) -> int:
+def _cmd_serve(args: ServeArgs) -> int:
     import uvicorn
 
     from app.logging_setup import serve_log_config
@@ -133,7 +160,7 @@ def _cmd_voices() -> int:
     ready = "ready" if registry.engine.is_ready() else "not downloaded"
     print(f"Piper — {ready}")
     for voice in registry.list_voices():
-        flags = []
+        flags: list[str] = []
         if voice.default:
             flags.append("default")
         flags.append("downloaded" if voice.downloaded else "download on first use")
@@ -145,9 +172,9 @@ def _cmd_voices() -> int:
     return 0
 
 
-def _cmd_download(args: argparse.Namespace) -> int:
+def _cmd_download(args: DownloadArgs) -> int:
     registry = get_registry()
-    targets = args.voices or [None]
+    targets: list[str | None] = list(args.voices) if args.voices else [None]
     try:
         for target in targets:
             voice_id = registry.prepare(target)
@@ -171,12 +198,12 @@ def _read_password(explicit: str | None) -> str:
     return first
 
 
-def _cmd_users(args: argparse.Namespace) -> int:
+def _cmd_users(args: UsersArgs) -> int:
     from app.auth import hash_password, validate_password
     from app.users import get_user_store
 
     store = get_user_store()
-    command = getattr(args, "users_command", None)
+    command = args.users_command
     if command == "list":
         rows = store.list_users()
         if not rows:
@@ -187,7 +214,7 @@ def _cmd_users(args: argparse.Namespace) -> int:
             print(f"{user.username}\t{user.role}\t{user.id}")
         return 0
     if command == "create":
-        role = "admin" if args.admin else args.role
+        role: Role = "admin" if args.admin else args.role
         try:
             password = validate_password(_read_password(args.password))
             user = store.create(
@@ -207,7 +234,7 @@ def _cmd_users(args: argparse.Namespace) -> int:
             return 2
         try:
             password = validate_password(_read_password(args.password))
-            store.update(user.id, password_hash=hash_password(password))
+            _ = store.update(user.id, password_hash=hash_password(password))
         except ValueError as exc:
             print(exc, file=sys.stderr)
             return 2
@@ -219,7 +246,9 @@ def _cmd_users(args: argparse.Namespace) -> int:
             print("User not found", file=sys.stderr)
             return 2
         try:
-            store.delete(user.id)
+            if not store.delete(user.id):
+                print("User not found", file=sys.stderr)
+                return 2
         except ValueError as exc:
             print(exc, file=sys.stderr)
             return 2

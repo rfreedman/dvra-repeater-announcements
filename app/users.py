@@ -3,7 +3,7 @@ from __future__ import annotations
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -19,6 +19,12 @@ class PublicUser(TypedDict):
     username: str
     role: Role
     created_at: str
+
+
+class UserUpdateFields(TypedDict):
+    username: NotRequired[str]
+    password_hash: NotRequired[str]
+    role: NotRequired[Role]
 
 
 class AuthStatus(TypedDict):
@@ -144,7 +150,7 @@ class UserStore:
             if found is None:
                 raise KeyError(user_id)
 
-            updates: dict[str, object] = {}
+            updates: UserUpdateFields = {}
             if username is not None:
                 key = username.strip().lower()
                 if any(item.username.lower() == key and item.id != user_id for item in items):
@@ -159,7 +165,7 @@ class UserStore:
                         raise ValueError("Cannot demote the last admin")
                 updates["role"] = role
 
-            updated = found.model_copy(update=updates)
+            updated = found.model_copy(update=dict(updates))
             items[index] = updated
             self._write(document.model_copy(update={"users": items}))
             return updated

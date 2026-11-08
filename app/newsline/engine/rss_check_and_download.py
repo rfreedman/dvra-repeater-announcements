@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import argparse
 import os
 import re
 from pathlib import Path
+from typing import TypedDict
 from urllib.parse import unquote, urlparse
 
 import feedparser
@@ -9,6 +12,13 @@ import requests
 from feedparser import FeedParserDict
 
 from app.newsline.download import FEED_URL, entry_download_urls
+
+
+class BatchReportResult(TypedDict):
+    rid: int
+    status: str
+    wall_sec: float
+    exit: int
 
 # Project-root audio/ directory (script lives in src/app.newsline.engine/)
 _PROJECT_ROOT: Path = Path(__file__).resolve().parents[2]
@@ -247,7 +257,7 @@ def download_and_process_range(
     from_report: int,
     *,
     repeater_timeout: int = 180,
-) -> list[dict[str, object]]:
+) -> list[BatchReportResult]:
     """
     Download and process every feed report from the latest down to ``from_report``.
 
@@ -282,7 +292,7 @@ def download_and_process_range(
         f"Batch: reports {latest} → {from_report} "
         f"({len(ordered)} episodes), repeater-timeout={repeater_timeout}"
     )
-    results: list[dict[str, object]] = []
+    results: list[BatchReportResult] = []
     for rid, entry in ordered:
         print("")
         print(f"======== Report {rid} START ========")
@@ -321,7 +331,7 @@ def download_and_process_range(
             status = "ERROR"
             exit_code = 1
         wall = time.perf_counter() - t0
-        row = {
+        row: BatchReportResult = {
             "rid": rid,
             "status": status,
             "wall_sec": round(wall, 1),
