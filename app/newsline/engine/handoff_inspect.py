@@ -2,13 +2,15 @@
 
 Deferred structure work: this module is about 1,100 lines, and cut/QA code
 imports private helpers from ``align`` and ``verify_fulltext``
-(``_signoff_phrases``, ``_match_score``, ``_flatten_words``,
-``_opening_speech_time``, line matchers). Do not split this file or rename
+(``signoff_phrases``, ``match_score``, ``flatten_words``,
+``opening_speech_time``, line matchers). Do not split this file or rename
 those helpers until tests cover handoff inspection and quiet-cut placement.
 Packing tests are not that coverage. See ``docs/ALIGNMENT_ROADMAP.md``.
 """
 
 from __future__ import annotations
+
+from typing import cast
 
 import subprocess
 import tempfile
@@ -17,7 +19,7 @@ from pathlib import Path
 from rapidfuzz import fuzz
 
 from app.newsline.engine.align import (
-    _signoff_phrases,
+    signoff_phrases,
     normalize_tokens,
 )
 from app.newsline.engine.models import Boundary, Segment, SegmentKind, WordTiming
@@ -28,7 +30,7 @@ from app.newsline.engine.silence_cuts import (
     quiet_runs,
 )
 from app.newsline.engine.silence_cuts import (
-    extend_through_speech as _extend_through_speech,
+    extend_through_speech as extend_through_speech,
 )
 from app.newsline.engine.transcribe import pcm_float32_from_wav
 from app.newsline.engine.verify_fulltext import speakable_line_token_lists
@@ -41,7 +43,7 @@ _LONG_GAP_SEC = 1.5
 _MIN_CART_SEC = 3.0
 
 
-def _ordered_match_score(anchor: list[str], window: list[str]) -> float:
+def _orderedmatch_score(anchor: list[str], window: list[str]) -> float:
     """Ordered string ratio only — token_set_ratio false-matches shared little words."""
     if not anchor or not window or len(anchor) != len(window):
         return 0.0
@@ -57,7 +59,7 @@ def _opener_phrase(segment: Segment) -> list[str]:
 
 def _signoff_candidates(segment: Segment) -> list[list[str]]:
     """Sign-off / intro-tail phrases from the segment's own script only."""
-    return _signoff_phrases(segment)
+    return signoff_phrases(segment)
 
 
 def _opener_candidates(segment: Segment) -> list[list[str]]:
@@ -78,7 +80,7 @@ def _opener_candidates(segment: Segment) -> list[list[str]]:
 
 def _decode_window_wav(audio: Path, t0: float, t1: float, out_wav: Path) -> None:
     dur = max(0.1, t1 - t0)
-    subprocess.run(
+    _ = subprocess.run(
         [
             "ffmpeg",
             "-y",
@@ -123,16 +125,27 @@ def transcribe_handoff_window(
         )
         words: list[WordTiming] = []
         for seg in segments:
-            if not seg.words:
+            seg_words = cast(object, getattr(seg, "words", None))
+            if not seg_words:
                 continue
-            for w in seg.words:
-                if not w.word or w.start is None or w.end is None:
+            from collections.abc import Iterable
+
+            for w in cast(Iterable[object], seg_words):
+                word = cast(object, getattr(w, "word", None))
+                start = cast(object, getattr(w, "start", None))
+                end = cast(object, getattr(w, "end", None))
+                if (
+                    not isinstance(word, str)
+                    or not word
+                    or not isinstance(start, (int, float))
+                    or not isinstance(end, (int, float))
+                ):
                     continue
                 words.append(
                     WordTiming(
-                        word=w.word.strip(),
-                        start=t0 + float(w.start),
-                        end=t0 + float(w.end),
+                        word=word.strip(),
+                        start=t0 + float(start),
+                        end=t0 + float(end),
                     )
                 )
         return words
@@ -175,7 +188,7 @@ def _find_phrase_span(
         # Require the first token to be a strong match (blocks callsign↔opener swaps).
         if fuzz.ratio(phrase[0], window[0]) < 80:
             continue
-        score = _ordered_match_score(phrase, window)
+        score = _orderedmatch_score(phrase, window)
         if score < min_match:
             continue
         w1 = words[owners[i + width - 1]]
@@ -194,7 +207,7 @@ def _find_phrase_span(
     return start, end, score
 
 
-def _best_signoff(
+def best_signoff(
     words: list[WordTiming],
     segment: Segment,
     *,
@@ -219,7 +232,7 @@ def _best_signoff(
     return best
 
 
-def _best_opener(
+def best_opener(
     words: list[WordTiming],
     segment: Segment,
     *,
@@ -369,7 +382,7 @@ def _cut_before_opener(
     glued = _loud_near(energy_frames, opener_start, before=0.55, after=0.35)
     if glued or _rms_at(energy_frames, opener_start) > 1500.0:
         probe = max(not_before, opener_start - 0.45)
-        extended = _extend_through_speech(
+        extended = extend_through_speech(
             energy_frames, probe, max_extend=min(2.2, opener_start - probe), min_quiet_sec=0.14
         )
         extended = min(extended, opener_start - 0.05)
@@ -469,7 +482,7 @@ def _cut_after_signoff(
     return signoff_end + 0.04
 
 
-def _cut_between_landmarks(
+def cut_between_landmarks(
     energy_frames: list[tuple[float, float]],
     signoff_end: float,
     opener_start: float,
@@ -579,9 +592,9 @@ def refine_handoff_from_inspection(
 
     words = transcribe_handoff_window(audio, t0, t1, model_name=asr_model)
 
-    signoff = _best_signoff(words, prev_seg, not_after=provisional_cut + 2.5)
+    signoff = best_signoff(words, prev_seg, not_after=provisional_cut + 2.5)
     opener_floor = (signoff[1] - 0.15) if signoff is not None else (provisional_cut - 2.5)
-    opener = _best_opener(words, next_seg, not_before=opener_floor)
+    opener = best_opener(words, next_seg, not_before=opener_floor)
 
     # Name match often ends before the callsign — walk energy forward into quiet,
     # stopping at the next opener so mid-callsign dips are not treated as the cut.
@@ -596,7 +609,7 @@ def refine_handoff_from_inspection(
             and next_speech < provisional_cut - 0.15
         ):
             next_speech = provisional_cut
-        extended = _extend_through_speech(
+        extended = extend_through_speech(
             energy_frames,
             signoff[1],
             max_extend=5.0,
@@ -606,7 +619,7 @@ def refine_handoff_from_inspection(
         signoff = (signoff[0], extended, signoff[2])
         # Opener may still sit inside the finished callsign — search again after it.
         if opener is not None and opener[0] < signoff[1] - 0.05:
-            opener = _best_opener(
+            opener = best_opener(
                 words, next_seg, not_before=signoff[1] - 0.05
             )
 
@@ -643,7 +656,7 @@ def refine_handoff_from_inspection(
                         cut_b,
                         (
                             f"inspect dual-rebuild signoff@{signoff_end:.2f} "
-                            f"opener@{opener_start:.2f} →{cut_a:.2f}/{cut_b:.2f}"
+                            + f"opener@{opener_start:.2f} →{cut_a:.2f}/{cut_b:.2f}"
                         ),
                     )
             # gap_a: first quiet after sign-off (start of cart).
@@ -656,7 +669,7 @@ def refine_handoff_from_inspection(
             if gap_a is not None:
                 cut_a = gap_a[0] + min(0.08, 0.3 * (gap_a[1] - gap_a[0]))
             else:
-                cut_a = _cut_between_landmarks(
+                cut_a = cut_between_landmarks(
                     energy_frames, signoff_end, signoff_end + 0.8
                 )
             cut_b = _cut_before_opener(
@@ -685,11 +698,11 @@ def refine_handoff_from_inspection(
                     cut_b,
                     (
                         f"inspect dual signoff@{signoff_end:.2f} "
-                        f"opener@{opener_start:.2f} →{cut_a:.2f}/{cut_b:.2f}"
+                        + f"opener@{opener_start:.2f} →{cut_a:.2f}/{cut_b:.2f}"
                     ),
                 )
 
-        cut = _cut_between_landmarks(energy_frames, signoff_end, opener_start)
+        cut = cut_between_landmarks(energy_frames, signoff_end, opener_start)
         cut = _clamp_before_opener(cut, opener_start, not_before=signoff_end)
         return (
             cut,
@@ -727,7 +740,7 @@ def refine_handoff_from_inspection(
                         cut_b,
                         (
                             f"inspect opener@{opener_start:.2f} "
-                            f"→rebuild/{cut_a:.2f}/{cut_b:.2f}"
+                            + f"→rebuild/{cut_a:.2f}/{cut_b:.2f}"
                         ),
                     )
                 # Last resort: keep dual but never past opener.
@@ -771,7 +784,7 @@ def refine_handoff_from_inspection(
         cut_a = (
             cut_in_silence_gap(gap[0], gap[1])
             if gap is not None
-            else _cut_between_landmarks(
+            else cut_between_landmarks(
                 energy_frames, signoff_end, min(t1, signoff_end + 1.2)
             )
         )
@@ -843,7 +856,7 @@ def _refine_story_story_residual_before_opener(
         return None
     words = transcribe_handoff_window(audio, t0, t1, model_name=asr_model)
     # Ignore false-early opener matches inside residual speech before the cut.
-    opener = _best_opener(words, next_seg, not_before=provisional_cut - 0.15)
+    opener = best_opener(words, next_seg, not_before=provisional_cut - 0.15)
     if opener is None:
         return None
     opener_start = opener[0]
@@ -925,7 +938,7 @@ def refine_boundaries_by_inspection(
         cut_b = max(cut_a, min(cut_b, audio_duration - 0.3))
         log(
             f"    [{a.segment_index}→{b.segment_index}] "
-            f"{a.end:.2f}/{b.start:.2f} → {cut_a:.2f}/{cut_b:.2f}  ({detail})"
+            + f"{a.end:.2f}/{b.start:.2f} → {cut_a:.2f}/{cut_b:.2f}  ({detail})"
         )
         out[i_a] = Boundary(
             segment_index=a.segment_index,
@@ -955,7 +968,7 @@ def refine_boundaries_by_inspection(
             pair_num,
             max(1, len(out) - 1),
             f"handoff {a.segment_index}→{b.segment_index} "
-            f"({seg_a.title[:28]} → {seg_b.title[:28]})",
+            + f"({seg_a.title[:28]} → {seg_b.title[:28]})",
         )
         provisional = 0.5 * (a.end + b.start)
         half = 8.0 if seg_a.kind == SegmentKind.INTRO else 4.0
@@ -1001,7 +1014,7 @@ def refine_boundaries_by_inspection(
             pair_num,
             max(1, len(out) - 1),
             f"handoff {a.segment_index}→{b.segment_index} "
-            f"(story residual check)",
+            + f"(story residual check)",
         )
         provisional = 0.5 * (a.end + b.start)
         hit = _refine_story_story_residual_before_opener(
@@ -1015,7 +1028,7 @@ def refine_boundaries_by_inspection(
         if hit is None:
             log(
                 f"    [{a.segment_index}→{b.segment_index}] "
-                f"{a.end:.2f}/{b.start:.2f} keep quiet cut"
+                + f"{a.end:.2f}/{b.start:.2f} keep quiet cut"
             )
             return
         cut, detail = hit
@@ -1079,7 +1092,7 @@ def refine_boundaries_by_inspection(
                 cart_start, cart_end = rebuilt
                 log(
                     f"    billboard rebuild {prev.end:.2f}/{nxt.start:.2f} "
-                    f"→ {cart_start:.2f}/{cart_end:.2f}"
+                    + f"→ {cart_start:.2f}/{cart_end:.2f}"
                 )
                 out[i + 1] = Boundary(
                     segment_index=nxt.segment_index,
@@ -1116,5 +1129,5 @@ def refine_boundaries_by_inspection(
             match_score=last.match_score,
             anchor_snippet=last.anchor_snippet,
         )
-    inspect.done(f"{pair_num} handoffs refined")
+    _ = inspect.done(f"{pair_num} handoffs refined")
     return out

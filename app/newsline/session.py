@@ -15,10 +15,14 @@ class PendingEmergency:
 
 
 class BulletinSession:
+    _guard: threading.Lock
+    _active: bool
+    _pending: PendingEmergency | None
+
     def __init__(self) -> None:
         self._guard = threading.Lock()
         self._active = False
-        self._pending: PendingEmergency | None = None
+        self._pending = None
 
     @property
     def active(self) -> bool:

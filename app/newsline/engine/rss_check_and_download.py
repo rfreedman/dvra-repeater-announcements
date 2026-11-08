@@ -2,16 +2,20 @@ from __future__ import annotations
 
 import argparse
 import os
-import re
+from collections.abc import Sequence
 from pathlib import Path
-from typing import TypedDict
-from urllib.parse import unquote, urlparse
+from typing import TypedDict, cast
 
 import feedparser
 import requests
-from feedparser import FeedParserDict
 
-from app.newsline.download import FEED_URL, entry_download_urls
+from app.newsline.download import (
+    FEED_URL,
+    Feed,
+    FeedEntry,
+    entry_download_urls,
+    extract_report_number,
+)
 
 
 class BatchReportResult(TypedDict):
@@ -24,35 +28,27 @@ class BatchReportResult(TypedDict):
 _PROJECT_ROOT: Path = Path(__file__).resolve().parents[2]
 DOWNLOAD_DIR: str = str(_PROJECT_ROOT / "audio")
 
-REPORT_NUMBER_RE: re.Pattern[str] = re.compile(r"Report\s*(\d+)", re.IGNORECASE)
-
 
 def setup() -> None:
     if not os.path.exists(DOWNLOAD_DIR):
         os.makedirs(DOWNLOAD_DIR)
 
 
-def extract_report_number(entry: FeedParserDict) -> int | None:
-    """Pull the report number from the enclosure URL or entry title."""
-    if getattr(entry, "enclosures", None):
-        path = unquote(urlparse(entry.enclosures[0].href).path)
-        basename = os.path.basename(path)
-        match = REPORT_NUMBER_RE.search(basename)
-        if match:
-            return int(match.group(1))
-
-    title = getattr(entry, "title", "") or ""
-    match = REPORT_NUMBER_RE.search(title)
-    if match:
-        return int(match.group(1))
-    return None
+def _feed_entries(feed: Feed) -> Sequence[FeedEntry]:
+    entries_raw = cast(object, getattr(feed, "entries", None))
+    if isinstance(entries_raw, Sequence) and not isinstance(entries_raw, (str, bytes)):
+        return entries_raw
+    return []
 
 
-def find_entry_for_report(
-    feed: FeedParserDict, report_number: int
-) -> FeedParserDict | None:
+def _entry_title(entry: FeedEntry) -> str:
+    title = getattr(entry, "title", None)
+    return title if isinstance(title, str) else ""
+
+
+def find_entry_for_report(feed: Feed, report_number: int) -> FeedEntry | None:
     """Return the first feed entry whose report number matches, or None."""
-    for entry in feed.entries:
+    for entry in _feed_entries(feed):
         if extract_report_number(entry) == report_number:
             return entry
     return None
@@ -68,7 +64,7 @@ def download_file(url: str, dest_path: str) -> bool:
     with open(dest_path, "wb") as f:
         for chunk in response.iter_content(chunk_size=1024):
             if chunk:
-                f.write(chunk)
+                _ = f.write(chunk)
     print(f"Successfully saved to {dest_path}")
     return True
 
@@ -116,10 +112,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Check the ARNewsline RSS feed and download the latest report "
-            "(or a specific report number)."
+            + "(or a specific report number)."
         ),
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "-r",
         "--report",
         type=int,
@@ -127,24 +123,24 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="N",
         help="Download report number N instead of the latest episode",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--from-report",
         type=int,
         default=None,
         metavar="N",
         help=(
             "Download and process every feed report from the latest down to N "
-            "(inclusive), non-interactively"
+            + "(inclusive), non-interactively"
         ),
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--repeater-timeout",
         type=int,
         default=180,
         metavar="SEC",
         help="Repeater timeout passed to the splitter (default: 180)",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "-y",
         "--yes",
         action="store_true",
@@ -154,7 +150,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _ensure_report_files(
-    entry: FeedParserDict,
+    entry: FeedEntry,
     report_number: int,
 ) -> tuple[str, str, bool]:
     """Download MP3/script if missing. Returns (mp3_path, txt_path, ok)."""
@@ -163,11 +159,12 @@ def _ensure_report_files(
     need_mp3 = not os.path.exists(mp3_path)
     need_txt = not os.path.exists(txt_path)
 
-    print(f"Episode: {entry.title}")
+    title = _entry_title(entry)
+    print(f"Episode: {title}")
     audio_url, script_url = entry_download_urls(entry)
     if need_mp3:
         if not audio_url:
-            print(f"Entry has no audio URL: {entry.title!r}")
+            print(f"Entry has no audio URL: {title!r}")
             return mp3_path, txt_path, False
         print("Downloading MP3...")
         if not download_file(audio_url, mp3_path):
@@ -177,7 +174,7 @@ def _ensure_report_files(
 
     if need_txt:
         if not script_url:
-            print(f"Entry has no SCRIPT download link: {entry.title!r}")
+            print(f"Entry has no SCRIPT download link: {title!r}")
             return mp3_path, txt_path, False
         print("Downloading script...")
         if not download_file(script_url, txt_path):
@@ -197,18 +194,21 @@ def check_and_download(
 ) -> None:
     setup()
 
-    feed: FeedParserDict = feedparser.parse(FEED_URL)
-    if not feed.entries:
+    feed: Feed = cast(object, feedparser.parse(FEED_URL))
+    entries = _feed_entries(feed)
+    if not entries:
         print("RSS feed has no entries.")
         return
 
     # Entries are ordered descending by report number (therefore by date);
     # [0] is the latest when no specific report is requested.
     if report_number is None:
-        entry: FeedParserDict = feed.entries[0]
+        entry: FeedEntry = entries[0]
         resolved: int | None = extract_report_number(entry)
         if resolved is None:
-            print(f"Could not determine report number for latest entry: {entry.title!r}")
+            print(
+                f"Could not determine report number for latest entry: {_entry_title(entry)!r}"
+            )
             return
         report_number = resolved
     else:
@@ -266,15 +266,16 @@ def download_and_process_range(
     import time
 
     setup()
-    feed: FeedParserDict = feedparser.parse(FEED_URL)
-    if not feed.entries:
+    feed: Feed = cast(object, feedparser.parse(FEED_URL))
+    entries = _feed_entries(feed)
+    if not entries:
         print("RSS feed has no entries.")
         return []
 
     # Unique report numbers present in the feed, descending.
     seen: set[int] = set()
-    ordered: list[tuple[int, FeedParserDict]] = []
-    for entry in feed.entries:
+    ordered: list[tuple[int, FeedEntry]] = []
+    for entry in entries:
         rid = extract_report_number(entry)
         if rid is None or rid in seen:
             continue
@@ -290,7 +291,7 @@ def download_and_process_range(
     latest = ordered[0][0]
     print(
         f"Batch: reports {latest} → {from_report} "
-        f"({len(ordered)} episodes), repeater-timeout={repeater_timeout}"
+        + f"({len(ordered)} episodes), repeater-timeout={repeater_timeout}"
     )
     results: list[BatchReportResult] = []
     for rid, entry in ordered:
@@ -340,28 +341,32 @@ def download_and_process_range(
         results.append(row)
         print(
             f"======== Report {rid} DONE status={status} "
-            f"wall={wall:.1f}s exit={exit_code} ========"
+            + f"wall={wall:.1f}s exit={exit_code} ========"
         )
     print("")
     print("======== BATCH SUMMARY ========")
     for row in results:
         print(
             f"  {row['rid']}: {row['status']}  "
-            f"{row['wall_sec']}s  exit={row['exit']}"
+            + f"{row['wall_sec']}s  exit={row['exit']}"
         )
     return results
 
 
 if __name__ == "__main__":
     args = build_parser().parse_args()
-    if args.from_report is not None:
-        download_and_process_range(
-            args.from_report,
-            repeater_timeout=args.repeater_timeout,
+    from_report = cast(int | None, cast(object, args.from_report))
+    report = cast(int | None, cast(object, args.report))
+    repeater_timeout = cast(int, cast(object, args.repeater_timeout))
+    yes = cast(bool, cast(object, args.yes))
+    if from_report is not None:
+        _ = download_and_process_range(
+            from_report,
+            repeater_timeout=repeater_timeout,
         )
     else:
         check_and_download(
-            report_number=args.report,
-            repeater_timeout=args.repeater_timeout,
-            yes=args.yes,
+            report_number=report,
+            repeater_timeout=repeater_timeout,
+            yes=yes,
         )

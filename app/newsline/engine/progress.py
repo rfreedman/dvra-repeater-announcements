@@ -39,7 +39,9 @@ def set_log_file(path: Path | None) -> None:
     _log_fp = path.open("a", encoding="utf-8")
     # Ensure Python doesn't block-buffer stderr when not a TTY.
     with contextlib.suppress(Exception):
-        sys.stderr.reconfigure(line_buffering=True)  # type: ignore[attr-defined]
+        reconfigure = getattr(sys.stderr, "reconfigure", None)
+        if callable(reconfigure):
+            _ = reconfigure(line_buffering=True)
 
 
 def log_file() -> Path | None:
@@ -58,7 +60,7 @@ def log(msg: str) -> None:
     logging.getLogger("app.newsline").info("%s", msg)
     print(line, file=sys.stderr, flush=True)
     if _log_fp is not None:
-        _log_fp.write(line + "\n")
+        _ = _log_fp.write(line + "\n")
         _log_fp.flush()
 
 
@@ -100,6 +102,9 @@ def ui_snapshot() -> NewslineProgress:
 
 class PhaseTimer:
     """Track elapsed time for a named phase."""
+
+    name: str
+    t0: float
 
     def __init__(self, name: str) -> None:
         self.name = name

@@ -72,7 +72,7 @@ def export_boundaries_json(path: Path, boundaries: tuple[Boundary, ...]) -> None
         }
         for b in boundaries
     ]
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    _ = path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 def write_alignment_report(path: Path, boundaries: tuple[Boundary, ...]) -> None:
@@ -83,7 +83,7 @@ def write_alignment_report(path: Path, boundaries: tuple[Boundary, ...]) -> None
         lines.append(f"  {b.start:.2f}s – {b.end:.2f}s  (score {b.match_score:.1f})")
         lines.append(f"  anchor: {b.anchor_snippet}")
         lines.append("")
-    path.write_text("\n".join(lines), encoding="utf-8")
+    _ = path.write_text("\n".join(lines), encoding="utf-8")
 
 
 @dataclass(frozen=True)
@@ -151,8 +151,10 @@ def _slot_filename(
         slug = _INTRO_BILLBOARD_STORY_SLUG
     elif len(pack) == 1:
         slug = slugify(pack[0].title)
-    else:
+    elif pack:
         slug = f"{slugify(pack[0].title)}_plus_{len(pack) - 1}"
+    else:
+        slug = "empty"
     return f"{report_id:04d}_{file_index:02d}_{slug}.mp3"
 
 
@@ -277,7 +279,7 @@ def _ffmpeg_slice(
     else:
         cmd.extend(["-acodec", "copy"])
     cmd.append(str(out_path))
-    subprocess.run(cmd, check=True)
+    _ = subprocess.run(cmd, check=True)
 
 
 def _remove_unplanned_mp3s(output_dir: Path, planned: set[Path]) -> int:
@@ -340,7 +342,7 @@ def slice_audio(
         if slot.is_station_id:
             # Always (re)write the zero-byte placeholder so selective re-export
             # and packing renumbers cannot leave a missing station-id cue.
-            slot.path.write_bytes(b"")
+            _ = slot.path.write_bytes(b"")
             outputs.append(str(slot.path))
             continue
         outputs.append(str(slot.path))
@@ -374,7 +376,7 @@ def slice_audio(
                 futures = {pool.submit(_one, item): item for item in work}
                 for fut in as_completed(futures):
                     slot, start, end = futures[fut]
-                    fut.result()
+                    _ = fut.result()
                     done += 1
                     progress(
                         done, total, f"ffmpeg {slot.path.name} ({start:.1f}–{end:.1f}s)"

@@ -53,4 +53,4 @@ def get_whisper_model(model_name: str, *, slot: int = 0) -> WhisperModel:
 def warm_whisper_slots(model_name: str, workers: int) -> None:
     """Load one model per QA worker slot up front (avoids first-hit stampedes)."""
     for slot in range(max(1, workers)):
-        get_whisper_model(model_name, slot=slot)
+        _ = get_whisper_model(model_name, slot=slot)

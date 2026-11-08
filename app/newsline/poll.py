@@ -7,7 +7,7 @@ import shutil
 import threading
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from zoneinfo import ZoneInfo
 
 from apscheduler.triggers.date import DateTrigger
@@ -24,6 +24,7 @@ from app.newsline.split_job import SplitError, split_report
 from app.newsline.state import NewsState, load_state, save_state
 from app.newsline.window import next_anchor_after, success_in_window, window_for
 from app.slots import as_local, zone_for
+from app.scheduler_types import SchedulerJob
 from app.store import get_store
 
 log = logging.getLogger("app.newsline")
@@ -59,7 +60,7 @@ def _end() -> None:
         _in_progress = False
 
 
-def _store(state: NewsState, root=None) -> None:
+def _store(state: NewsState, root: Path | None = None) -> None:
     save_state(state, root)
     try:
         from app.live_notify import notify_home_data_changed
@@ -74,11 +75,11 @@ def _mark_current(state: NewsState) -> None:
     state.last_outcome = "current"
 
 
-def _news_root(root=None) -> Path:
+def _news_root(root: Path | None = None) -> Path:
     return root if root is not None else NEWSLINE_DIR
 
 
-def _clear_report_cache(root, number: int) -> None:
+def _clear_report_cache(root: Path | None, number: int) -> None:
     """Remove splitter cache for one report. Playback does not use these files."""
     cache = _news_root(root) / "cache"
     prefixes = (f"Report{number}_", f"{number:04d}_")
@@ -117,7 +118,7 @@ def _settings_now() -> tuple[datetime, str, str, int, ZoneInfo]:
     )
 
 
-def run_check(*, manual: bool, root=None) -> NewsState:
+def run_check(*, manual: bool, root: Path | None = None) -> NewsState:
     """Fetch, download, and split when a newer report is available."""
     now, start_hhmm, stop_hhmm, timeout, _zone = _settings_now()
     state = load_state(root)
@@ -255,7 +256,7 @@ def run_check(*, manual: bool, root=None) -> NewsState:
 
 def _run_and_rearm(*, manual: bool) -> None:
     try:
-        run_check(manual=manual)
+        _ = run_check(manual=manual)
     finally:
         _end()
         if not manual:
@@ -292,7 +293,7 @@ def arm_next_poll(*, immediate: bool) -> None:
     now, start_hhmm, stop_hhmm, _timeout, zone = _settings_now()
     window = window_for(now, start_hhmm, stop_hhmm)
     if scheduler is not None:
-        existing = scheduler.get_job(JOB_ID)
+        existing = cast(SchedulerJob | None, scheduler.get_job(JOB_ID))
         if existing is not None and (window is None or not immediate):
             scheduler.remove_job(JOB_ID)
     if window is None:
@@ -313,7 +314,7 @@ def arm_next_poll(*, immediate: bool) -> None:
     nxt = next_anchor_after(now, window[0], window[1])
     if nxt is None or scheduler is None:
         return
-    scheduler.add_job(
+    _ = scheduler.add_job(
         _scheduled_job,
         DateTrigger(run_date=as_local(nxt, zone)),
         id=JOB_ID,

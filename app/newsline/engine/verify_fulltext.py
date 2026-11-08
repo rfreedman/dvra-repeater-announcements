@@ -6,7 +6,7 @@ from rapidfuzz import fuzz
 
 from app.newsline.engine.align import normalize_tokens
 from app.newsline.engine.models import Segment, SegmentKind
-from app.newsline.engine.transcript import _clean_spoken_line, _line_is_spoken
+from app.newsline.engine.transcript import clean_spoken_line, line_is_spoken
 
 _BREAK_HEAD_PATTERNS = (
     "time for you to identify your station",
@@ -29,16 +29,16 @@ def speakable_line_token_lists(segment: Segment) -> list[list[str]]:
             lines.append(toks)
         return lines
     for line in segment.body_lines:
-        if not _line_is_spoken(line):
+        if not line_is_spoken(line):
             continue
-        cleaned = _clean_spoken_line(line)
+        cleaned = clean_spoken_line(line)
         toks = normalize_tokens(cleaned)
         if len(toks) >= 3:
             lines.append(toks)
     return lines
 
 
-def _first_line_opener_score(segment: Segment, spoken: list[str]) -> float | None:
+def first_line_opener_score(segment: Segment, spoken: list[str]) -> float | None:
     lines = speakable_line_token_lists(segment)
     if not lines or segment.kind not in (SegmentKind.STORY, SegmentKind.CLOSE):
         return None
@@ -56,7 +56,7 @@ def _first_line_opener_score(segment: Segment, spoken: list[str]) -> float | Non
     return best
 
 
-def _break_boilerplate_in_head(spoken: list[str]) -> str | None:
+def break_boilerplate_in_head(spoken: list[str]) -> str | None:
     head = " ".join(spoken[:_OPENER_HEAD_TOKENS])
     head = re.sub(r"\s+", " ", head)
     for pattern in _BREAK_HEAD_PATTERNS:
@@ -65,7 +65,7 @@ def _break_boilerplate_in_head(spoken: list[str]) -> str | None:
     return None
 
 
-def _next_story_opener_inside(
+def next_story_opener_inside(
     spoken: list[str], next_segment: Segment
 ) -> tuple[float, str]:
     lines = speakable_line_token_lists(next_segment)

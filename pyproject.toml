@@ -1,6 +1,6 @@
 [project]
 name = "dvra-repeater-announcements"
-version = "0.16.0"
+version = "0.17.0"
 description = "Piper TTS repeater announcements with a FastAPI UI, scheduler, and DRA-36M radio control"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -71,4 +71,5 @@ allowedUntypedLibraries = [
     "Foundation",
     "feedparser",
     "stable_whisper",
+    "faster_whisper",
 ]

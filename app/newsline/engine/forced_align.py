@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
+from typing import cast
 
 from app.newsline.engine.align import normalize_tokens
 from app.newsline.engine.models import Boundary, Segment, SegmentKind, WordTiming
@@ -52,6 +54,44 @@ def _cache_path(cache_dir: Path, audio: Path, segments: tuple[Segment, ...], mod
     return cache_dir / "forced_align" / f"{audio.stem}_{safe_model}_{key}.json"
 
 
+
+def _load_align_cache(cache_path: Path) -> tuple[list[WordTiming], list[tuple[int, float, float, str]]]:
+    raw = cast(object, json.loads(cache_path.read_text(encoding="utf-8")))
+    if not isinstance(raw, dict):
+        raise ValueError(f"invalid forced-align cache: {cache_path}")
+    payload = cast(dict[str, object], raw)
+    words_raw = payload.get("words")
+    spans_raw = payload.get("spans")
+    if not isinstance(words_raw, list) or not isinstance(spans_raw, list):
+        raise ValueError(f"invalid forced-align cache: {cache_path}")
+    words: list[WordTiming] = []
+    for raw_item in cast(list[object], words_raw):
+        if not isinstance(raw_item, dict):
+            continue
+        entry = cast(Mapping[str, object], raw_item)
+        words.append(
+            WordTiming(
+                word=str(entry.get("word", "")),
+                start=float(cast(float | int | str, entry.get("start", 0))),
+                end=float(cast(float | int | str, entry.get("end", 0))),
+            )
+        )
+    spans: list[tuple[int, float, float, str]] = []
+    for raw_item in cast(list[object], spans_raw):
+        if not isinstance(raw_item, dict):
+            continue
+        entry = cast(Mapping[str, object], raw_item)
+        spans.append(
+            (
+                int(cast(float | int | str, entry.get("segment_index", 0))),
+                float(cast(float | int | str, entry.get("start", 0))),
+                float(cast(float | int | str, entry.get("end", 0))),
+                str(entry.get("snippet", "")),
+            )
+        )
+    return words, spans
+
+
 def align_script_words(
     audio: Path,
     segments: tuple[Segment, ...],
@@ -75,15 +115,7 @@ def align_script_words(
     if cache_dir is not None:
         cache_path = _cache_path(cache_dir, audio, segments, model_name)
         if cache_path.is_file():
-            payload = json.loads(cache_path.read_text(encoding="utf-8"))
-            words = [
-                WordTiming(word=w["word"], start=float(w["start"]), end=float(w["end"]))
-                for w in payload["words"]
-            ]
-            spans = [
-                (int(s["segment_index"]), float(s["start"]), float(s["end"]), s["snippet"])
-                for s in payload["spans"]
-            ]
+            words, spans = _load_align_cache(cache_path)
             log(f"  forced-align cache hit ({cache_path.name})")
             return words, spans
 
@@ -93,8 +125,9 @@ def align_script_words(
         f"  stable-ts align ({model_name}, {len(blocks)} blocks) — this can take several minutes"
     )
     text = "\n".join(" ".join(toks) for _, toks in blocks)
-    model = stable_whisper.load_model(model_name)
-    result = model.align(
+    model = cast(object, stable_whisper.load_model(model_name))
+    align_fn = cast(Callable[..., object], getattr(model, "align"))
+    result = align_fn(
         str(audio),
         text,
         language="en",
@@ -103,18 +136,21 @@ def align_script_words(
         suppress_word_ts=True,
         verbose=False,
     )
-    align.done()
+    _ = align.done()
 
-    if len(result.segments) != len(blocks):
+    result_segments = cast(
+        Sequence[object], cast(object, getattr(result, "segments", None)) or []
+    )
+    if len(result_segments) != len(blocks):
         raise RuntimeError(
-            f"forced align segment count mismatch: got {len(result.segments)}, "
-            f"expected {len(blocks)}"
+            f"forced align segment count mismatch: got {len(result_segments)}, "
+            + f"expected {len(blocks)}"
         )
 
     words: list[WordTiming] = []
     spans: list[tuple[int, float, float, str]] = []
-    for (seg, _toks), rseg in zip(blocks, result.segments, strict=False):
-        rwords = list(rseg.words or [])
+    for (seg, _toks), rseg in zip(blocks, result_segments, strict=False):
+        rwords = list(cast(Sequence[object], getattr(rseg, "words", None) or []))
         if not rwords:
             raise RuntimeError(
                 f"forced align produced no words for segment {seg.index} ({seg.title})"
@@ -122,13 +158,22 @@ def align_script_words(
         for w in rwords:
             words.append(
                 WordTiming(
-                    word=str(w.word).strip(),
-                    start=float(w.start),
-                    end=float(w.end),
+                    word=str(getattr(w, "word", "")).strip(),
+                    start=float(cast(float | int, cast(object, getattr(w, "start")))),
+                    end=float(cast(float | int, cast(object, getattr(w, "end")))),
                 )
             )
-        snippet = " ".join(str(w.word).strip() for w in rwords[:6])
-        spans.append((seg.index, float(rwords[0].start), float(rwords[-1].end), snippet))
+        first = rwords[0]
+        last = rwords[-1]
+        snippet = " ".join(str(getattr(w, "word", "")).strip() for w in rwords[:6])
+        spans.append(
+            (
+                seg.index,
+                float(cast(float | int, cast(object, getattr(first, "start")))),
+                float(cast(float | int, cast(object, getattr(last, "end")))),
+                snippet,
+            )
+        )
 
     if cache_path is not None:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -144,7 +189,7 @@ def align_script_words(
                 for si, st, en, sn in spans
             ],
         }
-        cache_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        _ = cache_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     return words, spans
 
@@ -376,7 +421,7 @@ def align_segments_forced(
         energy = PhaseTimer("  measuring audio energy for quiet-gap cuts")
         samples, rate = load_mono_pcm16(audio)
         frames = rms_frames(samples, rate, frame_ms=10.0)
-        energy.done(f"{len(frames)} frames @ {rate} Hz")
+        _ = energy.done(f"{len(frames)} frames @ {rate} Hz")
     else:
         frames = energy_frames
         log(f"  reusing {len(frames)} energy frames for quiet-gap cuts")
@@ -417,6 +462,6 @@ def validate_forced_coverage(
         if b.start + 0.05 < a.start:
             issues.append(
                 f"non-monotonic starts: {a.segment_index}@{a.start:.2f} → "
-                f"{b.segment_index}@{b.start:.2f}"
+                + f"{b.segment_index}@{b.start:.2f}"
             )
     return issues

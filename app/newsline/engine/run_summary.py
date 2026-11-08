@@ -52,7 +52,7 @@ def write_run_summary(summary: RunSummary) -> Path:
     """
     path = summary.output_dir / "run_summary.txt"
     text = summary.format_table()
-    path.write_text(text + "\n", encoding="utf-8")
+    _ = path.write_text(text + "\n", encoding="utf-8")
     for line in text.splitlines():
         log(line)
     return path

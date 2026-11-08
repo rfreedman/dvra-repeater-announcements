@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.config import USERS_PATH
 from app.models import new_id
-from app.store import read_versioned_json, write_json_atomic
+from app.json_io import read_versioned_json, write_json_atomic
 
 Role = Literal["admin", "readonly"]
 

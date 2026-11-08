@@ -60,7 +60,7 @@ def friday_from_script(path: Path) -> date | None:
 
 
 def station_today() -> date:
-    from app.store import get_store
+    """Calendar date in the configured station timezone (no store import)."""
+    from app.config import TIMEZONE
 
-    zone = zone_for(get_store().document().settings.timezone)
-    return datetime.now(zone).date()
+    return datetime.now(zone_for(TIMEZONE)).date()

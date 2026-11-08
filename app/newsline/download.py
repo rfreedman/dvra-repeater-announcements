@@ -5,19 +5,24 @@ from __future__ import annotations
 import logging
 import os
 import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
+from typing import cast, override
 from urllib.parse import unquote, urlparse
 
 import feedparser
 import requests
-from feedparser import FeedParserDict
 
 log = logging.getLogger("app.newsline")
 
 FEED_URL = "https://www.arnewsline.org/?format=rss"
 REPORT_NUMBER_RE = re.compile(r"Report\s*(\d+)", re.IGNORECASE)
+
+# feedparser values are untyped; treat entries as opaque objects and narrow at use sites.
+FeedEntry = object
+Feed = object
 
 
 @dataclass(frozen=True)
@@ -31,12 +36,17 @@ class FeedReport:
 class _LabeledLinkParser(HTMLParser):
     """Collect hrefs keyed by the visible text of each <a> (first wins)."""
 
+    links: dict[str, str]
+    _href: str | None
+    _parts: list[str]
+
     def __init__(self) -> None:
         super().__init__()
-        self.links: dict[str, str] = {}
-        self._href: str | None = None
-        self._parts: list[str] = []
+        self.links = {}
+        self._href = None
+        self._parts = []
 
+    @override
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag != "a" or self._href is not None:
             return
@@ -45,10 +55,12 @@ class _LabeledLinkParser(HTMLParser):
             self._href = href
             self._parts = []
 
+    @override
     def handle_data(self, data: str) -> None:
         if self._href is not None:
             self._parts.append(data)
 
+    @override
     def handle_endtag(self, tag: str) -> None:
         if tag != "a" or self._href is None:
             return
@@ -59,50 +71,75 @@ class _LabeledLinkParser(HTMLParser):
         self._parts = []
 
 
-def fetch_feed() -> FeedParserDict:
-    return feedparser.parse(FEED_URL)
+def fetch_feed() -> Feed:
+    return cast(object, feedparser.parse(FEED_URL))
 
 
-def extract_report_number(entry: FeedParserDict) -> int | None:
-    if getattr(entry, "enclosures", None):
-        path = unquote(urlparse(entry.enclosures[0].href).path)
-        match = REPORT_NUMBER_RE.search(os.path.basename(path))
-        if match:
-            return int(match.group(1))
-    title = getattr(entry, "title", "") or ""
+def _as_str(value: object) -> str:
+    return value if isinstance(value, str) else ""
+
+
+def _enclosure_href_string(enclosure: object) -> str | None:
+    if isinstance(enclosure, Mapping):
+        mapping = cast(Mapping[str, object], enclosure)
+        for key in ("href", "url"):
+            raw = mapping.get(key)
+            if isinstance(raw, str) and raw:
+                return raw
+        return None
+    href = getattr(enclosure, "href", None)
+    return href if isinstance(href, str) and href else None
+
+
+def extract_report_number(entry: FeedEntry) -> int | None:
+    enclosures = cast(object, getattr(entry, "enclosures", None))
+    if isinstance(enclosures, Sequence) and not isinstance(enclosures, (str, bytes)) and enclosures:
+        href = _enclosure_href_string(enclosures[0])
+        if href:
+            path = unquote(urlparse(href).path)
+            match = REPORT_NUMBER_RE.search(os.path.basename(path))
+            if match:
+                return int(match.group(1))
+    title = _as_str(getattr(entry, "title", ""))
     match = REPORT_NUMBER_RE.search(title)
     if match:
         return int(match.group(1))
     return None
 
 
-def _entry_html(entry: FeedParserDict) -> str:
+def _content_value(item: object) -> str:
+    if isinstance(item, Mapping):
+        return _as_str(cast(Mapping[str, object], item).get("value", ""))
+    return _as_str(getattr(item, "value", ""))
+
+
+def _entry_html(entry: FeedEntry) -> str:
     parts: list[str] = []
     for attr in ("summary", "description"):
-        value = getattr(entry, attr, None) or ""
+        value = _as_str(getattr(entry, attr, None))
         if value:
             parts.append(value)
-    for item in getattr(entry, "content", None) or []:
-        value = item.get("value", "") if isinstance(item, dict) else getattr(item, "value", "") or ""
+    content = cast(object, getattr(entry, "content", None))
+    items: Sequence[object]
+    if isinstance(content, Sequence) and not isinstance(content, (str, bytes)):
+        items = content
+    else:
+        items = []
+    for item in items:
+        value = _content_value(item)
         if value:
             parts.append(value)
     return "\n".join(parts)
 
 
-def _enclosure_href(entry: FeedParserDict) -> str | None:
-    enclosures = getattr(entry, "enclosures", None)
-    if not enclosures:
+def _enclosure_href(entry: FeedEntry) -> str | None:
+    enclosures = cast(object, getattr(entry, "enclosures", None))
+    if not isinstance(enclosures, Sequence) or isinstance(enclosures, (str, bytes)) or not enclosures:
         return None
-    first = enclosures[0]
-    href = getattr(first, "href", None)
-    if href:
-        return href
-    if isinstance(first, dict):
-        return first.get("href") or first.get("url")
-    return None
+    return _enclosure_href_string(enclosures[0])
 
 
-def entry_download_urls(entry: FeedParserDict) -> tuple[str | None, str | None]:
+def entry_download_urls(entry: FeedEntry) -> tuple[str | None, str | None]:
     """Return (audio_url, script_url) from the enclosure and SCRIPT/AUDIO links."""
     parser = _LabeledLinkParser()
     parser.feed(_entry_html(entry))
@@ -111,8 +148,14 @@ def entry_download_urls(entry: FeedParserDict) -> tuple[str | None, str | None]:
     return audio, script
 
 
-def latest_report(feed: FeedParserDict) -> FeedReport | None:
-    for entry in getattr(feed, "entries", []) or []:
+def latest_report(feed: Feed) -> FeedReport | None:
+    entries_raw = cast(object, getattr(feed, "entries", None))
+    entries: Sequence[object]
+    if isinstance(entries_raw, Sequence) and not isinstance(entries_raw, (str, bytes)):
+        entries = entries_raw
+    else:
+        entries = []
+    for entry in entries:
         number = extract_report_number(entry)
         if number is None:
             continue
@@ -123,7 +166,7 @@ def latest_report(feed: FeedParserDict) -> FeedReport | None:
         if not script_url:
             log.warning("Newsline report %s has no SCRIPT download link", number)
             continue
-        title = getattr(entry, "title", "") or f"Report {number}"
+        title = _as_str(getattr(entry, "title", "")) or f"Report {number}"
         return FeedReport(
             report_number=number,
             title=title,
@@ -143,8 +186,8 @@ def download_file(url: str, dest: Path) -> None:
         with temporary.open("wb") as handle:
             for chunk in response.iter_content(chunk_size=64 * 1024):
                 if chunk:
-                    handle.write(chunk)
-        temporary.replace(dest)
+                    _ = handle.write(chunk)
+        _ = temporary.replace(dest)
     finally:
         if temporary.exists():
             temporary.unlink()

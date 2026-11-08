@@ -82,7 +82,7 @@ def _line_is_headline_label(line: str) -> bool:
     return (upper / len(letters)) >= 0.85
 
 
-def _line_is_spoken(line: str) -> bool:
+def line_is_spoken(line: str) -> bool:
     stripped = line.strip()
     if not stripped:
         return False
@@ -97,7 +97,7 @@ def strip_speaker_tag(line: str) -> str:
     return _SPEAKER_TAG.sub("", line)
 
 
-def _clean_spoken_line(line: str) -> str:
+def clean_spoken_line(line: str) -> str:
     text = strip_speaker_tag(line)
     text = _PRON.sub("", text)
     text = _DO_NOT_READ.sub("", text)
@@ -117,9 +117,9 @@ def _speakable_for_segment(title: str, body_lines: tuple[str, ...], kind: Segmen
 def speakable_from_lines(lines: tuple[str, ...]) -> str:
     parts: list[str] = []
     for line in lines:
-        if not _line_is_spoken(line):
+        if not line_is_spoken(line):
             continue
-        cleaned = _clean_spoken_line(line)
+        cleaned = clean_spoken_line(line)
         if cleaned:
             parts.append(cleaned)
     return " ".join(parts)
@@ -165,11 +165,11 @@ def _split_inline_break(
 
     before = list(body_lines[:break_at])
     while before and not before[-1].strip():
-        before.pop()
+        _ = before.pop()
     break_title = body_lines[break_at].strip()
     after = list(body_lines[break_at + 1 :])
     while after and not after[0].strip():
-        after.pop(0)
+        _ = after.pop(0)
 
     out: list[tuple[str, tuple[str, ...], SegmentKind]] = [
         (title, tuple(before), SegmentKind.STORY),

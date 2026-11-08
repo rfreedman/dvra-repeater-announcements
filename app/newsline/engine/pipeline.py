@@ -141,7 +141,7 @@ def run_forced_align_pipeline(
         model_name=align_model,
         cache_dir=cache_dir,
     )
-    align.done(f"{len(words)} words, {len(boundaries)} export segments")
+    _ = align.done(f"{len(words)} words, {len(boundaries)} export segments")
 
     issues = _qa_forced_boundaries(boundaries)
     post_issues: list[ExportBoundaryIssue] = []
@@ -152,7 +152,7 @@ def run_forced_align_pipeline(
 
     if not dry_run:
         export = PhaseTimer(f"Exporting MP3s (reencode={reencode})")
-        slice_audio(
+        _ = slice_audio(
             audio,
             tuple(mutable),
             output_dir,
@@ -163,7 +163,7 @@ def run_forced_align_pipeline(
             reencode=reencode,
             repeater_timeout=repeater_timeout,
         )
-        export.done(f"{len(mutable)} files → {output_dir.name}/")
+        _ = export.done(f"{len(mutable)} files → {output_dir.name}/")
         post_issues = verify_post_export(
             output_dir,
             report_id,

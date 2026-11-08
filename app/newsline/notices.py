@@ -13,7 +13,7 @@ _notice: SkipNotice | None = None
 
 def peek_skip_notice() -> SkipNotice | None:
     with _lock:
-        return dict(_notice) if _notice else None
+        return SkipNotice(**_notice) if _notice else None
 
 
 def clear_skip_notice() -> None:

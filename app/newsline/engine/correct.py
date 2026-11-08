@@ -3,12 +3,12 @@ from __future__ import annotations
 import re
 
 from app.newsline.engine.align import (
-    _POST_BILLBOARD_LEAD_SEC,
-    _SIGNOFF_PAD_SEC,
-    _START_LEAD_SEC,
-    _flatten_words,
-    _last_signoff_end_in_range,
-    _opening_speech_time,
+    POST_BILLBOARD_LEAD_SEC,
+    SIGNOFF_PAD_SEC,
+    START_LEAD_SEC,
+    flatten_words,
+    last_signoff_end_in_range,
+    opening_speech_time,
     estimated_min_duration,
 )
 from app.newsline.engine.models import Boundary, Segment, SegmentKind, WordTiming
@@ -52,9 +52,9 @@ def _handoff_start(
     ):
         return None
     lead = (
-        _POST_BILLBOARD_LEAD_SEC
+        POST_BILLBOARD_LEAD_SEC
         if prev_kind in (SegmentKind.BREAK, SegmentKind.BILLBOARD)
-        else _START_LEAD_SEC
+        else START_LEAD_SEC
     )
     not_before = curr.start
     if prev_kind == SegmentKind.BILLBOARD:
@@ -64,7 +64,7 @@ def _handoff_start(
         if prev_seg is not None:
             min_t = curr.start + estimated_min_duration(prev_seg) * 0.82
             not_before = max(not_before, min_t)
-    open_t = _opening_speech_time(
+    open_t = opening_speech_time(
         nxt_seg,
         words,
         tokens,
@@ -78,7 +78,7 @@ def _handoff_start(
     if prev_kind == SegmentKind.STORY:
         prev_seg = seg_by_index.get(curr.segment_index)
         if prev_seg is not None:
-            signoff_end = _last_signoff_end_in_range(
+            signoff_end = last_signoff_end_in_range(
                 words,
                 curr.start + 0.5,
                 open_t + 2.0,
@@ -87,7 +87,7 @@ def _handoff_start(
             if signoff_end is not None:
                 split = max(
                     split,
-                    min(signoff_end + _SIGNOFF_PAD_SEC, open_t - 0.04),
+                    min(signoff_end + SIGNOFF_PAD_SEC, open_t - 0.04),
                 )
     return min(split, open_t - 0.02)
 
@@ -177,7 +177,7 @@ def apply_boundary_corrections(
     """Adjust export boundaries from slice QA issues; no full re-align."""
     if not issues:
         return 0.0
-    tokens, word_for_token = _flatten_words(words)
+    tokens, word_for_token = flatten_words(words)
     opener_min = max(55.0, min_score - 15.0 - 5.0 * max(0, pass_num - 2))
     max_delta = 0.0
     seen: set[tuple[int, str]] = set()

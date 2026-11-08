@@ -4,6 +4,8 @@ import argparse
 import os
 import sys
 from pathlib import Path
+from typing import cast
+
 
 from app.newsline.engine.pipeline import run_forced_align_pipeline
 from app.newsline.engine.run_summary import RunSummary, write_run_summary
@@ -30,7 +32,9 @@ def _resolve_report_id(audio: Path, transcript: Path, force: bool) -> int:
             file=sys.stderr,
         )
         sys.exit(1)
-    return audio_id if audio_id is not None else txt_id  # type: ignore[return-value]
+    resolved = audio_id if audio_id is not None else txt_id
+    assert resolved is not None
+    return resolved
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -38,79 +42,81 @@ def build_parser() -> argparse.ArgumentParser:
         prog="newsline-split",
         description=(
             "Split an Amateur Radio Newsline MP3 into one file per story by "
-            "forced-aligning the official nsln####.txt transcript to the audio."
+            + "forced-aligning the official nsln####.txt transcript to the audio."
         ),
     )
-    parser.add_argument("--audio", type=Path, required=True, help="Path to Report####.mp3")
-    parser.add_argument("--transcript", type=Path, required=True, help="Path to nsln####.txt")
-    parser.add_argument(
+    _ = parser.add_argument("--audio", type=Path, required=True, help="Path to Report####.mp3")
+    _ = parser.add_argument(
+        "--transcript", type=Path, required=True, help="Path to nsln####.txt"
+    )
+    _ = parser.add_argument(
         "--output-dir",
         type=Path,
         default=None,
         help="Directory for output MP3s (default: <audio_dir>/<audio_stem>_stories)",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--align-model",
         default="base.en",
         help="stable-ts / Whisper model for forced alignment (default: base.en)",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--qa-model",
         default="small.en",
         help=(
             "Whisper model for post-export slice/handoff QA (default: small.en). "
-            "Offline weekly runs can use small.en or medium.en for accuracy."
+            + "Offline weekly runs can use small.en or medium.en for accuracy."
         ),
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--qa-workers",
         type=int,
         default=None,
         help=(
             "Parallel Whisper workers for slice QA (default: min(4, CPU count), "
-            "or ARNEWSLINE_QA_WORKERS). Use 1 to force sequential ASR."
+            + "or ARNEWSLINE_QA_WORKERS). Use 1 to force sequential ASR."
         ),
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--cache-dir",
         type=Path,
         default=Path(".cache/arnewsline"),
         help="Cache directory for forced-align JSON",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--strict",
         action="store_true",
         help="Treat soft QA warnings as critical for exit code",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Alignment and validation only; no MP3 export",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--stream-copy",
         action="store_true",
         help="Use ffmpeg stream copy instead of re-encode (faster, less accurate cuts)",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--force",
         action="store_true",
         help="Proceed even if report ids in filenames disagree",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--no-cache",
         action="store_true",
         help="Do not read or write forced-align cache",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--repeater-timeout",
         type=int,
         default=180,
         metavar="SEC",
         help=(
             "Repeater timeout in whole seconds (default: 180). Consecutive "
-            "intro/billboard/story/close segments are packed into one MP3 while "
-            "under timeout−2s. Never packs across BREAK. Use 0 to disable packing."
+            + "intro/billboard/story/close segments are packed into one MP3 while "
+            + "under timeout−2s. Never packs across BREAK. Use 0 to disable packing."
         ),
     )
     return parser
@@ -118,18 +124,20 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> None:
     # Agent/CI shells are often non-TTY; keep progress visible immediately.
-    os.environ.setdefault("PYTHONUNBUFFERED", "1")
+    _ = os.environ.setdefault("PYTHONUNBUFFERED", "1")
     try:
-        sys.stderr.reconfigure(line_buffering=True)  # type: ignore[attr-defined]
-        sys.stdout.reconfigure(line_buffering=True)  # type: ignore[attr-defined]
+        for stream in (sys.stderr, sys.stdout):
+            reconfigure = getattr(stream, "reconfigure", None)
+            if callable(reconfigure):
+                _ = reconfigure(line_buffering=True)
     except Exception:
         pass
 
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    audio: Path = args.audio.expanduser().resolve()
-    transcript: Path = args.transcript.expanduser().resolve()
+    audio = cast(Path, cast(object, args.audio)).expanduser().resolve()
+    transcript = cast(Path, cast(object, args.transcript)).expanduser().resolve()
     if not audio.is_file():
         print(f"Audio file not found: {audio}", file=sys.stderr)
         sys.exit(1)
@@ -137,10 +145,12 @@ def main(argv: list[str] | None = None) -> None:
         print(f"Transcript not found: {transcript}", file=sys.stderr)
         sys.exit(1)
 
-    report_id = _resolve_report_id(audio, transcript, args.force)
+    force = cast(bool, cast(object, args.force))
+    report_id = _resolve_report_id(audio, transcript, force)
+    output_dir_arg = cast(Path | None, cast(object, args.output_dir))
     output_dir: Path = (
-        args.output_dir.expanduser().resolve()
-        if args.output_dir
+        output_dir_arg.expanduser().resolve()
+        if output_dir_arg is not None
         else audio.parent / f"{audio.stem}_stories"
     )
 
@@ -155,11 +165,14 @@ def main(argv: list[str] | None = None) -> None:
 
     run = PhaseTimer(
         f"Report {report_id}: {audio.name} ({duration:.1f}s audio, "
-        f"{len(all_segments)} transcript blocks)"
+        + f"{len(all_segments)} transcript blocks)"
     )
 
-    cache_dir = None if args.no_cache else args.cache_dir
-    reencode = not args.stream_copy
+    no_cache = cast(bool, cast(object, args.no_cache))
+    cache_dir_arg = cast(Path, cast(object, args.cache_dir))
+    cache_dir = None if no_cache else cache_dir_arg
+    reencode = not cast(bool, cast(object, args.stream_copy))
+    dry_run = cast(bool, cast(object, args.dry_run))
 
     final, _words, critical, qa_passes, qa_max_passes = run_forced_align_pipeline(
         audio=audio,
@@ -167,25 +180,25 @@ def main(argv: list[str] | None = None) -> None:
         all_segments=all_segments,
         duration=duration,
         output_dir=output_dir,
-        align_model=args.align_model,
+        align_model=cast(str, cast(object, args.align_model)),
         cache_dir=cache_dir,
-        dry_run=args.dry_run,
+        dry_run=dry_run,
         reencode=reencode,
-        strict=args.strict,
-        qa_model=args.qa_model,
-        qa_workers=args.qa_workers,
-        repeater_timeout=args.repeater_timeout,
+        strict=cast(bool, cast(object, args.strict)),
+        qa_model=cast(str, cast(object, args.qa_model)),
+        qa_workers=cast(int | None, cast(object, args.qa_workers)),
+        repeater_timeout=cast(int, cast(object, args.repeater_timeout)),
     )
 
     log(f"Wrote {output_dir / 'boundaries.json'}")
     for b in final:
         print(
             f"  [{b.segment_index:02d}] {b.start:7.1f}s–{b.end:7.1f}s  "
-            f"score={b.match_score:5.1f}  {b.title[:50]}",
+            + f"score={b.match_score:5.1f}  {b.title[:50]}",
             flush=True,
         )
 
-    if args.dry_run:
+    if dry_run:
         log("Dry run: skipping MP3 export.")
     elapsed = run.done(f"{len(final)} segments → {output_dir.name}/")
 
@@ -205,7 +218,7 @@ def main(argv: list[str] | None = None) -> None:
     if critical:
         print(
             f"{len(critical)} critical issue(s) remain; try --align-model small.en "
-            f"or inspect alignment_report.txt / run_summary.txt.",
+            + "or inspect alignment_report.txt / run_summary.txt.",
             file=sys.stderr,
         )
         sys.exit(1)

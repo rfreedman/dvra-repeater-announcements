@@ -5,10 +5,10 @@ from __future__ import annotations
 from datetime import date, datetime
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from app.config import NEWSLINE_DIR
-from app.store import write_json_atomic
+from app.json_io import write_json_atomic
 
 
 class NewsState(BaseModel):

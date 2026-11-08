@@ -12,9 +12,9 @@ from pathlib import Path
 
 from app.newsline.engine.correct import apply_slice_boundary_corrections
 from app.newsline.engine.handoff_inspect import (
-    _best_opener,
-    _best_signoff,
-    _cut_between_landmarks,
+    best_opener,
+    best_signoff,
+    cut_between_landmarks,
     transcribe_handoff_window,
 )
 from app.newsline.engine.models import Boundary, Segment, SegmentKind, WordTiming
@@ -25,7 +25,7 @@ from app.newsline.engine.silence_cuts import (
 from app.newsline.engine.split import slice_audio
 from app.newsline.engine.verify import ExportBoundaryIssue
 from app.newsline.engine.verify_slices import (
-    _slice_cache_path,
+    slice_cache_path,
     verify_export_slices,
 )
 
@@ -98,7 +98,7 @@ def verify_cuts_energy(
                     a.title,
                     "cut_in_speech",
                     f"shared cut @{cut:.2f}s RMS={at:.0f}; quieter "
-                    f"@{t_min:.2f}s RMS={r_min:.0f} global={t_min:.2f}s",
+                    + f"@{t_min:.2f}s RMS={r_min:.0f} global={t_min:.2f}s",
                 )
             )
     return issues
@@ -150,8 +150,8 @@ def verify_handoffs_on_master(
         t0 = max(0.0, cut - 4.0)
         t1 = min(audio_duration, cut + 4.0)
         words = transcribe_handoff_window(audio, t0, t1, model_name=asr_model)
-        signoff = _best_signoff(words, sa, not_after=cut + 2.5)
-        opener = _best_opener(
+        signoff = best_signoff(words, sa, not_after=cut + 2.5)
+        opener = best_opener(
             words,
             sb,
             not_before=(signoff[1] - 0.2) if signoff else (cut - 2.5),
@@ -159,13 +159,13 @@ def verify_handoffs_on_master(
         if signoff is None or opener is None:
             continue
         # Extend sign-off through residual callsign energy.
-        from app.newsline.engine.handoff_inspect import _extend_through_speech
+        from app.newsline.engine.silence_cuts import extend_through_speech
 
-        signoff_end = _extend_through_speech(energy_frames, signoff[1])
+        signoff_end = extend_through_speech(energy_frames, signoff[1])
         opener_start = opener[0]
         if opener_start < signoff_end - 0.15:
             continue
-        ideal = _cut_between_landmarks(energy_frames, signoff_end, opener_start)
+        ideal = cut_between_landmarks(energy_frames, signoff_end, opener_start)
         if abs(ideal - cut) < 0.12:
             continue
         # Meaningful disagreement: provisional cut is early (clips callsign) or late.
@@ -175,8 +175,8 @@ def verify_handoffs_on_master(
                 a.title,
                 "handoff_landmarks_disagree",
                 f"provisional cut @{cut:.2f}s vs measured "
-                f"signoff@{signoff_end:.2f} opener@{opener_start:.2f} "
-                f"ideal@{ideal:.2f}s global={ideal:.2f}s",
+                + f"signoff@{signoff_end:.2f} opener@{opener_start:.2f} "
+                + f"ideal@{ideal:.2f}s global={ideal:.2f}s",
             )
         )
         fixes.append((i, i + 1, ideal))
@@ -244,7 +244,7 @@ def _invalidate_slice_caches(
             b.segment_index in only_segment_indices for b in slot.boundaries
         ):
             continue
-        base = _slice_cache_path(cache_dir, slot.path, qa_model)
+        base = slice_cache_path(cache_dir, slot.path, qa_model)
         for cache in (
             base,
             base.with_name(base.stem + "_qa.json"),
@@ -313,7 +313,7 @@ def run_export_qa_loop(
         energy = PhaseTimer("  measuring energy for cut QA")
         samples, rate = load_mono_pcm16(audio)
         energy_frames = rms_frames(samples, rate, frame_ms=10.0)
-        energy.done(f"{len(energy_frames)} frames")
+        _ = energy.done(f"{len(energy_frames)} frames")
     else:
         log(f"  reusing {len(energy_frames)} energy frames for cut QA")
 
@@ -378,7 +378,7 @@ def run_export_qa_loop(
                 print(f"      · [{it.code}] {it.title}: {it.detail[:90]}", flush=True)
 
         if not all_issues and not master_fixes:
-            qa_pass.done("clean")
+            _ = qa_pass.done("clean")
             return boundaries, [], passes_completed
 
         log(f"  {len(all_issues)} actionable issue(s) on pass {pass_num}:")
@@ -424,12 +424,12 @@ def run_export_qa_loop(
                 )
 
         if delta < 0.04 and not master_fixes:
-            qa_pass.done(f"negligible movement (Δ={delta:.2f}s); stopping")
+            _ = qa_pass.done(f"negligible movement (Δ={delta:.2f}s); stopping")
             remaining = all_issues
             break
 
         touched = _changed_segment_indices(before, boundaries)
-        qa_pass.done(f"{len(all_issues)} issues, max Δ={delta:.2f}s")
+        _ = qa_pass.done(f"{len(all_issues)} issues, max Δ={delta:.2f}s")
         reexp = PhaseTimer(f"  re-exporting after QA corrections (max Δ={delta:.2f}s)")
         _invalidate_slice_caches(
             output_dir,
@@ -441,7 +441,7 @@ def run_export_qa_loop(
             only_segment_indices=touched or None,
             repeater_timeout=repeater_timeout,
         )
-        slice_audio(
+        _ = slice_audio(
             audio,
             tuple(boundaries),
             output_dir,
@@ -453,7 +453,7 @@ def run_export_qa_loop(
             only_segment_indices=touched or None,
             repeater_timeout=repeater_timeout,
         )
-        reexp.done()
+        _ = reexp.done()
         remaining = all_issues
     else:
         # Final verify after last pass

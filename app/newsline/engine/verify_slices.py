@@ -6,7 +6,7 @@ from pathlib import Path
 from rapidfuzz import fuzz
 
 from app.newsline.engine.align import (
-    _signoff_phrases,
+    signoff_phrases,
     normalize_token,
     normalize_tokens,
 )
@@ -14,9 +14,9 @@ from app.newsline.engine.models import Boundary, Segment, SegmentKind, WordTimin
 from app.newsline.engine.split import ExportSlot
 from app.newsline.engine.verify import ExportBoundaryIssue
 from app.newsline.engine.verify_fulltext import (
-    _break_boilerplate_in_head,
-    _first_line_opener_score,
-    _next_story_opener_inside,
+    break_boilerplate_in_head,
+    first_line_opener_score,
+    next_story_opener_inside,
     speakable_line_token_lists,
 )
 
@@ -26,7 +26,7 @@ _MASTER_MATCH_OK = 80.0
 _MASTER_WINDOW_SEC = 8.0
 
 
-def _slice_cache_path(cache_dir: Path, mp3: Path, model_name: str) -> Path:
+def slice_cache_path(cache_dir: Path, mp3: Path, model_name: str) -> Path:
     safe_model = model_name.replace(".", "_")
     return cache_dir / "slices" / f"{mp3.stem}_{safe_model}.json"
 
@@ -54,8 +54,8 @@ def transcribe_export_slice(
     Returns ``(words, partial)``. Long slices use head+tail ASR only.
     """
     from app.newsline.engine.transcribe import (
-        _load_qa_cache,
-        _save_qa_cache,
+        load_qa_cache,
+        save_qa_cache,
         transcribe_slice_for_qa,
     )
 
@@ -69,13 +69,13 @@ def transcribe_export_slice(
     slice_dir = cache_dir / "slices"
     slice_dir.mkdir(parents=True, exist_ok=True)
     # Separate cache key when head+tail vs full so partial/full never collide.
-    cache_path = _slice_cache_path(cache_dir, mp3, model_name)
+    cache_path = slice_cache_path(cache_dir, mp3, model_name)
     if force_full:
         cache_path = cache_path.with_name(cache_path.stem + "_full.json")
     else:
         cache_path = cache_path.with_name(cache_path.stem + "_qa.json")
     if _cache_valid(cache_path, mp3):
-        cached = _load_qa_cache(cache_path)
+        cached = load_qa_cache(cache_path)
         if cached is not None:
             return cached
     words, partial = transcribe_slice_for_qa(
@@ -84,7 +84,7 @@ def transcribe_export_slice(
         force_full=force_full,
         model_slot=model_slot,
     )
-    _save_qa_cache(cache_path, words, partial=partial)
+    save_qa_cache(cache_path, words, partial=partial)
     return words, partial
 
 
@@ -102,7 +102,7 @@ def _opener_start_in_slice(
     if not words:
         return None, 0.0
     spoken = _spoken_token_list(words)
-    score, _sample = _next_story_opener_inside(spoken, next_segment)
+    score, _sample = next_story_opener_inside(spoken, next_segment)
     if score < _SLICE_NEXT_INSIDE_SCORE:
         return None, score
     lines = speakable_line_token_lists(next_segment)
@@ -115,11 +115,11 @@ def _opener_start_in_slice(
     region_start = (len(spoken) * 2) // 3
     best_i: int | None = None
     best_s = 0.0
-    from app.newsline.engine.align import _match_score
+    from app.newsline.engine.align import match_score
 
     for i in range(region_start, max(region_start, len(spoken) - width + 1)):
         window = spoken[i : i + width]
-        s = _match_score(phrase, window)
+        s = match_score(phrase, window)
         if s > best_s:
             best_s = s
             best_i = i
@@ -139,7 +139,7 @@ def _prev_signoff_bleed_in_head(
     words: list[WordTiming], prev_segment: Segment
 ) -> tuple[bool, str]:
     """Detect previous segment's script tail bleeding into this slice head."""
-    phrases = _signoff_phrases(prev_segment)
+    phrases = signoff_phrases(prev_segment)
     if not phrases or not words:
         return False, ""
     head_words = words[: min(16, len(words))]
@@ -174,7 +174,8 @@ def _opener_local_time_in_head(
     phrase = lines[0][: min(6, len(lines[0]))]
     if not phrase:
         return words[0].start
-    tokens, owners = [], []
+    tokens: list[str] = []
+    owners: list[int] = []
     for i, w in enumerate(words[:20]):
         for tok in normalize_tokens(w.word):
             tokens.append(tok)
@@ -182,7 +183,7 @@ def _opener_local_time_in_head(
     width = len(phrase)
     if width > len(tokens):
         return words[0].start
-    from app.newsline.engine.align import _match_score
+    from app.newsline.engine.align import match_score
 
     best_i: int | None = None
     best_s = 0.0
@@ -190,7 +191,7 @@ def _opener_local_time_in_head(
         # Prefer matches in the first ~12 tokens (head).
         if owners[i] > 14:
             break
-        s = _match_score(phrase, tokens[i : i + width])
+        s = match_score(phrase, tokens[i : i + width])
         if s > best_s:
             best_s = s
             best_i = i
@@ -256,7 +257,7 @@ def _issues_for_one_slice(
             boundary.start + _MASTER_WINDOW_SEC,
         )
 
-    opener = _first_line_opener_score(segment, spoken)
+    opener = first_line_opener_score(segment, spoken)
     if opener is not None and opener < _SLICE_MIN_OPENER and len(spoken) >= 8:
         # Script opener mismatch is OK when the slice head matches the master
         # at this cut (e.g. unspoken ALL-CAPS headline vs real ANCHOR line).
@@ -273,7 +274,7 @@ def _issues_for_one_slice(
                     boundary.title,
                     "slice_missing_opener",
                     f"slice head score {opener:.0f}; expected {sample[:50]}; "
-                    f"heard {' '.join(spoken[:12])}",
+                    + f"heard {' '.join(spoken[:12])}",
                 )
             )
 
@@ -294,11 +295,11 @@ def _issues_for_one_slice(
                     boundary.title,
                     "slice_prev_signoff_in_head",
                     f"previous story sign-off heard in slice head ({sample[:40]}); "
-                    f"slice_t={opener_t:.2f}s global={global_t:.2f}s",
+                    + f"slice_t={opener_t:.2f}s global={global_t:.2f}s",
                 )
             )
 
-    boilerplate = _break_boilerplate_in_head(spoken)
+    boilerplate = break_boilerplate_in_head(spoken)
     if boilerplate and segment.kind == SegmentKind.STORY:
         issues.append(
             ExportBoundaryIssue(
@@ -323,7 +324,7 @@ def _issues_for_one_slice(
                     boundary.title,
                     "slice_next_in_tail",
                     f"next story opener inside exported file (score {inside_score:.0f}); "
-                    f"slice_t={local_t:.2f}s global={global_t:.2f}s",
+                    + f"slice_t={local_t:.2f}s global={global_t:.2f}s",
                 )
             )
 
@@ -415,7 +416,7 @@ def verify_export_slices(
         if not s.is_station_id
     ]
     # Billboard has no speakable script — skip ASR (standalone billboard cart).
-    qa_slots = []
+    qa_slots: list[ExportSlot] = []
     for slot in slots:
         seg = seg_by_index.get(slot.primary.segment_index)
         if seg is None:
@@ -485,7 +486,7 @@ def verify_export_slices(
                         boundary.title,
                         "slice_opener_lead_clipped",
                         f"slice missing opener lead word on master at {lead_t:.2f}s "
-                        f"(boundary start {boundary.start:.2f}s)",
+                        + f"(boundary start {boundary.start:.2f}s)",
                     )
                 )
         return found

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import asyncio
 import logging
 import threading
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -20,7 +22,6 @@ from app.schemas import NewslinePreviewIn
 
 router = APIRouter()
 log = logging.getLogger("app.routes.newsline")
-_END = object()
 
 
 @router.post("/api/newsline/check")
@@ -80,17 +81,17 @@ async def _byte_stream(request: Request, blocks: Iterator[bytes]) -> AsyncIterat
     iterator = iter(blocks)
     gen_lock = threading.Lock()
 
-    def take_next() -> bytes | object:
+    def take_next() -> bytes | None:
         with gen_lock:
-            return next(iterator, _END)
+            return next(iterator, None)
 
     def close_gen() -> None:
         with gen_lock:
-            close = getattr(iterator, "close", None)
+            close = cast(object, getattr(iterator, "close", None))
             if not callable(close):
                 return
             try:
-                close()
+                _ = cast(Callable[[], object], close)()
             except Exception:
                 log.debug("Newsline preview stream close failed", exc_info=True)
 
@@ -99,7 +100,7 @@ async def _byte_stream(request: Request, blocks: Iterator[bytes]) -> AsyncIterat
             if await request.is_disconnected():
                 break
             block = await asyncio.to_thread(take_next)
-            if block is _END:
+            if block is None:
                 break
             if await request.is_disconnected():
                 break

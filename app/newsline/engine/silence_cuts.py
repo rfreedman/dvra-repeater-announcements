@@ -12,7 +12,7 @@ def load_mono_pcm16(audio: Path, *, sample_rate: int = 16000) -> tuple[list[int]
     """Decode entire file to mono PCM16 for empirical energy analysis."""
     with tempfile.TemporaryDirectory() as td:
         wav_path = Path(td) / "full.wav"
-        subprocess.run(
+        _ = subprocess.run(
             [
                 "ffmpeg",
                 "-y",

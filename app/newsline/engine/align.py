@@ -5,13 +5,13 @@ import re
 from rapidfuzz import fuzz
 
 from app.newsline.engine.models import Segment, SegmentKind, WordTiming
-from app.newsline.engine.transcript import _line_is_spoken, strip_speaker_tag
+from app.newsline.engine.transcript import line_is_spoken, strip_speaker_tag
 
 _MIN_SEGMENT_SEC = 5.0
 _BILLBOARD_MIN_SEC = 14.0
-_START_LEAD_SEC = 0.35
-_POST_BILLBOARD_LEAD_SEC = 0.05
-_SIGNOFF_PAD_SEC = 0.12
+START_LEAD_SEC = 0.35
+POST_BILLBOARD_LEAD_SEC = 0.05
+SIGNOFF_PAD_SEC = 0.12
 _DEFAULT_ANCHOR_WORDS = 12
 _SHORT_ANCHOR_WORDS = 6
 _MIN_ANCHOR_WORDS = 6
@@ -38,7 +38,7 @@ def normalize_tokens(text: str) -> list[str]:
     return tokens
 
 
-def _flatten_words(
+def flatten_words(
     words: list[WordTiming],
 ) -> tuple[list[str], list[int]]:
     """Flat token stream; each index maps back to a Whisper word index."""
@@ -91,7 +91,7 @@ def _clean_line_for_anchor(line: str) -> str:
     return text
 
 
-def _match_score(anchor: list[str], window: list[str]) -> float:
+def match_score(anchor: list[str], window: list[str]) -> float:
     if not anchor or not window:
         return 0.0
     anchor_str = " ".join(anchor)
@@ -140,7 +140,7 @@ def find_boundary_start(
     *,
     min_score: float = 55.0,
     not_before_time: float = 0.0,
-    start_lead_sec: float = _START_LEAD_SEC,
+    start_lead_sec: float = START_LEAD_SEC,
 ) -> tuple[float | None, float, str, int]:
     if not anchor_phrase or search_from >= len(tokens):
         return None, 0.0, "", search_from
@@ -160,7 +160,7 @@ def find_boundary_start(
         if words[word_for_token[i]].start < not_before_time:
             continue
         window = tokens[i : i + width]
-        score = _match_score(anchor_phrase, window)
+        score = match_score(anchor_phrase, window)
         if score > best_score:
             best_score = score
             best_idx = i
@@ -172,7 +172,7 @@ def find_boundary_start(
     back = min(3, best_idx)
     while back > 0 and best_idx - back >= search_from:
         trial = tokens[best_idx - back : best_idx - back + width]
-        if _match_score(anchor_phrase, trial) >= best_score - 3:
+        if match_score(anchor_phrase, trial) >= best_score - 3:
             best_idx -= back
             break
         back -= 1
@@ -212,11 +212,11 @@ def _time_after_phrase(
     return words[wi].end, score, idx
 
 
-def _signoff_phrases(segment: Segment) -> list[list[str]]:
+def signoff_phrases(segment: Segment) -> list[list[str]]:
     """
     Suffixes of the segment's last *speakable* script line.
 
-    Uses ``_line_is_spoken`` so parenthetical credit lines are skipped.
+    Uses ``line_is_spoken`` so parenthetical credit lines are skipped.
     Length and skip-first-token variants help ASR wording drift (still the
     same ``.txt`` line — no stock phrases).
     """
@@ -246,7 +246,7 @@ def _signoff_phrases(segment: Segment) -> list[list[str]]:
 
     last_tokens: list[str] | None = None
     for line in reversed(segment.body_lines):
-        if not _line_is_spoken(line):
+        if not line_is_spoken(line):
             continue
         tokens = normalize_tokens(_clean_line_for_anchor(line))
         if len(tokens) >= 3:
@@ -264,7 +264,7 @@ def _signoff_phrases(segment: Segment) -> list[list[str]]:
     return out
 
 
-def _last_signoff_end_in_range(
+def last_signoff_end_in_range(
     words: list[WordTiming],
     t_start: float,
     t_end: float,
@@ -277,10 +277,10 @@ def _last_signoff_end_in_range(
     """
     if segment is None or not words:
         return None
-    phrases = _signoff_phrases(segment)
+    phrases = signoff_phrases(segment)
     if not phrases:
         return None
-    tokens, word_for_token = _flatten_words(words)
+    tokens, word_for_token = flatten_words(words)
     best_end: float | None = None
     best_score = -1.0
     for phrase in phrases:
@@ -305,7 +305,7 @@ def _last_signoff_end_in_range(
     return best_end
 
 
-def _opening_speech_time(
+def opening_speech_time(
     segment: Segment,
     words: list[WordTiming],
     tokens: list[str],

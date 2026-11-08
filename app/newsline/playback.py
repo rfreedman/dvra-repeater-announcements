@@ -16,12 +16,11 @@ from app.newsline.decode import mp3_to_chunks
 from app.newsline.playlist import Piece
 from app.newsline.session import PendingEmergency, bulletin_session
 from app.radio import (
-    ChannelBusyError,
-    TransmitAbortError,
     as_idle_credit,
     channel_blocks_transmit,
     transmit,
 )
+from app.radio_errors import ChannelBusyError, TransmitAbortError
 
 log = logging.getLogger("app.newsline")
 
@@ -291,7 +290,7 @@ def transmit_newsline(
             log.info("Newsline waiting; %s; channel busy before %s", label, piece.label)
             gap_wait = wait_until_clear(deps, deadline=None, gap_seconds=0.0)
             if gap_wait.outcome == "emergency":
-                _drain_emergencies(deps)
+                _ = _drain_emergencies(deps)
             # Same rule: resume only once stories have started.
             with_resume = played_story
             if with_resume and resume is not None:
