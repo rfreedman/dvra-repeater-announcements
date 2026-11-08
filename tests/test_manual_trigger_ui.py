@@ -15,8 +15,8 @@ import uvicorn
 from playwright.sync_api import Page, expect
 
 from app.audio import PcmChunk
-from app.home_live import notify_home_live_status
-from app.manual_trigger_state import _clear_manual_inflight, _set_manual_inflight
+from app.live_notify import notify_home_live_status
+from app.manual_trigger_state import clear_manual_inflight, set_manual_inflight
 from app.server import app
 from tests.conftest import ADMIN_PASSWORD, ADMIN_USERNAME
 from tests.test_api import _seed_baseline
@@ -110,11 +110,11 @@ def test_clear_hold_countdown_then_starting_now(page: Page, live_server, monkeyp
     base_url, schedule = live_server
     hold = {"idle": 3.0}
     monkeypatch.setattr(
-        "app.manual_trigger_state._radio_status_for_ui",
+        "app.manual_trigger_state.radio_status_for_ui",
         lambda: (False, hold["idle"], 10.0),
     )
     _login(page, base_url)
-    _set_manual_inflight(schedule.id, "Station ID")
+    set_manual_inflight(schedule.id, "Station ID")
     try:
         expect(page.locator("#next-run-status")).to_have_text("Clear to transmit", timeout=5_000)
         expect(page.locator("#next-run-countdown")).to_contain_text("remaining")
@@ -123,5 +123,5 @@ def test_clear_hold_countdown_then_starting_now(page: Page, live_server, monkeyp
         expect(page.locator("#next-run-countdown")).to_have_text("Starting now…", timeout=5_000)
         expect(page.locator("[data-trigger-now]")).to_have_text("Starting…")
     finally:
-        _clear_manual_inflight(schedule.id)
+        clear_manual_inflight(schedule.id)
         notify_home_live_status(force=True)

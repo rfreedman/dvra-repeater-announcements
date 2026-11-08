@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import logging
-import threading
-import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from app.manual_trigger_state import pending_manual_triggers, peek_manual_trigger_drop_notice
 from app.manual_trigger_types import (
     HomeLiveStatus,
     RunningTransmission,
@@ -18,11 +17,7 @@ from app.manual_trigger_types import (
 )
 from app.models import StoreDocument
 from app.schedule_logic import next_transmission
-from app.scheduler import (
-    get_running,
-    pending_manual_triggers,
-    peek_manual_trigger_drop_notice,
-)
+from app.scheduler import get_running
 from app.store import get_store
 
 log = logging.getLogger("app.home_live")
@@ -32,10 +27,6 @@ def _skip_notice() -> SkipNotice | None:
     from app.newsline.notices import peek_skip_notice
 
     return peek_skip_notice()
-
-_throttle_lock = threading.Lock()
-_last_throttled_publish_mono = 0.0
-THROTTLED_PUBLISH_INTERVAL_SECONDS = 1.0
 
 
 def upcoming_for_document(
@@ -88,37 +79,3 @@ def build_home_live_status() -> HomeLiveStatus:
         "skip_notice": _skip_notice(),
         "newsline_playing": bulletin_session.active,
     }
-
-
-def notify_home_live_status(*, allow_throttle: bool = False, force: bool = False) -> None:
-    """Publish live home status to SSE subscribers (no-op if none connected)."""
-    try:
-        from app.sse_hub import publish_home_live_status
-
-        publish_home_live_status(allow_throttle=allow_throttle, force=force)
-    except Exception:
-        log.debug("SSE home live notify failed", exc_info=True)
-
-
-def notify_home_data_changed() -> None:
-    """Tell home SSE clients to reload schedules/library (multi-operator edits)."""
-    try:
-        from app.sse_hub import publish_home_data_changed
-
-        publish_home_data_changed()
-    except Exception:
-        log.debug("SSE home data_changed notify failed", exc_info=True)
-
-
-def notify_home_live_status_throttled() -> None:
-    """At most once per second; for background COS while manual defer is active."""
-    global _last_throttled_publish_mono
-    now = time.monotonic()
-    with _throttle_lock:
-        if now - _last_throttled_publish_mono < THROTTLED_PUBLISH_INTERVAL_SECONDS:
-            return
-        _last_throttled_publish_mono = now
-    live = build_home_live_status()
-    if not live.get("upcoming") and not live.get("pending_manual_triggers"):
-        return
-    notify_home_live_status(allow_throttle=False)

@@ -20,4 +20,4 @@ def is_startup_ready() -> bool:
 
 
 async def wait_startup_ready() -> None:
-    await _ready.wait()
+    _ = await _ready.wait()

@@ -8,12 +8,16 @@ from fastapi import APIRouter, HTTPException
 from pydantic import ValidationError
 
 from app.deps import AdminUser, AuthUser
-from app.home_live import notify_home_data_changed
+from app.live_notify import notify_home_data_changed
 from app.models import Announcement
-from app.pcm_cache import get_pcm_cache, warm_announcement, warm_announcement_in_background
+from app.pcm_cache import (
+    get_pcm_cache,
+    measure_announcement,
+    warm_announcement,
+    warm_announcement_in_background,
+)
 from app.scheduler import sync_jobs
 from app.schemas import AnnouncementIn, AnnouncementsListOut
-from app.spoken_length import measure_announcement
 from app.store import AnnouncementStore, get_store
 
 router = APIRouter()
@@ -23,7 +27,7 @@ log = logging.getLogger("app.routes.announcements")
 def _warm_in_background(item: Announcement) -> None:
     if item.kind != "tts":
         return
-    warm_announcement_in_background(item, warm_announcement)
+    _ = warm_announcement_in_background(item, warm_announcement)
 
 
 def _referenced(
@@ -80,9 +84,9 @@ def _from_request(req: AnnouncementIn, existing: Announcement | None) -> Announc
         try:
             item = measure_announcement(item, timeout)
         except Exception as exc:
-            from app.routes.speak import _raise_engine_http
+            from app.routes.speak import raise_engine_http
 
-            _raise_engine_http(exc, where="announcement timing")
+            raise_engine_http(exc, where="announcement timing")
         if item.too_long:
             log.warning(
                 "Saved %s as too long (%.1fs)",

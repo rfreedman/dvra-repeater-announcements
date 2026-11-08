@@ -49,15 +49,15 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command")
 
     speak = sub.add_parser("speak", help="Synthesize text and play it from memory")
-    speak.add_argument("text", nargs="*", help="Text to speak")
-    speak.add_argument("-v", "--voice", help="Voice id or alias")
-    speak.add_argument(
+    _ = speak.add_argument("text", nargs="*", help="Text to speak")
+    _ = speak.add_argument("-v", "--voice", help="Voice id or alias")
+    _ = speak.add_argument(
         "--speed",
         type=float,
         default=DEFAULT_SPEED,
         help=f"Speaking speed (default: {DEFAULT_SPEED:g}; lower is slower)",
     )
-    speak.add_argument(
+    _ = speak.add_argument(
         "--pause",
         "--sentence-pause",
         dest="sentence_pause",
@@ -65,49 +65,50 @@ def main(argv: list[str] | None = None) -> int:
         default=DEFAULT_SENTENCE_PAUSE,
         help=f"Silence between sentences in seconds (default: {DEFAULT_SENTENCE_PAUSE:g})",
     )
-    speak.add_argument("--stdin", action="store_true", help="Read text from stdin")
+    _ = speak.add_argument("--stdin", action="store_true", help="Read text from stdin")
 
     serve = sub.add_parser("serve", help="Run the FastAPI web UI and streaming API")
-    serve.add_argument("--host", default=HOST)
-    serve.add_argument("--port", type=int, default=PORT)
+    _ = serve.add_argument("--host", default=HOST)
+    _ = serve.add_argument("--port", type=int, default=PORT)
 
-    sub.add_parser("voices", help="List Piper voices")
+    _ = sub.add_parser("voices", help="List Piper voices")
 
     download = sub.add_parser("download", help="Download / load a voice")
-    download.add_argument("voices", nargs="*", help="Voice ids or aliases. Omit to prepare the default.")
+    _ = download.add_argument("voices", nargs="*", help="Voice ids or aliases. Omit to prepare the default.")
 
     users = sub.add_parser("users", help="Manage web UI users")
     users_sub = users.add_subparsers(dest="users_command")
-    users_sub.add_parser("list", help="List users")
+    _ = users_sub.add_parser("list", help="List users")
     create = users_sub.add_parser("create", help="Create a user")
-    create.add_argument("username")
-    create.add_argument("--password", help="Password (prompted if omitted)")
-    create.add_argument(
+    _ = create.add_argument("username")
+    _ = create.add_argument("--password", help="Password (prompted if omitted)")
+    _ = create.add_argument(
         "--role",
         choices=("admin", "readonly"),
         default="readonly",
         help="Role (default: readonly)",
     )
-    create.add_argument("--admin", action="store_true", help="Shortcut for --role admin")
+    _ = create.add_argument("--admin", action="store_true", help="Shortcut for --role admin")
     passwd = users_sub.add_parser("passwd", help="Set a user's password")
-    passwd.add_argument("username")
-    passwd.add_argument("--password", help="Password (prompted if omitted)")
+    _ = passwd.add_argument("username")
+    _ = passwd.add_argument("--password", help="Password (prompted if omitted)")
     delete = users_sub.add_parser("delete", help="Delete a user")
-    delete.add_argument("username")
+    _ = delete.add_argument("username")
 
     args = parser.parse_args(argv)
-    if not args.command:
+    command = cast(str | None, cast(object, args.command))
+    if not command:
         parser.print_help()
         return 1
-    if args.command == "speak":
+    if command == "speak":
         return _cmd_speak(cast(SpeakArgs, cast(object, args)))
-    if args.command == "serve":
+    if command == "serve":
         return _cmd_serve(cast(ServeArgs, cast(object, args)))
-    if args.command == "voices":
+    if command == "voices":
         return _cmd_voices()
-    if args.command == "download":
+    if command == "download":
         return _cmd_download(cast(DownloadArgs, cast(object, args)))
-    if args.command == "users":
+    if command == "users":
         return _cmd_users(cast(UsersArgs, cast(object, args)))
     parser.print_help()
     return 1
@@ -167,7 +168,7 @@ def _cmd_voices() -> int:
         alias = f" alias={voice.alias}" if voice.alias else ""
         print(
             f"  - {voice.id}{alias}  {voice.name}  "
-            f"({voice.gender}, {voice.locale}, {voice.quality})  [{', '.join(flags)}]"
+            + f"({voice.gender}, {voice.locale}, {voice.quality})  [{', '.join(flags)}]"
         )
     return 0
 

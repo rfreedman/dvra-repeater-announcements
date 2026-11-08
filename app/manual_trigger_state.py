@@ -12,13 +12,22 @@ from apscheduler.triggers.date import DateTrigger
 
 from app.config import DRA_CLEAR_SECONDS, TIMEZONE
 from app.fire_trace import fire_trace
+from app.live_notify import notify_home_live_status
 from app.manual_trigger_types import (
     ManualDropNotice,
     ManualInflightEntry,
     ManualTriggerPhase,
     PendingManualTriggerRow,
 )
+from app.models import Announcement, Schedule
 from app.radio import as_clear_wait, as_cos_snapshot, as_idle_credit, get_radio
+from app.scheduler_instance import (
+    DEFER_MISFIRE_GRACE_SECONDS,
+    get_manual_trigger_runner,
+    get_scheduler,
+    manual_schedule_id,
+    parse_local,
+)
 from app.scheduler_types import (
     SchedulerJob,
     manual_job_deadline_iso,
@@ -49,8 +58,6 @@ MANUAL_DROP_REASONS: dict[str, str] = {
 
 
 def _notify_home_live(*, force: bool = False) -> None:
-    from app.home_live import notify_home_live_status
-
     notify_home_live_status(force=force)
 
 
@@ -60,7 +67,7 @@ def _station_zone() -> ZoneInfo:
 
 def peek_manual_trigger_drop_notice() -> ManualDropNotice | None:
     with _manual_drop_lock:
-        return dict(_manual_drop_notice) if _manual_drop_notice else None
+        return ManualDropNotice(**_manual_drop_notice) if _manual_drop_notice else None
 
 
 def clear_manual_trigger_drop_notice() -> None:
@@ -94,7 +101,7 @@ def record_manual_trigger_drop(
     )
 
 
-def _manual_announcement_name(announcement, schedule) -> str:
+def manual_announcement_name(announcement: Announcement | None, schedule: Schedule | None) -> str:
     if announcement is not None and announcement.name:
         return announcement.name
     if schedule is not None and schedule.name:
@@ -102,7 +109,7 @@ def _manual_announcement_name(announcement, schedule) -> str:
     return "Untitled"
 
 
-def _set_manual_inflight(schedule_id: str, announcement_name: str) -> None:
+def set_manual_inflight(schedule_id: str, announcement_name: str) -> None:
     with _manual_inflight_lock:
         _manual_inflight[schedule_id] = {
             "schedule_id": schedule_id,
@@ -112,16 +119,16 @@ def _set_manual_inflight(schedule_id: str, announcement_name: str) -> None:
     _notify_home_live()
 
 
-def _set_manual_inflight_deadline(schedule_id: str, deadline: datetime) -> None:
+def set_manual_inflight_deadline(schedule_id: str, deadline: datetime) -> None:
     with _manual_inflight_lock:
         entry = _manual_inflight.get(schedule_id)
         if entry is not None:
             entry["deadline_iso"] = deadline.isoformat()
 
 
-def _clear_manual_inflight(schedule_id: str) -> None:
+def clear_manual_inflight(schedule_id: str) -> None:
     with _manual_inflight_lock:
-        _manual_inflight.pop(schedule_id, None)
+        _ = _manual_inflight.pop(schedule_id, None)
 
 
 def any_manual_trigger_inflight() -> bool:
@@ -129,10 +136,10 @@ def any_manual_trigger_inflight() -> bool:
         return bool(_manual_inflight)
 
 
-def _pending_row_for_manual(
+def pending_row_for_manual(
     schedule_id: str,
-    announcement,
-    schedule,
+    announcement: Announcement | None,
+    schedule: Schedule | None,
     *,
     busy: bool,
     idle: float,
@@ -163,7 +170,7 @@ def _pending_row_for_manual(
     return {
         "schedule_id": schedule_id,
         "announcement_id": announcement.id if announcement else None,
-        "announcement_name": _manual_announcement_name(announcement, schedule),
+        "announcement_name": manual_announcement_name(announcement, schedule),
         "phase": phase,
         "clear_seconds": clear_seconds,
         "clear_remaining_seconds": clear_remaining,
@@ -178,17 +185,11 @@ def nudge_manual_defer_jobs_if_clear_ready() -> None:
 
     Called from the background COS poll thread, never from HTTP handlers.
     """
-    from app.scheduler import (
-        DEFER_MISFIRE_GRACE_SECONDS,
-        _manual_schedule_id,
-        get_scheduler,
-        run_manual_trigger,
-    )
-
     if DRA_CLEAR_SECONDS <= 0:
         return
     sched = get_scheduler()
-    if sched is None:
+    run_manual_trigger = get_manual_trigger_runner()
+    if sched is None or run_manual_trigger is None:
         return
     radio = get_radio()
     idle = as_idle_credit(radio)
@@ -199,10 +200,9 @@ def nudge_manual_defer_jobs_if_clear_ready() -> None:
         return
     zone = ZoneInfo(TIMEZONE)
     now = datetime.now(zone)
-    for job in list(sched.get_jobs()):
-        typed_job = cast(SchedulerJob, job)
+    for typed_job in cast(list[SchedulerJob], sched.get_jobs()):
         job_id = typed_job.id or ""
-        if _manual_schedule_id(job_id) is None:
+        if manual_schedule_id(job_id) is None:
             continue
         next_run = typed_job.next_run_time
         if next_run is None:
@@ -220,13 +220,13 @@ def nudge_manual_defer_jobs_if_clear_ready() -> None:
             and defer_kind not in ("busy", "clear", "ptt")
         ):
             continue
-        schedule_id = str(raw_kwargs.get("schedule_id") or "") or _manual_schedule_id(job_id)
+        schedule_id = str(raw_kwargs.get("schedule_id") or "") or manual_schedule_id(job_id)
         if not schedule_id:
             continue
         # Preserve original kwargs; only ensure schedule_id is present for the retry call.
         nudge_kwargs = dict(raw_kwargs)
         nudge_kwargs["schedule_id"] = schedule_id
-        sched.add_job(
+        _ = sched.add_job(
             run_manual_trigger,
             DateTrigger(run_date=now + timedelta(milliseconds=MANUAL_NUDGE_RUN_DELAY_MS)),
             id=job_id,
@@ -243,7 +243,7 @@ def nudge_manual_defer_jobs_if_clear_ready() -> None:
         return
 
 
-def _radio_status_for_ui() -> tuple[bool, float, float]:
+def radio_status_for_ui() -> tuple[bool, float, float]:
     """(busy, idle seconds, clear hold seconds) without disturbing COS where possible."""
     radio = get_radio()
     clear_wait = as_clear_wait(radio)
@@ -262,14 +262,11 @@ def _radio_status_for_ui() -> tuple[bool, float, float]:
 
 def pending_manual_triggers() -> list[PendingManualTriggerRow]:
     """Live status for manual Trigger now retries (busy defer / clear-window wait)."""
-    from app.scheduler import _manual_schedule_id, _parse_local, get_scheduler
-
     sched = get_scheduler()
     deferred: dict[str, SchedulerJob] = {}
     if sched is not None:
-        for job in sched.get_jobs():
-            typed_job = cast(SchedulerJob, job)
-            schedule_id = _manual_schedule_id(typed_job.id or "")
+        for typed_job in cast(list[SchedulerJob], sched.get_jobs()):
+            schedule_id = manual_schedule_id(typed_job.id or "")
             if schedule_id is not None:
                 deferred[schedule_id] = typed_job
     with _manual_inflight_lock:
@@ -284,7 +281,7 @@ def pending_manual_triggers() -> list[PendingManualTriggerRow]:
     document = get_store().document()
     zone = zone_for(document.settings.timezone)
     now = datetime.now(zone)
-    busy, idle, clear_seconds = _radio_status_for_ui()
+    busy, idle, clear_seconds = radio_status_for_ui()
     out: list[PendingManualTriggerRow] = []
     for schedule_id in schedule_ids:
         schedule = document.schedule_by_id(schedule_id)
@@ -299,7 +296,7 @@ def pending_manual_triggers() -> list[PendingManualTriggerRow]:
         if job is not None:
             deadline_iso = manual_job_deadline_iso(job) or deadline_iso
         if deadline_iso:
-            deadline = _parse_local(str(deadline_iso), zone)
+            deadline = parse_local(str(deadline_iso), zone)
             give_up_remaining = max(0.0, (deadline - now).total_seconds())
         if job is not None and not in_progress:
             next_run = job.next_run_time
@@ -309,7 +306,7 @@ def pending_manual_triggers() -> list[PendingManualTriggerRow]:
                 else None
             )
         out.append(
-            _pending_row_for_manual(
+            pending_row_for_manual(
                 schedule_id,
                 announcement,
                 schedule,

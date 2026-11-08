@@ -6,8 +6,9 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
 from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import cast, override
 from urllib.parse import urlparse
@@ -58,14 +59,17 @@ def load_featured_voices(path: Path | None = None) -> tuple[PiperVoiceMeta, ...]
     if not voices_path.is_file():
         raise ValueError(f"Piper voices file not found: {voices_path}")
     try:
-        raw = json.loads(voices_path.read_text(encoding="utf-8"))
+        raw = cast(object, json.loads(voices_path.read_text(encoding="utf-8")))
     except json.JSONDecodeError as exc:
         raise ValueError(f"Invalid JSON in {voices_path}: {exc}") from exc
-    if not isinstance(raw, dict) or not isinstance(raw.get("voices"), list):
+    if not isinstance(raw, dict):
         raise ValueError(f"{voices_path} must be an object with a 'voices' array")
 
     root = cast(dict[object, object], raw)
-    voice_items = cast(list[object], root["voices"])
+    items = root.get("voices")
+    if not isinstance(items, list):
+        raise ValueError(f"{voices_path} must be an object with a 'voices' array")
+    voice_items = cast(list[object], items)
     voices: list[PiperVoiceMeta] = []
     seen_ids: set[str] = set()
     seen_aliases: set[str] = set()
@@ -138,8 +142,10 @@ def _download_url_to_file(url: str, dest: Path) -> None:
     _ = dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".tmp")
     try:
-        with urllib.request.urlopen(url, timeout=120) as response:
-            read_body = cast(Callable[[], object], response.read)
+        # urllib's stubs resolve to Any here; pin the shape we actually use.
+        opened = cast(AbstractContextManager[object], urllib.request.urlopen(url, timeout=120))
+        with opened as response:
+            read_body = cast(Callable[[], object], getattr(response, "read"))
             data = cast(bytes, read_body())
         _ = tmp.write_bytes(data)
         _ = tmp.replace(dest)

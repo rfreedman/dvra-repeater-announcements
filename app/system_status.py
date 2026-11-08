@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import importlib
 import sys
+from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 
 import psutil
 
@@ -96,7 +99,7 @@ def read_cpu_percent(*, reset_state: bool = False) -> float | None:
 def read_memory_percent() -> float | None:
     """Return used memory percent via psutil, or None."""
     try:
-        value = float(psutil.virtual_memory().percent)
+        value = float(cast(float, cast(object, psutil.virtual_memory().percent)))
     except (OSError, ValueError, TypeError, AttributeError):
         return None
     return max(0.0, min(100.0, value))
@@ -117,12 +120,15 @@ def read_thermal_state() -> str | None:
     if sys.platform != "darwin":
         return None
     try:
-        from Foundation import NSProcessInfo  # type: ignore[import-untyped]
+        foundation = importlib.import_module("Foundation")
     except ImportError:
         return None
+    # PyObjC has no usable stubs; reach through the bridge by name.
     try:
-        raw = NSProcessInfo.processInfo().thermalState()
-        return _thermal_state_from_ns(int(raw))
+        process_info_class = cast(object, getattr(foundation, "NSProcessInfo"))
+        process_info = cast(Callable[[], object], getattr(process_info_class, "processInfo"))
+        thermal_state = cast(Callable[[], int], getattr(process_info(), "thermalState"))
+        return _thermal_state_from_ns(thermal_state())
     except (AttributeError, TypeError, ValueError, OSError):
         return None
 

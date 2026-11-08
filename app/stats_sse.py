@@ -23,7 +23,7 @@ async def stats_broadcast_loop(stop: asyncio.Event) -> None:
             except Exception:
                 log.warning("Stats SSE broadcast failed", exc_info=True)
         try:
-            await asyncio.wait_for(stop.wait(), timeout=STATS_BROADCAST_INTERVAL_SECONDS)
+            _ = await asyncio.wait_for(stop.wait(), timeout=STATS_BROADCAST_INTERVAL_SECONDS)
             break
         except asyncio.TimeoutError:
             continue

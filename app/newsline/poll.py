@@ -62,7 +62,7 @@ def _end() -> None:
 def _store(state: NewsState, root=None) -> None:
     save_state(state, root)
     try:
-        from app.home_live import notify_home_data_changed
+        from app.live_notify import notify_home_data_changed
 
         notify_home_data_changed()
     except Exception:
@@ -286,7 +286,7 @@ def _scheduled_job() -> None:
 
 def arm_next_poll(*, immediate: bool) -> None:
     """Schedule the next anchor, or run now when the process woke inside the window."""
-    from app.scheduler import get_scheduler
+    from app.scheduler_instance import get_scheduler
 
     scheduler = get_scheduler()
     now, start_hhmm, stop_hhmm, _timeout, zone = _settings_now()

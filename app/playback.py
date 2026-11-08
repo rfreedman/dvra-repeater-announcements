@@ -17,7 +17,7 @@ def play_chunks(chunks: Iterable[PcmChunk]) -> None:
     except OSError as exc:
         raise RuntimeError(
             "PortAudio is missing. On macOS: brew install portaudio. "
-            "On Debian/Ubuntu: sudo apt install libportaudio2"
+            + "On Debian/Ubuntu: sudo apt install libportaudio2"
         ) from exc
 
     stream: sd.OutputStream | None = None
@@ -33,7 +33,7 @@ def play_chunks(chunks: Iterable[PcmChunk]) -> None:
             samples = np.frombuffer(chunk.pcm_int16, dtype=np.int16)
             if chunk.channels > 1:
                 samples = samples.reshape(-1, chunk.channels)
-            stream.write(samples)
+            _ = stream.write(samples)
     finally:
         if stream is not None:
             stream.stop()

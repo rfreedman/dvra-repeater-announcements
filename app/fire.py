@@ -2,27 +2,25 @@ from __future__ import annotations
 
 import logging
 import math
-import threading
-from collections.abc import Callable, Iterable
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from datetime import datetime, timedelta
 from functools import partial
-from typing import Literal, Protocol
 
-from app.audio import PcmChunk, materialize_chunks
-from app.config import (
-    DRA_CLEAR_POLL_SECONDS,
-    DRA_CLEAR_SECONDS,
-    DRA_FINAL_CHECK_SECONDS,
-    PTT_LEAD_SECONDS,
-)
-from app.manual_trigger_types import RunningPhase
-from app.models import Announcement, Schedule
+from app.audio import materialize_chunks
 from app.fire_trace import fire_trace
+from app.fire_types import (
+    FireContext as FireContext,
+    FireDeps as FireDeps,
+    FireTrigger as FireTrigger,
+    LoadedFire as LoadedFire,
+    RunningOnKeyRadio,
+    SetRunningFn as SetRunningFn,
+    SetRunningWaitFn as SetRunningWaitFn,
+)
+from app.models import Announcement, Schedule
+from app.radio_errors import ChannelBusyError, TransmitAbortError
 from app.radio import (
-    ChannelBusyError,
     Radio,
-    TransmitAbortError,
     as_clear_wait,
     as_idle_credit,
     channel_blocks_transmit,
@@ -40,43 +38,6 @@ DEFER_CLEAR_NONBLOCKING_MAX_SECONDS = 0.5
 # When the clear hold is already met, retry soon instead of waiting the full busy_retry interval.
 DEFER_RETRY_WHEN_CLEAR_MET_CAP_SECONDS = 1.0
 
-FireTrigger = Literal["scheduled", "manual"]
-
-
-class SetRunningFn(Protocol):
-    def __call__(
-        self,
-        announcement: Announcement,
-        schedule_id: str,
-        *,
-        piece_label: str | None = None,
-        story_index: int | None = None,
-        story_total: int | None = None,
-    ) -> None: ...
-
-
-class SetRunningWaitFn(Protocol):
-    def __call__(
-        self,
-        *,
-        phase: RunningPhase,
-        clear_seconds: float = 0.0,
-        clear_remaining_seconds: float | None = None,
-        force: bool = False,
-    ) -> None: ...
-
-
-@dataclass
-class FireContext:
-    announcement_id: str | None
-    schedule_id: str | None
-    slot_key: str
-    fired_at: datetime
-    deadline: datetime
-    trigger: FireTrigger
-    defer_kind: str | None = None
-
-
 def _fire_who(
     ctx: FireContext,
     schedule: Schedule | None = None,
@@ -91,54 +52,6 @@ def _fire_who(
     if announcement:
         parts.append(f"announcement={announcement}")
     return "; ".join(parts)
-
-
-@dataclass
-class LoadedFire:
-    announcement: Announcement | None
-    schedule: Schedule
-    silence: bool
-    skipped_detail: str | None = None
-
-
-@dataclass
-class FireDeps:
-    now: datetime
-    radio: Radio
-    play_fn: Callable[[Iterable[PcmChunk]], None]
-    sleep_fn: Callable[[float], None]
-    schedule_defer: Callable[[datetime, FireContext], None]
-    playback_lock: threading.Lock
-    synthesize: Callable[[Announcement], Iterable[PcmChunk]]
-    mark_last_run: Callable[[str | None, str, datetime], None]
-    consume_baseline: Callable[[str, str], None]
-    load: Callable[[], LoadedFire | None]
-    ptt_lead_seconds: float = PTT_LEAD_SECONDS
-    dra_clear_seconds: float = DRA_CLEAR_SECONDS
-    dra_clear_poll_seconds: float = DRA_CLEAR_POLL_SECONDS
-    dra_final_check_seconds: float = DRA_FINAL_CHECK_SECONDS
-    set_running: SetRunningFn | None = None
-    clear_running: Callable[[], None] | None = None
-    set_running_wait: SetRunningWaitFn | None = None
-    update_schedule: bool = True
-    nonblocking_clear_wait: bool = False
-    not_ready_deadline: datetime | None = None
-
-
-class _RunningOnKeyRadio:
-    """Mark UI running only after PTT keys (DRA uses play_transmit_audio, not play_fn)."""
-
-    def __init__(self, inner: Radio, on_key: Callable[[], None] | None) -> None:
-        self._inner = inner
-        self._on_key = on_key
-
-    def __getattr__(self, name: str):
-        return getattr(self._inner, name)
-
-    def set_ptt(self, keyed: bool) -> None:
-        self._inner.set_ptt(keyed)
-        if keyed and self._on_key is not None:
-            self._on_key()
 
 
 def clear_hold_met(radio: Radio, *, clear_seconds: float) -> bool:
@@ -384,9 +297,7 @@ def _note_substitution(deps: FireDeps, ctx: FireContext, loaded: LoadedFire) -> 
 
 
 def _newsline_not_ready(
-    deps: FireDeps,
     ctx: FireContext,
-    announcement: Announcement,
     schedule: Schedule,
     label: str,
 ) -> str | None:
@@ -499,7 +410,7 @@ def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
     who = _fire_who(ctx, schedule, label)
     log.info("Fire started; %s", who)
     if announcement.kind == "newsline":
-        outcome = _newsline_not_ready(deps, ctx, announcement, schedule, label)
+        outcome = _newsline_not_ready(ctx, schedule, label)
         if outcome:
             return outcome
 
@@ -513,7 +424,7 @@ def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
         from app.newsline.session import bulletin_session
 
         if bulletin_session.active and schedule.kind == "emergency":
-            bulletin_session.offer(announcement, schedule)
+            _ = bulletin_session.offer(announcement, schedule)
             log.info(
                 "Emergency will play when the current Newsline piece finishes; %s",
                 who,
@@ -558,7 +469,7 @@ def handle_fire(ctx: FireContext, deps: FireDeps) -> str:
         try:
             transmit(
                 chunks,
-                radio=_RunningOnKeyRadio(deps.radio, on_key),
+                radio=RunningOnKeyRadio(deps.radio, on_key),
                 play_fn=deps.play_fn,
                 sleep_fn=deps.sleep_fn,
                 lead_seconds=deps.ptt_lead_seconds,

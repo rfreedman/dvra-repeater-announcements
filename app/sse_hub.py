@@ -11,9 +11,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from app.home_live import build_home_live_status
+from app.live_notify import register_home_live_publishers
 from app.manual_trigger_types import SystemStats
 
 log = logging.getLogger("app.sse_hub")
+
+THROTTLED_PUBLISH_INTERVAL_SECONDS = 1.0
 
 _loop: asyncio.AbstractEventLoop | None = None
 _subscribers: set[asyncio.Queue[SseHomeMessage | None]] = set()
@@ -22,6 +25,8 @@ _subscribers_lock = threading.Lock()
 _shutting_down = False
 _publish_lock = threading.Lock()
 _last_publish_mono = 0.0
+_throttle_lock = threading.Lock()
+_last_throttled_publish_mono = 0.0
 MIN_PUBLISH_INTERVAL_SECONDS = 0.05
 
 # JSON object payloads (TypedDicts are Mapping[str, object] at runtime).
@@ -65,7 +70,7 @@ def shutdown_sse_streams() -> None:
             _close_queue(queue)
         elif _loop is not None:
             try:
-                _loop.call_soon_threadsafe(_close_queue, queue)
+                _ = _loop.call_soon_threadsafe(_close_queue, queue)
             except RuntimeError:
                 _close_queue(queue)
         else:
@@ -130,7 +135,7 @@ def publish_sse_event(event: str, data: SsePayload, *, force: bool = False) -> N
         targets = list(_subscribers)
     for queue in targets:
         try:
-            loop.call_soon_threadsafe(_enqueue, queue, message)
+            _ = loop.call_soon_threadsafe(_enqueue, queue, message)
         except RuntimeError:
             log.debug("SSE publish skipped: event loop not running", exc_info=True)
 
@@ -149,6 +154,20 @@ def publish_home_live_status(*, allow_throttle: bool = False, force: bool = Fals
     publish_sse_event("status", payload, force=force)
 
 
+def publish_home_live_status_throttled() -> None:
+    """At most once per second; for background COS while manual defer is active."""
+    global _last_throttled_publish_mono
+    now = time.monotonic()
+    with _throttle_lock:
+        if now - _last_throttled_publish_mono < THROTTLED_PUBLISH_INTERVAL_SECONDS:
+            return
+        _last_throttled_publish_mono = now
+    live = build_home_live_status()
+    if not live.get("upcoming") and not live.get("pending_manual_triggers"):
+        return
+    publish_home_live_status(allow_throttle=False)
+
+
 def publish_home_data_changed() -> None:
     publish_sse_event("data_changed", {}, force=True)
 
@@ -165,7 +184,7 @@ def publish_stats_event(data: SystemStats) -> None:
         targets = list(_stats_subscribers)
     for queue in targets:
         try:
-            loop.call_soon_threadsafe(_enqueue, queue, message)
+            _ = loop.call_soon_threadsafe(_enqueue, queue, message)
         except RuntimeError:
             log.debug("Stats SSE publish skipped: event loop not running", exc_info=True)
 
@@ -176,7 +195,7 @@ def _close_queue(queue: asyncio.Queue[SseHomeMessage | None]) -> None:
     except asyncio.QueueFull:
         try:
             while True:
-                queue.get_nowait()
+                _ = queue.get_nowait()
         except asyncio.QueueEmpty:
             pass
         try:
@@ -190,7 +209,7 @@ def _enqueue(queue: asyncio.Queue[SseHomeMessage | None], message: SseHomeMessag
         queue.put_nowait(message)
     except asyncio.QueueFull:
         try:
-            queue.get_nowait()
+            _ = queue.get_nowait()
         except asyncio.QueueEmpty:
             pass
         try:
@@ -202,3 +221,10 @@ def _enqueue(queue: asyncio.Queue[SseHomeMessage | None], message: SseHomeMessag
 def format_sse(event: str, data: SsePayload) -> str:
     body = json.dumps(data, separators=(",", ":"))
     return f"event: {event}\ndata: {body}\n\n"
+
+
+register_home_live_publishers(
+    status=publish_home_live_status,
+    data_changed=publish_home_data_changed,
+    throttled=publish_home_live_status_throttled,
+)

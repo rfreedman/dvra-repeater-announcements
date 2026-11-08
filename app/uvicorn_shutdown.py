@@ -13,10 +13,12 @@ from typing import TYPE_CHECKING
 from app.sse_hub import shutdown_sse_streams
 
 if TYPE_CHECKING:
+    import socket
+
     import uvicorn.server
 
 _stats_broadcast_stop: asyncio.Event | None = None
-_PATCHED = False
+_patched = False
 
 
 def register_stats_broadcast_stop(stop: asyncio.Event) -> None:
@@ -35,16 +37,18 @@ def _close_sse_before_uvicorn_waits() -> None:
 
 
 def install_uvicorn_sse_shutdown_hook() -> None:
-    global _PATCHED
-    if _PATCHED:
+    global _patched
+    if _patched:
         return
     import uvicorn.server
 
     original = uvicorn.server.Server.shutdown
 
-    async def shutdown(self: uvicorn.server.Server, sockets=None) -> None:  # type: ignore[no-untyped-def]
+    async def shutdown(
+        self: uvicorn.server.Server, sockets: list[socket.socket] | None = None
+    ) -> None:
         _close_sse_before_uvicorn_waits()
         await original(self, sockets=sockets)
 
     uvicorn.server.Server.shutdown = shutdown  # type: ignore[method-assign]
-    _PATCHED = True
+    _patched = True

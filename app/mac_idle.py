@@ -6,13 +6,14 @@ import ctypes
 import logging
 import sys
 from ctypes import POINTER, byref, c_char_p, c_int32, c_uint32, c_void_p
+from typing import cast
 
 log = logging.getLogger("app.scheduler")
 
 _idle_assertion: c_uint32 | None = None
 
 
-def _inhibit_idle_sleep() -> None:
+def inhibit_idle_sleep() -> None:
     """Ask macOS not to idle-sleep / App Nap this process (no-op elsewhere)."""
     global _idle_assertion
     if sys.platform != "darwin" or _idle_assertion is not None:
@@ -33,11 +34,14 @@ def _inhibit_idle_sleep() -> None:
         ]
         iokit.IOPMAssertionCreateWithName.restype = c_int32
         assertion_id = c_uint32(0)
-        status = iokit.IOPMAssertionCreateWithName(
-            cf.CFStringCreateWithCString(None, b"PreventUserIdleSystemSleep", k_utf8),
-            255,
-            cf.CFStringCreateWithCString(None, b"W2ZQ announcement scheduler", k_utf8),
-            byref(assertion_id),
+        status = cast(
+            int,
+            iokit.IOPMAssertionCreateWithName(
+                cf.CFStringCreateWithCString(None, b"PreventUserIdleSystemSleep", k_utf8),
+                255,
+                cf.CFStringCreateWithCString(None, b"W2ZQ announcement scheduler", k_utf8),
+                byref(assertion_id),
+            ),
         )
         if status != 0:
             log.warning("Idle-sleep assertion failed: %s", status)
@@ -48,7 +52,7 @@ def _inhibit_idle_sleep() -> None:
         log.warning("Could not inhibit idle sleep", exc_info=True)
 
 
-def _allow_idle_sleep() -> None:
+def allow_idle_sleep() -> None:
     global _idle_assertion
     if _idle_assertion is None:
         return
@@ -56,7 +60,7 @@ def _allow_idle_sleep() -> None:
         iokit = ctypes.cdll.LoadLibrary("/System/Library/Frameworks/IOKit.framework/IOKit")
         iokit.IOPMAssertionRelease.argtypes = [c_uint32]
         iokit.IOPMAssertionRelease.restype = c_int32
-        iokit.IOPMAssertionRelease(_idle_assertion)
+        _ = cast(int, iokit.IOPMAssertionRelease(_idle_assertion))
     except Exception:
         log.debug("Could not release idle-sleep assertion", exc_info=True)
     _idle_assertion = None

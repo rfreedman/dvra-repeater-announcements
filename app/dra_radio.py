@@ -39,7 +39,7 @@ PTT_HID_OPEN_RETRY_DELAYS_SECONDS = (0.0, 0.03, 0.08, 0.15, 0.3)
 
 
 def dra_radio_from(radio: object) -> DraRadio | None:
-    """Unwrap ``_RunningOnKeyRadio`` (and similar) for DRA-only helpers."""
+    """Unwrap ``RunningOnKeyRadio`` (and similar) for DRA-only helpers."""
     candidate = getattr(radio, "_inner", radio)
     return candidate if isinstance(candidate, DraRadio) else None
 

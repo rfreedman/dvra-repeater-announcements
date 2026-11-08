@@ -5,7 +5,7 @@ import threading
 import time
 from dataclasses import replace
 from datetime import datetime, timedelta
-from typing import overload
+from typing import cast, overload, override
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -28,24 +28,16 @@ from app.fire import (
     handle_fire,
 )
 from app.fire_trace import fire_trace
-from app.mac_idle import _allow_idle_sleep, _inhibit_idle_sleep
+from app.live_notify import notify_home_live_status
+from app.mac_idle import allow_idle_sleep, inhibit_idle_sleep
 from app.manual_trigger_state import (
-    MANUAL_NUDGE_MIN_WAIT_FOR_UNKNOWN_KIND_SECONDS,
-    MANUAL_NUDGE_PTT_TIMER_PROTECT_SECONDS,
-    MANUAL_NUDGE_RUN_DELAY_MS,
-    MANUAL_NUDGE_SKIP_IF_RUN_WITHIN_SECONDS,
-    _clear_manual_inflight,
-    _manual_announcement_name,
-    _pending_row_for_manual,
-    _radio_status_for_ui,
-    _set_manual_inflight,
-    _set_manual_inflight_deadline,
     any_manual_trigger_inflight,
+    clear_manual_inflight,
     clear_manual_trigger_drop_notice,
-    nudge_manual_defer_jobs_if_clear_ready,
-    peek_manual_trigger_drop_notice,
-    pending_manual_triggers,
+    manual_announcement_name,
     record_manual_trigger_drop,
+    set_manual_inflight,
+    set_manual_inflight_deadline,
 )
 from app.manual_trigger_types import RunningPhase, RunningTransmission
 from app.models import Announcement, Schedule
@@ -53,8 +45,21 @@ from app.pcm_cache import chunks_for_announcement
 from app.playback import play_chunks
 from app.radio import get_radio
 from app.schedule_logic import resolve_slot, resolve_window
+from app.scheduler_instance import (
+    DEFER_MISFIRE_GRACE_SECONDS as DEFER_MISFIRE_GRACE_SECONDS,
+    MANUAL_KEY_PREFIX,
+    SLOT_MISFIRE_GRACE_SECONDS,
+    defer_job_id,
+    get_scheduler as get_scheduler,
+    parse_local,
+    register_manual_trigger_runner,
+    set_scheduler,
+    slot_job_id,
+    slot_key_from_defer_job_id,
+)
 from app.scheduler_types import (
     ManualDeferFn,
+    SchedulerJob,
     ManualDeferJobKwargs,
     ScheduledDeferFn,
     ScheduledDeferJobKwargs,
@@ -66,19 +71,11 @@ log = logging.getLogger("app.scheduler")
 
 
 def _notify_home_live(*, force: bool = False) -> None:
-    from app.home_live import notify_home_live_status
-
     notify_home_live_status(force=force)
 
 
-# A slot job may run this late (App Nap, busy host) and still fire.
-SLOT_MISFIRE_GRACE_SECONDS = 30
-DEFER_MISFIRE_GRACE_SECONDS = 120
-MANUAL_KEY_PREFIX = "manual:"
-
 SCHEDULER_MIN_WAKE_SECONDS = 0.5  # PromptBackgroundScheduler sleep floor (macOS App Nap)
 
-_scheduler: BackgroundScheduler | None = None
 _playback_lock = threading.Lock()
 _running_lock = threading.Lock()
 _running: RunningTransmission | None = None
@@ -91,6 +88,8 @@ class PromptBackgroundScheduler(BackgroundScheduler):
     App-Napped for well over the 30s misfire window.
     """
 
+    max_wait_seconds: float
+
     def __init__(
         self,
         *args: object,
@@ -100,6 +99,7 @@ class PromptBackgroundScheduler(BackgroundScheduler):
         super().__init__(*args, **kwargs)
         self.max_wait_seconds = max(SCHEDULER_MIN_WAKE_SECONDS, float(max_wait_seconds))
 
+    @override
     def _process_jobs(self) -> float | None:
         wait = super()._process_jobs()
         if wait is None:
@@ -113,7 +113,7 @@ def _station_zone() -> ZoneInfo:
 
 def get_running() -> RunningTransmission | None:
     with _running_lock:
-        return dict(_running) if _running else None
+        return RunningTransmission(**_running) if _running else None
 
 
 def _set_running(
@@ -192,8 +192,8 @@ def _clear_running() -> None:
 
 def _finish_manual_trigger(
     schedule_id: str,
-    announcement,
-    schedule,
+    announcement: Announcement | None,
+    schedule: Schedule | None,
     result: str,
     *,
     drop_reason: str | None = None,
@@ -204,7 +204,7 @@ def _finish_manual_trigger(
     elif result == "dropped":
         record_manual_trigger_drop(
             schedule_id,
-            announcement_name=_manual_announcement_name(announcement, schedule),
+            announcement_name=manual_announcement_name(announcement, schedule),
             reason=drop_reason or "give_up",
         )
     fire_trace(
@@ -216,31 +216,6 @@ def _finish_manual_trigger(
     return result
 
 
-def _slot_job_id(slot_key: str) -> str:
-    return f"slot:{slot_key}"
-
-
-def _defer_id(slot_key: str) -> str:
-    return f"defer:{slot_key}"
-
-
-def _slot_key_from_defer_job_id(jid: str) -> str | None:
-    if not jid.startswith("defer:"):
-        return None
-    return jid[len("defer:") :]
-
-
-def _manual_schedule_id(jid: str) -> str | None:
-    key = _slot_key_from_defer_job_id(jid)
-    if key is None or not key.startswith(MANUAL_KEY_PREFIX):
-        return None
-    return key[len(MANUAL_KEY_PREFIX) :]
-
-
-def _parse_local(iso: str, zone: ZoneInfo) -> datetime:
-    return as_local(datetime.fromisoformat(iso), zone)
-
-
 def _fire_window(
     zone: ZoneInfo,
     *,
@@ -250,9 +225,9 @@ def _fire_window(
     announcement: Announcement | None,
 ) -> tuple[datetime, datetime]:
     """When this fire started, and when busy retries give up."""
-    fired_at = _parse_local(fired_at_iso, zone) if fired_at_iso else default_fired_at
+    fired_at = parse_local(fired_at_iso, zone) if fired_at_iso else default_fired_at
     if deadline_iso:
-        return fired_at, _parse_local(deadline_iso, zone)
+        return fired_at, parse_local(deadline_iso, zone)
     give_up = (
         announcement.busy_give_up_seconds if announcement else DEFAULT_BUSY_GIVE_UP_SECONDS
     )
@@ -287,10 +262,10 @@ def _add_defer_job(
     if sched is None:
         log.error("Cannot defer fire for %s: scheduler not running", slot_key)
         return False
-    sched.add_job(
+    _ = sched.add_job(
         func,
         DateTrigger(run_date=as_local(run_at, ZoneInfo(TIMEZONE))),
-        id=_defer_id(slot_key),
+        id=defer_job_id(slot_key),
         replace_existing=True,
         kwargs=dict(kwargs),
         misfire_grace_time=DEFER_MISFIRE_GRACE_SECONDS,
@@ -379,7 +354,7 @@ def run_manual_trigger(
     if schedule is None:
         return "missing"
     announcement = store.get(schedule.announcement_id) if schedule.announcement_id else None
-    _set_manual_inflight(schedule_id, _manual_announcement_name(announcement, schedule))
+    set_manual_inflight(schedule_id, manual_announcement_name(announcement, schedule))
     try:
         return _run_manual_trigger_body(
             schedule_id,
@@ -389,7 +364,7 @@ def run_manual_trigger(
             deadline_iso=deadline_iso,
         )
     finally:
-        _clear_manual_inflight(schedule_id)
+        clear_manual_inflight(schedule_id)
         _notify_home_live(force=True)
 
 
@@ -411,9 +386,9 @@ def _run_manual_trigger_body(
         default_fired_at=now,
         announcement=announcement,
     )
-    _set_manual_inflight_deadline(schedule_id, deadline)
+    set_manual_inflight_deadline(schedule_id, deadline)
     slot_key = f"{MANUAL_KEY_PREFIX}{schedule_id}"
-    jid = _defer_id(slot_key)
+    jid = defer_job_id(slot_key)
     ctx = FireContext(
         announcement_id=announcement.id if announcement else None,
         schedule_id=schedule.id,
@@ -514,8 +489,8 @@ def _run_manual_trigger_body(
         schedule_defer=defer,
         playback_lock=_playback_lock,
         synthesize=chunks_for_announcement,
-        mark_last_run=lambda *_args: None,
-        consume_baseline=lambda *_args: None,
+        mark_last_run=_no_last_run,
+        consume_baseline=_no_baseline_consume,
         load=load,
         ptt_lead_seconds=PTT_LEAD_SECONDS,
         set_running=_set_running,
@@ -578,7 +553,15 @@ def _run_manual_trigger_body(
     )
 
 
-def _job_still_scheduled_at(job, fire_at: datetime) -> bool:
+def _no_last_run(_announcement_id: str | None, _schedule_id: str, _when: datetime) -> None:
+    """Manual triggers never advance a schedule's last-run."""
+
+
+def _no_baseline_consume(_schedule_id: str, _slot_key: str) -> None:
+    """Manual triggers never consume a baseline rotation slot."""
+
+
+def _job_still_scheduled_at(job: SchedulerJob, fire_at: datetime) -> bool:
     """True when a pending job will still run at this fire time."""
     when = job.next_run_time
     if when is None:
@@ -619,17 +602,17 @@ def sync_jobs() -> None:
     for item in resolve_window(document, now - lookback, until):
         if item.source == "none":
             continue
-        jid = _slot_job_id(item.slot.key)
+        jid = slot_job_id(item.slot.key)
         if item.fire_at <= now:
-            job = scheduler.get_job(jid)
+            job = cast(SchedulerJob | None, scheduler.get_job(jid))
             if job is not None and _job_still_scheduled_at(job, item.fire_at):
                 wanted.add(jid)
             continue
         wanted.add(jid)
-        existing = scheduler.get_job(jid)
+        existing = cast(SchedulerJob | None, scheduler.get_job(jid))
         if existing is not None and _job_still_scheduled_at(existing, item.fire_at):
             continue
-        scheduler.add_job(
+        _ = scheduler.add_job(
             run_scheduled_fire,
             DateTrigger(run_date=item.fire_at),
             id=jid,
@@ -638,13 +621,13 @@ def sync_jobs() -> None:
             misfire_grace_time=SLOT_MISFIRE_GRACE_SECONDS,
         )
         added += 1
-    for job in list(scheduler.get_jobs()):
+    for job in cast(list[SchedulerJob], scheduler.get_jobs()):
         jid = job.id or ""
         if jid.startswith("slot:") and jid not in wanted:
             scheduler.remove_job(jid)
             removed += 1
             continue
-        key = _slot_key_from_defer_job_id(jid)
+        key = slot_key_from_defer_job_id(jid)
         if key is None or key.startswith(MANUAL_KEY_PREFIX):
             continue
         # Busy retries live until their own give-up deadline; drop them only when
@@ -660,20 +643,15 @@ def sync_jobs() -> None:
         log.info("Synced slot jobs; added %s, removed %s", added, removed)
 
 
-def get_scheduler() -> BackgroundScheduler | None:
-    return _scheduler
-
-
 def start_scheduler() -> None:
-    global _scheduler
-    if _scheduler is not None:
+    if get_scheduler() is not None:
         sync_jobs()
         start_cos_tracking()
         return
     scheduler = PromptBackgroundScheduler(timezone=TIMEZONE, max_wait_seconds=SCHEDULER_MAX_WAIT_SECONDS)
     scheduler.start()
-    _scheduler = scheduler
-    _inhibit_idle_sleep()
+    set_scheduler(scheduler)
+    inhibit_idle_sleep()
     sync_jobs()
     start_cos_tracking()
     from app.newsline.poll import install_news_poll
@@ -683,12 +661,16 @@ def start_scheduler() -> None:
 
 
 def stop_scheduler() -> None:
-    global _scheduler
-    if _scheduler is None:
+    scheduler = get_scheduler()
+    if scheduler is None:
         return
     stop_cos_tracking()
-    _scheduler.shutdown(wait=False)
-    _scheduler = None
+    scheduler.shutdown(wait=False)
+    set_scheduler(None)
     _clear_running()
-    _allow_idle_sleep()
+    allow_idle_sleep()
     log.info("Scheduler stopped")
+
+
+# Manual retries are re-added from app.manual_trigger_state, which cannot import this module.
+register_manual_trigger_runner(run_manual_trigger)

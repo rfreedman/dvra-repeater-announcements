@@ -8,6 +8,7 @@ import pytest
 from apscheduler.schedulers.background import BackgroundScheduler
 
 import app.scheduler as scheduler_mod
+import app.scheduler_instance as scheduler_instance
 from app.models import Announcement, Schedule
 
 TZ = ZoneInfo("America/New_York")
@@ -27,7 +28,7 @@ class _FrozenDatetime(datetime):
 def paused(monkeypatch, store):
     sched = BackgroundScheduler(timezone=TZ)
     sched.start(paused=True)
-    monkeypatch.setattr(scheduler_mod, "_scheduler", sched)
+    monkeypatch.setattr(scheduler_instance, "_scheduler", sched)
     monkeypatch.setattr(scheduler_mod, "datetime", _FrozenDatetime)
     yield sched
     sched.shutdown(wait=False)

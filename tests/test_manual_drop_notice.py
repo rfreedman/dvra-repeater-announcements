@@ -1,12 +1,12 @@
 """Manual trigger give-up exposes a dismissible UI notice."""
 from __future__ import annotations
 
-from app.scheduler import (
+from app.manual_trigger_state import (
     clear_manual_trigger_drop_notice,
     peek_manual_trigger_drop_notice,
     record_manual_trigger_drop,
-    run_manual_trigger,
 )
+from app.scheduler import run_manual_trigger
 from tests.test_api import _seed_baseline
 
 

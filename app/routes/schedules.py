@@ -20,7 +20,8 @@ from app.api_types import (
     settings_payload,
 )
 from app.deps import AdminUser, AuthUser
-from app.home_live import build_home_live_status, notify_home_data_changed, notify_home_live_status
+from app.home_live import build_home_live_status
+from app.live_notify import notify_home_data_changed, notify_home_live_status
 from app.models import Schedule, Settings, StoreDocument
 from app.schedule_logic import (
     clock_for_day,
@@ -30,12 +31,11 @@ from app.schedule_logic import (
     next_runs_by_schedule,
     offset_allowed,
 )
-from app.scheduler import (
+from app.manual_trigger_state import (
     clear_manual_trigger_drop_notice,
     peek_manual_trigger_drop_notice,
-    run_manual_trigger,
-    sync_jobs,
 )
+from app.scheduler import run_manual_trigger, sync_jobs
 from app.schemas import ScheduleDetail, ScheduleIn, SchedulePatch, SettingsIn
 from app.store import AnnouncementStore, get_store
 
@@ -58,7 +58,7 @@ def _recompute_lengths(store: AnnouncementStore, timeout: int) -> None:
 
 
 def _validation_detail(exc: ValidationError) -> str:
-    parts = []
+    parts: list[str] = []
     for err in exc.errors():
         loc = ".".join(str(item) for item in err.get("loc", ()) if item != "body")
         msg = err.get("msg", "invalid")

@@ -94,7 +94,7 @@ class AudioReplugRadio(Protocol):
 
 # ---------------------------------------------------------------------------
 # Typed helpers — return the narrowed Protocol or None.
-# Unwrap proxies (e.g. _RunningOnKeyRadio) since runtime_checkable isinstance
+# Unwrap proxies (e.g. RunningOnKeyRadio) since runtime_checkable isinstance
 # uses static attribute lookup and does not trigger __getattr__.
 # ---------------------------------------------------------------------------
 

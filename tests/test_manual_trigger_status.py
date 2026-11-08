@@ -8,23 +8,25 @@ from app import manual_trigger_state, scheduler
 from app.auth import BACKGROUND_POLL_HEADER
 from app.audio import PcmChunk
 from app.home_live import build_home_live_status
+from app.manual_trigger_state import (
+    clear_manual_inflight,
+    pending_manual_triggers,
+    pending_row_for_manual,
+    set_manual_inflight,
+    set_manual_inflight_deadline,
+)
 from app.scheduler import (
-    _clear_manual_inflight,
     _clear_running,
     _finish_manual_trigger,
-    _pending_row_for_manual,
-    _set_manual_inflight,
-    _set_manual_inflight_deadline,
     _set_running,
     get_running,
-    pending_manual_triggers,
     run_manual_trigger,
 )
 from tests.test_api import _seed_baseline
 
 
 def _phase(*, busy: bool, idle: float, clear_seconds: float = 10.0, in_progress: bool):
-    row = _pending_row_for_manual(
+    row = pending_row_for_manual(
         "s1",
         None,
         None,
@@ -59,14 +61,14 @@ def test_inflight_without_clear_hold_is_in_progress():
 
 def test_inflight_row_reports_give_up_remaining(store, monkeypatch):
     _announcement, schedule = _seed_baseline(store)
-    monkeypatch.setattr(manual_trigger_state, "_radio_status_for_ui", lambda: (True, 0.0, 10.0))
-    _set_manual_inflight(schedule.id, "x")
+    monkeypatch.setattr(manual_trigger_state, "radio_status_for_ui", lambda: (True, 0.0, 10.0))
+    set_manual_inflight(schedule.id, "x")
     try:
         zone = scheduler.zone_for(store.document().settings.timezone)
-        _set_manual_inflight_deadline(schedule.id, datetime.now(zone) + timedelta(seconds=60))
+        set_manual_inflight_deadline(schedule.id, datetime.now(zone) + timedelta(seconds=60))
         (row,) = pending_manual_triggers()
     finally:
-        _clear_manual_inflight(schedule.id)
+        clear_manual_inflight(schedule.id)
     assert row["phase"] == "channel_busy"
     assert 55 < row["give_up_remaining_seconds"] <= 60
 
@@ -113,7 +115,7 @@ def test_clear_running_while_manual_inflight_skips_intermediate_notify(store, mo
         "app.scheduler._notify_home_live",
         lambda *, force=False: notifies.append({"force": force}),
     )
-    _set_manual_inflight(schedule.id, announcement.name)
+    set_manual_inflight(schedule.id, announcement.name)
     try:
         _set_running(announcement, schedule.id)
         notifies.clear()
@@ -126,7 +128,7 @@ def test_clear_running_while_manual_inflight_skips_intermediate_notify(store, mo
         _finish_manual_trigger(schedule.id, announcement, schedule, "transmitted")
         assert notifies == []
     finally:
-        _clear_manual_inflight(schedule.id)
+        clear_manual_inflight(schedule.id)
 
     live = build_home_live_status()
     assert live["upcoming"]["status"] == "waiting"

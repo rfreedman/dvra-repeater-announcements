@@ -9,7 +9,7 @@ import os
 import sys
 import time
 from dataclasses import dataclass
-from typing import NamedTuple, NotRequired, Protocol, TypedDict
+from typing import NamedTuple, NotRequired, Protocol, TypedDict, cast
 
 log = logging.getLogger("app.cm119")
 
@@ -55,18 +55,18 @@ def ensure_hid_module() -> HidModule:
     if sys.platform == "darwin":
         brew_lib = "/opt/homebrew/lib"
         if os.path.isdir(brew_lib):
-            os.environ.setdefault("DYLD_FALLBACK_LIBRARY_PATH", brew_lib)
+            _ = os.environ.setdefault("DYLD_FALLBACK_LIBRARY_PATH", brew_lib)
     try:
         import hid  # type: ignore[import-untyped]
     except ImportError as exc:
         raise RuntimeError(
             "hidapi is required for TTS_RADIO_BACKEND=dra. Install: uv sync "
-            "(pip deploy: pip install -r requirements.txt)"
+            + "(pip deploy: pip install -r requirements.txt)"
         ) from exc
     if not hasattr(hid, "device"):
         raise RuntimeError(
             "Wrong 'hid' package installed. Run: uv pip uninstall hid && uv sync "
-            "(pip deploy: pip uninstall hid && pip install -r requirements.txt)"
+            + "(pip deploy: pip uninstall hid && pip install -r requirements.txt)"
         )
     # hidapi has no stubs; Protocol is our typed surface after this boundary.
     hid_module: HidModule = hid  # pyright: ignore[reportAssignmentType]
@@ -110,7 +110,7 @@ def cos_line_busy(
 def _as_hid_entry(raw: object) -> HidDeviceEntry | None:
     if not isinstance(raw, dict):
         return None
-    mapping: dict[object, object] = raw
+    mapping = cast(dict[object, object], raw)
     path = mapping.get("path")
     vendor_id = mapping.get("vendor_id")
     product_id = mapping.get("product_id")

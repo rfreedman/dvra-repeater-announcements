@@ -5,6 +5,7 @@ import logging
 import threading
 
 from app.config import DRA_CLEAR_POLL_SECONDS, dra_cos_track_enabled, radio_backend
+from app.live_notify import notify_home_live_status_throttled
 from app.radio import as_cos_polling, get_radio
 
 log = logging.getLogger("app.cos_track")
@@ -14,37 +15,32 @@ _thread: threading.Thread | None = None
 
 
 def _poll_loop() -> None:
+    # Imported here, not at module scope: the DRA stack is only loaded once polling starts.
+    from app.dra_alsa_mixer import apply_cm119_replug_recovery
+    from app.dra_radio import dra_radio_from
+    from app.manual_trigger_state import nudge_manual_defer_jobs_if_clear_ready
+
     poll = max(0.05, DRA_CLEAR_POLL_SECONDS)
     while not _stop.is_set():
         try:
             radio = get_radio()
-            from app.dra_radio import dra_radio_from
-
             dra = dra_radio_from(radio)
             if dra is not None and not dra.usb_hid_present:
                 if not dra.note_usb_hid_presence():
-                    from app.home_live import notify_home_live_status_throttled
-
                     notify_home_live_status_throttled()
                     if _stop.wait(poll):
                         break
                     continue
-
-            from app.scheduler import nudge_manual_defer_jobs_if_clear_ready
-
-            from app.dra_alsa_mixer import apply_cm119_replug_recovery
 
             apply_cm119_replug_recovery(radio)
             poller = as_cos_polling(radio)
             if poller is not None:
                 if not poller.ptt_keyed:
                     poller.warm_open_hid()
-                    poller.refresh_cos()
+                    _ = poller.refresh_cos()
                     nudge_manual_defer_jobs_if_clear_ready()
             else:
                 nudge_manual_defer_jobs_if_clear_ready()
-            from app.home_live import notify_home_live_status_throttled
-
             notify_home_live_status_throttled()
         except Exception as exc:
             try:

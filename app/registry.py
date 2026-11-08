@@ -16,6 +16,8 @@ from app.tts.piper import PiperEngine
 
 
 class EngineRegistry:
+    engine: PiperEngine
+
     def __init__(self) -> None:
         self.engine = PiperEngine()
 
@@ -72,11 +74,11 @@ class EngineRegistry:
         return self.engine.list_voices()
 
 
-_REGISTRY: EngineRegistry | None = None
+_registry: EngineRegistry | None = None
 
 
 def get_registry() -> EngineRegistry:
-    global _REGISTRY
-    if _REGISTRY is None:
-        _REGISTRY = EngineRegistry()
-    return _REGISTRY
+    global _registry
+    if _registry is None:
+        _registry = EngineRegistry()
+    return _registry

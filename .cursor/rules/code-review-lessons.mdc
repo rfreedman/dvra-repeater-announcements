@@ -15,6 +15,8 @@ Add a one-line lesson here only when a fix reveals a pattern that would be easy 
 - Busy-retry (`defer:`) jobs live until their own `deadline_iso`; do not prune them by slot window.
 - Manual triggers never change slot jobs — don't call `sync_jobs()` from that path.
 
+- Live home status pushes go through `app.live_notify`; `app.sse_hub` registers the publishers on import. State modules must never import `app.home_live` (that closes an import cycle) — notify through `live_notify` instead.
+
 ## Radio / DRA
 - USB unplug aborts **in-flight transmit** (lead + PCM), not the app — use `begin_usb_transmit`/`end_usb_transmit`, interruptible `aplay`, and `TransmitAbortError`; skip COS poll HID work while HID absent.
 - PTT lead silence must be the **same continuous USB stream** as speech (`play_transmit_audio(..., lead_seconds=lead)`). A separate lead `aplay` exits before speech; COMM OK drops and RF unkeys even while GPIO3 stays keyed.

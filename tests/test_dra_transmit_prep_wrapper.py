@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from app.cm119 import Cm119HidAdapter
 from app.dra_radio import DraRadio
-from app.fire import _RunningOnKeyRadio
+from app.fire_types import RunningOnKeyRadio
 from app.radio import transmit
 
 
@@ -16,7 +16,7 @@ def test_transmit_prep_runs_on_running_on_key_wrapper(monkeypatch):
         cos_line="vol_dn",
         cos_active_high=False,
     )
-    wrapped = _RunningOnKeyRadio(radio, on_key=None)
+    wrapped = RunningOnKeyRadio(radio, on_key=None)
     prep_calls: list[object] = []
 
     monkeypatch.setattr(

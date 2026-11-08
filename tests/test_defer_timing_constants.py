@@ -4,13 +4,13 @@ from app.fire import (
     DEFER_CLEAR_NONBLOCKING_MAX_SECONDS,
     DEFER_RETRY_WHEN_CLEAR_MET_CAP_SECONDS,
 )
-from app.scheduler import (
+from app.manual_trigger_state import (
     MANUAL_NUDGE_MIN_WAIT_FOR_UNKNOWN_KIND_SECONDS,
     MANUAL_NUDGE_PTT_TIMER_PROTECT_SECONDS,
     MANUAL_NUDGE_RUN_DELAY_MS,
     MANUAL_NUDGE_SKIP_IF_RUN_WITHIN_SECONDS,
-    SCHEDULER_MIN_WAKE_SECONDS,
 )
+from app.scheduler import SCHEDULER_MIN_WAKE_SECONDS
 
 
 def test_defer_timing_constants_unchanged():

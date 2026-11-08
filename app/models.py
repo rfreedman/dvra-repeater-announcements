@@ -225,7 +225,7 @@ class Schedule(BaseModel):
 
     @model_validator(mode="after")
     def kind_fields(self) -> Schedule:
-        ZoneInfo(self.timezone)
+        _ = ZoneInfo(self.timezone)
         if self.kind == "emergency":
             self.priority = DEFAULT_PRIORITY["emergency"]
         elif self.priority == 0:
@@ -345,7 +345,7 @@ class Settings(BaseModel):
         if value < MIN_REPEATER_TIMEOUT_SECONDS or value > MAX_REPEATER_TIMEOUT_SECONDS:
             raise ValueError(
                 f"Repeater timeout must be {MIN_REPEATER_TIMEOUT_SECONDS}–"
-                f"{MAX_REPEATER_TIMEOUT_SECONDS} seconds"
+                + f"{MAX_REPEATER_TIMEOUT_SECONDS} seconds"
             )
         return value
 

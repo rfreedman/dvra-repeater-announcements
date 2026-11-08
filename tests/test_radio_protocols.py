@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterable
 from datetime import datetime
 
 from app.audio import PcmChunk
-from app.fire import _RunningOnKeyRadio
+from app.fire_types import RunningOnKeyRadio
 from app.radio import (
     AudioReplugRadio,
     ClearWaitRadio,
@@ -154,12 +154,12 @@ def test_full_dra_like_matches_all():
     assert as_audio_replug(radio) is radio
 
 
-# --- _RunningOnKeyRadio proxy preserves capabilities ---
+# --- RunningOnKeyRadio proxy preserves capabilities ---
 
 
 def test_proxy_preserves_idle_credit():
     inner = _IdleCreditFake()
-    wrapped = _RunningOnKeyRadio(inner, on_key=None)
+    wrapped = RunningOnKeyRadio(inner, on_key=None)
     idle = as_idle_credit(wrapped)
     assert idle is not None
     assert idle.continuous_idle_seconds() == 5.0
@@ -167,7 +167,7 @@ def test_proxy_preserves_idle_credit():
 
 def test_proxy_preserves_full_capabilities():
     inner = _FullDraLike()
-    wrapped = _RunningOnKeyRadio(inner, on_key=None)
+    wrapped = RunningOnKeyRadio(inner, on_key=None)
     assert as_idle_credit(wrapped) is not None
     assert as_clear_wait(wrapped) is not None
     assert as_cos_snapshot(wrapped) is not None
@@ -178,7 +178,7 @@ def test_proxy_preserves_full_capabilities():
 
 def test_proxy_minimal_matches_nothing():
     inner = _MinimalRadio()
-    wrapped = _RunningOnKeyRadio(inner, on_key=None)
+    wrapped = RunningOnKeyRadio(inner, on_key=None)
     assert as_idle_credit(wrapped) is None
     assert as_clear_wait(wrapped) is None
 

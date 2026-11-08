@@ -22,6 +22,10 @@ BACKGROUND_POLL_HEADER = "X-Background-Poll"
 class LoginRateLimiter:
     """Lock out a client+username after repeated failed sign-ins (in memory)."""
 
+    max_failures: int
+    window_seconds: float
+    _lock: threading.Lock
+
     def __init__(self, *, max_failures: int = 5, window_seconds: float = 300.0) -> None:
         self.max_failures = max_failures
         self.window_seconds = window_seconds
@@ -33,7 +37,7 @@ class LoginRateLimiter:
         if recent:
             self._failures[key] = recent
         else:
-            self._failures.pop(key, None)
+            _ = self._failures.pop(key, None)
         return recent
 
     def retry_after(self, key: str) -> float:
@@ -54,7 +58,7 @@ class LoginRateLimiter:
             if key is None:
                 self._failures.clear()
             else:
-                self._failures.pop(key, None)
+                _ = self._failures.pop(key, None)
 
 
 def configured_login_limiter() -> LoginRateLimiter:

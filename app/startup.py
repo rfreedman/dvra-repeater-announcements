@@ -42,7 +42,7 @@ def init_radio_at_startup() -> None:
             from app.dra_radio import DraRadio
 
             if isinstance(radio, DraRadio):
-                radio.sync_audio_output_indices_if_changed(after_usb_event=True)
+                _ = radio.sync_audio_output_indices_if_changed(after_usb_event=True)
                 ensure_cm119_speakers_unmuted(
                     radio.audio_device_indices,
                     level=DRA_ALSA_SPEAKER_LEVEL,
@@ -65,6 +65,6 @@ def fail_startup(message: str) -> None:
     import logging
 
     logging.getLogger("app.server").error(message)
-    sys.stderr.write(message.rstrip() + "\n")
-    sys.stderr.flush()
+    _ = sys.stderr.write(message.rstrip() + "\n")
+    _ = sys.stderr.flush()
     os._exit(1)

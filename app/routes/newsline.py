@@ -11,11 +11,11 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from app.deps import AdminUser, AuthUser
-from app.home_live import notify_home_data_changed, notify_home_live_status
+from app.live_notify import notify_home_data_changed, notify_home_live_status
 from app.newsline.notices import clear_skip_notice
 from app.newsline.poll import start_manual_check
 from app.newsline.preview import PreviewError, preview_frames
-from app.routes.speak import _raise_engine_http
+from app.routes.speak import raise_engine_http
 from app.schemas import NewslinePreviewIn
 
 router = APIRouter()
@@ -62,7 +62,7 @@ async def preview_newsline(
     except HTTPException:
         raise
     except Exception as exc:
-        _raise_engine_http(exc, where="newsline preview")
+        raise_engine_http(exc, where="newsline preview")
     return StreamingResponse(
         _byte_stream(request, frames),
         media_type="application/octet-stream",

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import threading
 from collections.abc import Mapping
+from datetime import datetime
 from pathlib import Path
 from typing import cast
 
@@ -40,16 +41,19 @@ def read_versioned_json(path: Path, *, version: int, kind: str) -> JsonObject | 
     text = path.read_text(encoding="utf-8").strip()
     if not text:
         return None
-    raw = json.loads(text)
+    raw = cast(object, json.loads(text))
     if raw == {}:
         return None
-    if not isinstance(raw, dict) or raw.get("version") != version:
-        found = raw.get("version") if isinstance(raw, dict) else None
+    if not isinstance(raw, dict):
+        raise DataFileError(f"{path} is not a {kind} JSON object; refusing to overwrite it.")
+    entries = cast(JsonObject, raw)
+    if entries.get("version") != version:
+        found = entries.get("version")
         raise DataFileError(
             f"{path} is not a version {version} {kind} file (found version {found!r}). "
-            "Move it aside or restore a backup; refusing to overwrite it."
+            + "Move it aside or restore a backup; refusing to overwrite it."
         )
-    return cast(JsonObject, raw)
+    return entries
 
 
 def write_json_atomic(path: Path, data: Mapping[str, object]) -> None:
@@ -57,8 +61,8 @@ def write_json_atomic(path: Path, data: Mapping[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(data, indent=2) + "\n"
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(payload, encoding="utf-8")
-    tmp.replace(path)
+    _ = tmp.write_text(payload, encoding="utf-8")
+    _ = tmp.replace(path)
 
 
 def empty_document() -> StoreDocument:
@@ -66,6 +70,8 @@ def empty_document() -> StoreDocument:
 
 
 class AnnouncementStore:
+    path: Path
+
     def __init__(self, path: Path) -> None:
         self.path = path
 
@@ -183,7 +189,10 @@ class AnnouncementStore:
             self._write(updated)
             return found
 
-    def set_last_run(self, announcement_id: str, schedule_id: str, when) -> None:
+    def set_last_run(
+        self, announcement_id: str | None, schedule_id: str, when: datetime
+    ) -> None:
+        del announcement_id  # recorded on the schedule row, not the announcement
         with _lock:
             document = self._read()
             items: list[Schedule] = []

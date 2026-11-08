@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from functools import partial
 
 from app.audio import PcmChunk, materialize_chunks
-from app.fire import FireDeps
+from app.fire_types import FireDeps, RunningOnKeyRadio
 from app.fire_trace import fire_trace
 from app.models import Announcement, Schedule
 from app.newsline.decode import mp3_to_chunks
@@ -123,11 +123,9 @@ def _chunks_for_piece(deps: FireDeps, piece: Piece) -> list[PcmChunk]:
 def _transmit_chunks(
     deps: FireDeps, chunks: Iterable[PcmChunk], *, on_key: Callable[[], None] | None
 ) -> None:
-    from app.fire import _RunningOnKeyRadio
-
     transmit(
         chunks,
-        radio=_RunningOnKeyRadio(deps.radio, on_key),
+        radio=RunningOnKeyRadio(deps.radio, on_key),
         play_fn=deps.play_fn,
         sleep_fn=deps.sleep_fn,
         lead_seconds=deps.ptt_lead_seconds,

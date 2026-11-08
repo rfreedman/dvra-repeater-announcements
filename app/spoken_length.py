@@ -20,15 +20,6 @@ def speech_limit_seconds(timeout_seconds: int) -> float:
     return float(timeout_seconds) - 2.0
 
 
-def measure_announcement(announcement: Announcement, timeout_seconds: int) -> Announcement:
-    if announcement.kind != "tts":
-        return announcement
-    from app.pcm_cache import chunks_for_announcement
-
-    chunks = chunks_for_announcement(announcement)
-    return apply_played_length(announcement, pcm_duration_seconds(chunks), timeout_seconds)
-
-
 def apply_played_length(
     announcement: Announcement,
     play_seconds: float,
@@ -73,7 +64,7 @@ def too_long_parts(document: StoreDocument, announcement: Announcement) -> list[
     if announcement.kind == "tts" and announcement.too_long and announcement.play_seconds is not None:
         parts.append(
             f"{announcement.name} is {format_seconds(announcement.play_seconds)}s, "
-            f"over the {limit_text}s limit"
+            + f"over the {limit_text}s limit"
         )
     if announcement.kind != "newsline":
         return parts
@@ -91,7 +82,7 @@ def too_long_parts(document: StoreDocument, announcement: Announcement) -> list[
             continue
         parts.append(
             f"{_role_label(role)} “{ref.name}” is {format_seconds(ref.play_seconds)}s, "
-            f"over the {limit_text}s limit"
+            + f"over the {limit_text}s limit"
         )
     return parts
 

@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-from collections.abc import AsyncIterator, Iterator
-from typing import NoReturn
+from collections.abc import AsyncIterator, Callable, Iterator
+from typing import NoReturn, cast
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -21,7 +21,6 @@ from app.tts.base import VoiceError, VoicesPayload
 router = APIRouter()
 registry = get_registry()
 log = logging.getLogger("app.routes.speak")
-_END = object()
 
 
 def _chained_oserror(exc: BaseException) -> bool:
@@ -36,7 +35,7 @@ def _chained_oserror(exc: BaseException) -> bool:
     return False
 
 
-def _raise_engine_http(exc: Exception, *, where: str) -> NoReturn:
+def raise_engine_http(exc: Exception, *, where: str) -> NoReturn:
     """Map a voice or I/O failure to HTTP. Unexpected errors are logged and become 500."""
     if isinstance(exc, VoiceError) and not _chained_oserror(exc):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -59,7 +58,7 @@ def prepare(req: PrepareRequest, _user: AuthUser) -> dict[str, str]:
     except HTTPException:
         raise
     except Exception as exc:
-        _raise_engine_http(exc, where="prepare")
+        raise_engine_http(exc, where="prepare")
     return {"voice": voice_id}
 
 
@@ -80,7 +79,7 @@ async def speak(req: SpeakRequest, request: Request, _user: AuthUser) -> Streami
     except HTTPException:
         raise
     except Exception as exc:
-        _raise_engine_http(exc, where="speak")
+        raise_engine_http(exc, where="speak")
 
     play_seconds = pcm_duration_seconds(list(chunks))
     return StreamingResponse(
@@ -101,17 +100,17 @@ async def _pcm_stream(request: Request, chunks: Iterator[PcmChunk]) -> AsyncIter
     iterator = iter(chunks)
     gen_lock = threading.Lock()
 
-    def take_next() -> PcmChunk | object:
+    def take_next() -> PcmChunk | None:
         with gen_lock:
-            return next(iterator, _END)
+            return next(iterator, None)
 
     def close_gen() -> None:
         with gen_lock:
-            close = getattr(iterator, "close", None)
+            close = cast(object, getattr(iterator, "close", None))
             if not callable(close):
                 return
             try:
-                close()
+                _ = cast(Callable[[], object], close)()
             except Exception:
                 # close() runs after the client may already be gone; don't fail the response.
                 log.debug("Speech stream close failed", exc_info=True)
@@ -121,7 +120,7 @@ async def _pcm_stream(request: Request, chunks: Iterator[PcmChunk]) -> AsyncIter
             if await request.is_disconnected():
                 break
             chunk = await asyncio.to_thread(take_next)
-            if chunk is _END:
+            if chunk is None:
                 break
             if await request.is_disconnected():
                 break

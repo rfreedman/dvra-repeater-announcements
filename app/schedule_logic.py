@@ -13,6 +13,7 @@ import random
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING
+from zoneinfo import ZoneInfo
 
 from app.models import (
     DAY_LABELS,
@@ -102,7 +103,10 @@ def _countdown_occupies(
     if slot.day < start_day:
         return False
     # Slots are always in the station zone (document settings), never Schedule.timezone.
-    event = slot_from_parts(event_day, event_stamp, slot.center.tzinfo)
+    zone = slot.center.tzinfo
+    if not isinstance(zone, ZoneInfo):
+        return False
+    event = slot_from_parts(event_day, event_stamp, zone)
     if event is None or slot.center >= event.center:
         return False
     if allowed_stamps and slot.stamp not in allowed_stamps:

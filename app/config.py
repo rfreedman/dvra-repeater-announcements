@@ -133,7 +133,7 @@ if DRA_USB_CHANNEL not in {"left", "right", "mono"}:
         "Invalid TTS_DRA_USB_CHANNEL=%r; using 'left'",
         os.environ.get("TTS_DRA_USB_CHANNEL"),
     )
-    DRA_USB_CHANNEL = "left"
+    DRA_USB_CHANNEL = "left"  # pyright: ignore[reportConstantRedefinition]
 DRA_COS_LINE = os.environ.get("TTS_DRA_COS_LINE", "vol_dn").strip().lower()
 if DRA_COS_LINE not in {"vol_dn", "vol_up", "allstar3"}:
     import logging
@@ -142,7 +142,7 @@ if DRA_COS_LINE not in {"vol_dn", "vol_up", "allstar3"}:
         "Invalid TTS_DRA_COS_LINE=%r; using 'vol_dn'",
         os.environ.get("TTS_DRA_COS_LINE"),
     )
-    DRA_COS_LINE = "vol_dn"
+    DRA_COS_LINE = "vol_dn"  # pyright: ignore[reportConstantRedefinition]
 DRA_COS_ACTIVE_HIGH = _env_flag("TTS_DRA_COS_ACTIVE_HIGH", False)
 
 
@@ -213,8 +213,11 @@ def dra_linux_playback_backend() -> str:
         return "portaudio"
     if raw in {"aplay", "portaudio"}:
         return raw
-    log = __import__("logging").getLogger("app.config")
-    log.warning("Invalid TTS_DRA_LINUX_PLAYBACK=%r; using aplay", raw)
+    import logging
+
+    logging.getLogger("app.config").warning(
+        "Invalid TTS_DRA_LINUX_PLAYBACK=%r; using aplay", raw
+    )
     return "aplay"
 
 
@@ -266,7 +269,7 @@ def session_secret() -> str:
 
     value = secrets.token_urlsafe(48)
     SESSION_SECRET_PATH.parent.mkdir(parents=True, exist_ok=True)
-    SESSION_SECRET_PATH.write_text(value + "\n", encoding="utf-8")
+    _ = SESSION_SECRET_PATH.write_text(value + "\n", encoding="utf-8")
     try:
         SESSION_SECRET_PATH.chmod(0o600)
     except OSError:

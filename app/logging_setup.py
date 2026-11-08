@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import cast, override
 from copy import deepcopy
 from pathlib import Path
 
@@ -30,6 +31,7 @@ _ACCESS_NOISE_GET_PATHS = frozenset(
 class AccessNoiseFilter(logging.Filter):
     """Drop high-frequency status polls from uvicorn access records."""
 
+    @override
     def filter(self, record: logging.LogRecord) -> bool:
         args = record.args
         if not isinstance(args, tuple) or len(args) < 3:
@@ -99,7 +101,7 @@ def serve_log_config(log_dir: Path | None = None) -> dict[str, object]:
         "stream": "ext://sys.stderr",
     }
     # Drop uvicorn's default stdout access handler; access goes only to access_file.
-    config["handlers"].pop("access", None)
+    _ = cast(dict[str, object], config["handlers"]).pop("access", None)
     config["loggers"]["uvicorn"]["handlers"] = ["default", "file"]
     config["loggers"]["uvicorn.access"] = {
         "handlers": ["access_file"],

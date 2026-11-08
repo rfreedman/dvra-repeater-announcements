@@ -6,10 +6,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from app.scheduler import (
-    nudge_manual_defer_jobs_if_clear_ready,
-    run_manual_trigger,
-)
+from app.manual_trigger_state import nudge_manual_defer_jobs_if_clear_ready
+from app.scheduler import run_manual_trigger
 
 TZ = ZoneInfo("America/New_York")
 
@@ -46,7 +44,7 @@ def test_nudge_pulls_long_busy_defer_when_clear_hold_met(monkeypatch):
         },
     )()
 
-    monkeypatch.setattr("app.scheduler.get_scheduler", lambda: FakeSched())
+    monkeypatch.setattr("app.manual_trigger_state.get_scheduler", lambda: FakeSched())
     monkeypatch.setattr("app.manual_trigger_state.get_radio", lambda: FakeRadio())
 
     nudge_manual_defer_jobs_if_clear_ready()
@@ -80,7 +78,7 @@ def test_nudge_pulls_long_ptt_defer_when_clear_hold_met(monkeypatch):
         },
     )()
 
-    monkeypatch.setattr("app.scheduler.get_scheduler", lambda: FakeSched())
+    monkeypatch.setattr("app.manual_trigger_state.get_scheduler", lambda: FakeSched())
     monkeypatch.setattr("app.manual_trigger_state.get_radio", lambda: FakeRadio())
 
     nudge_manual_defer_jobs_if_clear_ready()
@@ -112,7 +110,7 @@ def test_nudge_leaves_short_ptt_retry_on_timer(monkeypatch):
         },
     )()
 
-    monkeypatch.setattr("app.scheduler.get_scheduler", lambda: FakeSched())
+    monkeypatch.setattr("app.manual_trigger_state.get_scheduler", lambda: FakeSched())
     monkeypatch.setattr("app.manual_trigger_state.get_radio", lambda: FakeRadio())
 
     nudge_manual_defer_jobs_if_clear_ready()

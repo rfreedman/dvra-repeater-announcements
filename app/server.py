@@ -55,10 +55,10 @@ def _sync_startup_for_tests() -> bool:
 
 async def _complete_startup(started: float, stats_stop: asyncio.Event) -> asyncio.Task[None] | None:
     try:
-        get_store().document()
-        get_user_store().count()
+        _ = get_store().document()
+        _ = get_user_store().count()
         await asyncio.to_thread(init_radio_at_startup)
-        await asyncio.to_thread(get_registry().preload)
+        _ = await asyncio.to_thread(get_registry().preload)
         await asyncio.to_thread(warm_all)
         from app.newsline.poll import log_ffmpeg_status
 
@@ -113,7 +113,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
                     if nested is not None:
                         await nested
             else:
-                startup_bg.cancel()
+                _ = startup_bg.cancel()
                 try:
                     await startup_bg
                 except asyncio.CancelledError:

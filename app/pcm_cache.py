@@ -8,10 +8,12 @@ import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 
 from app.audio import PcmChunk
 from app.config import PCM_CACHE_DIR
 from app.models import Announcement
+from app.spoken_length import apply_played_length, pcm_duration_seconds
 
 log = logging.getLogger("app.pcm_cache")
 _locks_guard = threading.Lock()
@@ -58,7 +60,14 @@ def concat_chunks(chunks: list[PcmChunk]) -> PcmChunk:
     )
 
 
+def _meta_int(meta: dict[str, object], key: str, default: int) -> int:
+    value = meta.get(key)
+    return int(value) if isinstance(value, (int, float, str)) and value else default
+
+
 class PcmCache:
+    root: Path
+
     def __init__(self, root: Path) -> None:
         self.root = Path(root)
 
@@ -72,9 +81,12 @@ class PcmCache:
         if not meta_path.exists() or not pcm_path.exists():
             return None
         try:
-            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            raw = cast(object, json.loads(meta_path.read_text(encoding="utf-8")))
         except (OSError, json.JSONDecodeError):
             return None
+        if not isinstance(raw, dict):
+            return None
+        meta = cast(dict[str, object], raw)
         if meta.get("fingerprint") != expected:
             return None
         try:
@@ -84,9 +96,9 @@ class PcmCache:
         return [
             PcmChunk(
                 pcm_int16=pcm,
-                sample_rate=int(meta.get("sample_rate") or 22050),
-                sample_width=int(meta.get("sample_width") or 2),
-                channels=int(meta.get("channels") or 1),
+                sample_rate=_meta_int(meta, "sample_rate", 22050),
+                sample_width=_meta_int(meta, "sample_width", 2),
+                channels=_meta_int(meta, "channels", 1),
             )
         ]
 
@@ -102,10 +114,10 @@ class PcmCache:
         }
         pcm_tmp = folder / "audio.s16.tmp"
         meta_tmp = folder / "meta.json.tmp"
-        pcm_tmp.write_bytes(combined.pcm_int16)
-        meta_tmp.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
-        pcm_tmp.replace(folder / "audio.s16")
-        meta_tmp.replace(folder / "meta.json")
+        _ = pcm_tmp.write_bytes(combined.pcm_int16)
+        _ = meta_tmp.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+        _ = pcm_tmp.replace(folder / "audio.s16")
+        _ = meta_tmp.replace(folder / "meta.json")
 
     def drop(self, announcement_id: str) -> None:
         folder = self._dir(announcement_id)
@@ -191,7 +203,7 @@ def warm_announcement(announcement: Announcement) -> list[PcmChunk] | None:
 
 def warm_announcement_in_background(
     announcement: Announcement,
-    warm: Callable[[Announcement], None] = warm_announcement,
+    warm: Callable[[Announcement], object] = warm_announcement,
 ) -> threading.Thread:
     """Render after an edit without holding the HTTP request (fires render on a miss anyway)."""
     thread = threading.Thread(
@@ -214,8 +226,6 @@ def warm_all(announcements: list[Announcement] | None = None) -> None:
     started = time.perf_counter()
     log.info("Warming all TTS announcements; caching %s", len(to_warm))
     get_pcm_cache().prune({item.id for item in items})
-    from app.spoken_length import apply_played_length, pcm_duration_seconds
-
     timeout = document.settings.repeater_timeout_seconds
     cached = 0
     for item in to_warm:
@@ -226,7 +236,7 @@ def warm_all(announcements: list[Announcement] | None = None) -> None:
         if item.play_seconds is not None:
             continue
         measured = apply_played_length(item, pcm_duration_seconds(chunks), timeout)
-        store.save_announcement(measured)
+        _ = store.save_announcement(measured)
         if measured.too_long:
             log.warning(
                 "Announcement %s is %.1fs, over the repeater limit",
@@ -236,3 +246,11 @@ def warm_all(announcements: list[Announcement] | None = None) -> None:
         else:
             log.info("Timed %s at %.1fs", measured.name, measured.play_seconds or 0)
     log.info("Cached %s announcements in %.1fs", cached, time.perf_counter() - started)
+
+
+def measure_announcement(announcement: Announcement, timeout_seconds: int) -> Announcement:
+    """Render the announcement (cached) and record how long it plays."""
+    if announcement.kind != "tts":
+        return announcement
+    chunks = chunks_for_announcement(announcement)
+    return apply_played_length(announcement, pcm_duration_seconds(chunks), timeout_seconds)
