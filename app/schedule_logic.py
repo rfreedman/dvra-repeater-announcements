@@ -12,6 +12,7 @@ import calendar
 import random
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
+from typing import TYPE_CHECKING
 
 from app.models import (
     DAY_LABELS,
@@ -23,6 +24,9 @@ from app.models import (
     format_hhmm,
     parse_hhmm,
 )
+
+if TYPE_CHECKING:
+    from app.api_types import ScheduleRow
 from app.spoken_length import blocks_playback, too_long_parts
 from app.slots import Slot, as_local, iter_day_slots, iter_slots, slot_from_parts, zone_for
 
@@ -661,7 +665,7 @@ def flatten_schedule_row(
     document: StoreDocument,
     now: datetime,
     next_runs: dict[str, datetime] | None = None,
-) -> dict[str, object]:
+) -> ScheduleRow:
     announcement = document.announcement_by_id(schedule.announcement_id)
     nxt = (next_runs or {}).get(schedule.id)
     if nxt is None and next_runs is None:

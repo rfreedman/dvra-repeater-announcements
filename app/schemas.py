@@ -21,7 +21,7 @@ from app.config import (
     MIN_SPEECH_SPEED,
     TIMEZONE,
 )
-from app.models import ScheduleKind, normalize_announcement_text
+from app.models import Announcement, Schedule, ScheduleKind, normalize_announcement_text
 from app.users import Role
 
 
@@ -137,3 +137,13 @@ class UserUpdateIn(BaseModel):
     username: str | None = Field(default=None, min_length=1, max_length=64)
     password: str | None = Field(default=None, min_length=1, max_length=256)
     role: Role | None = None
+
+
+class AnnouncementsListOut(BaseModel):
+    announcements: list[Announcement]
+
+
+class ScheduleDetail(Schedule):
+    """Schedule JSON plus an optional home/editor warning string."""
+
+    warning: str | None = None

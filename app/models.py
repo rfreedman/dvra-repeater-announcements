@@ -27,7 +27,8 @@ from app.config import (
     TIMEZONE,
 )
 
-DAY_NAMES = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+DayName = Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+DAY_NAMES: tuple[DayName, ...] = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 DAY_LABELS = {
     "mon": "Monday",
     "tue": "Tuesday",
@@ -63,15 +64,6 @@ DEFAULT_PRIORITY = {
     "monthly_range": 20,
     "emergency": 100,
 }
-
-
-def schedule_meta() -> dict[str, object]:
-    """Day and month labels plus template priorities for the schedule editor."""
-    return {
-        "days": [{"id": day, "label": DAY_LABELS[day]} for day in DAY_NAMES],
-        "months": [{"id": month, "label": MONTH_LABELS[month]} for month in range(1, 13)],
-        "default_priority": dict(DEFAULT_PRIORITY),
-    }
 
 
 def normalize_days(value: list[str]) -> list[str]:

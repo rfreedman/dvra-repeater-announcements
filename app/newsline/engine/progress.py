@@ -12,6 +12,10 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.api_types import NewslineProgress
 
 _log_path: Path | None = None
 _log_fp = None
@@ -86,7 +90,7 @@ def end_ui_progress() -> None:
         _ui_started = None
 
 
-def ui_snapshot() -> dict[str, object]:
+def ui_snapshot() -> NewslineProgress:
     with _ui_lock:
         step = _ui_step
         started = _ui_started

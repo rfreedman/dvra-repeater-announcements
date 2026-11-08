@@ -12,7 +12,7 @@ from app.home_live import notify_home_data_changed
 from app.models import Announcement
 from app.pcm_cache import get_pcm_cache, warm_announcement, warm_announcement_in_background
 from app.scheduler import sync_jobs
-from app.schemas import AnnouncementIn
+from app.schemas import AnnouncementIn, AnnouncementsListOut
 from app.spoken_length import measure_announcement
 from app.store import get_store
 
@@ -91,31 +91,31 @@ def _from_request(req: AnnouncementIn, existing: Announcement | None) -> Announc
 
 
 @router.get("/api/announcements")
-def list_announcements(_user: AuthUser) -> dict[str, object]:
-    return {"announcements": [item.model_dump(mode="json") for item in get_store().list_announcements()]}
+def list_announcements(_user: AuthUser) -> AnnouncementsListOut:
+    return AnnouncementsListOut(announcements=get_store().list_announcements())
 
 
 @router.get("/api/announcements/{announcement_id}")
-def get_announcement(announcement_id: str, _user: AuthUser) -> dict[str, object]:
+def get_announcement(announcement_id: str, _user: AuthUser) -> Announcement:
     item = get_store().get(announcement_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Announcement not found")
-    return item.model_dump(mode="json")
+    return item
 
 
 @router.post("/api/announcements")
-def create_announcement(req: AnnouncementIn, _admin: AdminUser) -> dict[str, object]:
+def create_announcement(req: AnnouncementIn, _admin: AdminUser) -> Announcement:
     item = _from_request(req, None)
     stored = get_store().save_announcement(item)
     _warm_in_background(stored)
     notify_home_data_changed()
-    return stored.model_dump(mode="json")
+    return stored
 
 
 @router.put("/api/announcements/{announcement_id}")
 def update_announcement(
     announcement_id: str, req: AnnouncementIn, _admin: AdminUser
-) -> dict[str, object]:
+) -> Announcement:
     store = get_store()
     existing = store.get(announcement_id)
     if existing is None:
@@ -125,7 +125,7 @@ def update_announcement(
     _warm_in_background(stored)
     sync_jobs()
     notify_home_data_changed()
-    return stored.model_dump(mode="json")
+    return stored
 
 
 @router.delete("/api/announcements/{announcement_id}")

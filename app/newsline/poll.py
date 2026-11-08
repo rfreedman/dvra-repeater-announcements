@@ -7,9 +7,13 @@ import shutil
 import threading
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 from apscheduler.triggers.date import DateTrigger
+
+if TYPE_CHECKING:
+    from app.api_types import NewslineStatus
 
 from app.config import NEWSLINE_DIR
 from app.newsline.decode import ffmpeg_available
@@ -323,7 +327,7 @@ def install_news_poll() -> None:
     arm_next_poll(immediate=True)
 
 
-def status_payload() -> dict[str, object]:
+def status_payload() -> NewslineStatus:
     state = load_state()
     stories = state.stories_dir()
     ready = False

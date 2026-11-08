@@ -9,9 +9,19 @@ from fastapi import APIRouter, HTTPException
 from pydantic import ValidationError
 
 from app import config
+from app.api_types import (
+    ClockRow,
+    NewslineStatus,
+    ScheduleMeta,
+    SchedulesListPayload,
+    SettingsPayload,
+    TriggerResult,
+    schedule_meta,
+    settings_payload,
+)
 from app.deps import AdminUser, AuthUser
 from app.home_live import build_home_live_status, notify_home_data_changed, notify_home_live_status
-from app.models import Schedule, Settings, StoreDocument, schedule_meta
+from app.models import Schedule, Settings, StoreDocument
 from app.schedule_logic import (
     clock_for_day,
     document_warnings,
@@ -26,13 +36,13 @@ from app.scheduler import (
     run_manual_trigger,
     sync_jobs,
 )
-from app.schemas import ScheduleIn, SchedulePatch, SettingsIn
+from app.schemas import ScheduleDetail, ScheduleIn, SchedulePatch, SettingsIn
 from app.store import get_store
 
 router = APIRouter()
 
 
-def _newsline_status() -> dict[str, object]:
+def _newsline_status() -> NewslineStatus:
     from app.newsline.poll import status_payload
 
     return status_payload()
@@ -108,8 +118,8 @@ def _reject_schedule(schedule: Schedule, *, skip_id: str | None = None) -> None:
     )
 
 
-def _clock_payload(document: StoreDocument, day: date) -> list[dict[str, object]]:
-    rows: list[dict[str, object]] = []
+def _clock_payload(document: StoreDocument, day: date) -> list[ClockRow]:
+    rows: list[ClockRow] = []
     for item in clock_for_day(document, day):
         rows.append(
             {
@@ -129,17 +139,17 @@ def _clock_payload(document: StoreDocument, day: date) -> list[dict[str, object]
 
 
 @router.get("/api/meta")
-def meta(_user: AuthUser) -> dict[str, object]:
+def meta(_user: AuthUser) -> ScheduleMeta:
     return schedule_meta()
 
 
 @router.get("/api/settings")
-def get_settings(_user: AuthUser) -> dict[str, object]:
-    return get_store().document().settings.model_dump(mode="json")
+def get_settings(_user: AuthUser) -> Settings:
+    return get_store().document().settings
 
 
 @router.put("/api/settings")
-def put_settings(req: SettingsIn, _admin: AdminUser) -> dict[str, object]:
+def put_settings(req: SettingsIn, _admin: AdminUser) -> Settings:
     store = get_store()
     current = store.document().settings
     data = current.model_dump()
@@ -171,11 +181,11 @@ def put_settings(req: SettingsIn, _admin: AdminUser) -> dict[str, object]:
     arm_next_poll(immediate=False)
     sync_jobs()
     notify_home_data_changed()
-    return stored.model_dump(mode="json")
+    return stored
 
 
 @router.get("/api/schedules")
-def list_schedules(_user: AuthUser, clock_date: date | None = None) -> dict[str, object]:
+def list_schedules(_user: AuthUser, clock_date: date | None = None) -> SchedulesListPayload:
     store = get_store()
     document = store.document()
     now = datetime.now(ZoneInfo(document.settings.timezone))
@@ -190,10 +200,11 @@ def list_schedules(_user: AuthUser, clock_date: date | None = None) -> dict[str,
         )
     )
     live = build_home_live_status()
+    settings: SettingsPayload = settings_payload(document.settings)
     return {
         **live,
         "warnings": document_warnings(document),
-        "settings": document.settings.model_dump(mode="json"),
+        "settings": settings,
         "clock_date": day.isoformat(),
         "clock": _clock_payload(document, day),
         "schedules": rows,
@@ -210,31 +221,31 @@ def dismiss_manual_trigger_drop(_admin: AdminUser) -> dict[str, bool]:
 
 
 @router.post("/api/schedules")
-def create_schedule(req: ScheduleIn, _admin: AdminUser) -> dict[str, object]:
+def create_schedule(req: ScheduleIn, _admin: AdminUser) -> Schedule:
     incoming = _build_schedule(req)
     _reject_schedule(incoming)
     stored = get_store().save_schedule(incoming)
     sync_jobs()
     notify_home_data_changed()
-    return stored.model_dump(mode="json")
+    return stored
 
 
 @router.get("/api/schedules/{schedule_id}")
-def get_schedule(schedule_id: str, _user: AuthUser) -> dict[str, object]:
+def get_schedule(schedule_id: str, _user: AuthUser) -> ScheduleDetail:
     store = get_store()
     item = store.get_schedule(schedule_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Schedule not found")
     document = store.document()
-    payload = item.model_dump(mode="json")
     from app.schedule_logic import schedule_warning
 
-    payload["warning"] = schedule_warning(item, document)
-    return payload
+    return ScheduleDetail.model_validate(
+        {**item.model_dump(), "warning": schedule_warning(item, document)}
+    )
 
 
 @router.put("/api/schedules/{schedule_id}")
-def replace_schedule(schedule_id: str, req: ScheduleIn, _admin: AdminUser) -> dict[str, object]:
+def replace_schedule(schedule_id: str, req: ScheduleIn, _admin: AdminUser) -> Schedule:
     payload = req.model_copy(update={"id": schedule_id})
     incoming = _build_schedule(payload)
     if get_store().get_schedule(schedule_id) is None:
@@ -243,11 +254,11 @@ def replace_schedule(schedule_id: str, req: ScheduleIn, _admin: AdminUser) -> di
     stored = get_store().save_schedule(incoming)
     sync_jobs()
     notify_home_data_changed()
-    return stored.model_dump(mode="json")
+    return stored
 
 
 @router.patch("/api/schedules/{schedule_id}")
-def patch_schedule(schedule_id: str, req: SchedulePatch, _admin: AdminUser) -> dict[str, object]:
+def patch_schedule(schedule_id: str, req: SchedulePatch, _admin: AdminUser) -> Schedule:
     store = get_store()
     schedule = store.get_schedule(schedule_id)
     if schedule is None:
@@ -261,11 +272,11 @@ def patch_schedule(schedule_id: str, req: SchedulePatch, _admin: AdminUser) -> d
         raise HTTPException(status_code=404, detail="Schedule not found")
     sync_jobs()
     notify_home_data_changed()
-    return stored.model_dump(mode="json")
+    return stored
 
 
 @router.post("/api/schedules/{schedule_id}/trigger")
-def trigger_schedule_now(schedule_id: str, _admin: AdminUser) -> dict[str, str]:
+def trigger_schedule_now(schedule_id: str, _admin: AdminUser) -> TriggerResult:
     if not config.TRIGGER_NOW:
         raise HTTPException(status_code=404, detail="Not found")
     if get_store().get_schedule(schedule_id) is None:
