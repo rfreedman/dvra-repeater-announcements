@@ -21,7 +21,104 @@ const PTT_ENGAGE_HZ = 800;
 const PTT_RELEASE_HZ = 700;
 const PTT_TONE_SECONDS = 0.2;
 
+/**
+ * @typedef {Object} VoiceInfo
+ * @property {string} id
+ * @property {string} [name]
+ * @property {string} [gender]
+ * @property {string} [locale]
+ * @property {string} [quality]
+ */
+
+/**
+ * @typedef {Object} VoiceCatalog
+ * @property {string|null} [default_voice]
+ * @property {VoiceInfo[]} voices
+ * @property {number} [speed]
+ * @property {number} [sentence_pause]
+ * @property {number} [busy_retry_seconds]
+ * @property {number} [busy_give_up_seconds]
+ * @property {number} [max_busy_give_up_seconds]
+ * @property {number} [ptt_lead_seconds]
+ */
+
+/**
+ * @typedef {Object} MetaLabel
+ * @property {string} id
+ * @property {string} label
+ */
+
+/**
+ * @typedef {Object} ScheduleMeta
+ * @property {Object.<string, number>} default_priority
+ * @property {MetaLabel[]} days
+ * @property {MetaLabel[]} months
+ */
+
+/**
+ * @typedef {Object} HomeUpcoming
+ * @property {string} [status]
+ * @property {string|null} [schedule_id]
+ * @property {number|null} [story_index]
+ * @property {number|null} [story_total]
+ * @property {string} [at]
+ * @property {string} [piece_label]
+ * @property {string} [note]
+ * @property {string} [phase]
+ * @property {number} [clear_seconds]
+ * @property {number} [fetchedAt]
+ */
+
+/**
+ * @typedef {Object} NewslineStatus
+ * @property {boolean} [playing]
+ * @property {boolean} [ready]
+ * @property {boolean} [in_progress]
+ * @property {string|null} [outcome]
+ * @property {string|number|null} [report_number]
+ * @property {string|number|null} [working_report]
+ * @property {string} [phase]
+ * @property {string} [error]
+ * @property {string} [step]
+ * @property {number} [elapsed_seconds]
+ */
+
+/**
+ * @typedef {Object} AnnouncementItem
+ * @property {string} [id]
+ * @property {string} [name]
+ * @property {string} [kind]
+ * @property {string} [text]
+ * @property {boolean} [too_long]
+ * @property {number|null} [play_seconds]
+ */
+
+/**
+ * @typedef {Object} ClockCell
+ * @property {string} [slot]
+ * @property {string} [label]
+ * @property {string} [source]
+ * @property {string|null} [fire_at]
+ * @property {string|null} [slot_at]
+ * @property {string|null} [schedule_id]
+ * @property {string} [warning]
+ */
+
+/**
+ * @typedef {Object} ScheduleRow
+ * @property {string} [schedule_id]
+ * @property {string} [name]
+ * @property {string|null} [announcement_id]
+ * @property {string|null} [announcement_name]
+ * @property {string} [summary]
+ * @property {boolean} [enabled]
+ * @property {string} [warning]
+ * @property {string|null} [last_run_at]
+ * @property {string|null} [next_run_at]
+ */
+
 // Day/month labels and template priorities come from GET /api/meta (app/models.py).
+/** @type {ScheduleMeta|null} */
 let scheduleMeta = null;
 
 const TEMPLATES = {
@@ -50,6 +147,7 @@ const pauseEl = document.getElementById("pause");
 const textEl = document.getElementById("text");
 const nameEl = document.getElementById("name");
 
+/** @type {VoiceCatalog|null} */
 let catalog = null;
 let player = null;
 let abort = null;
@@ -58,6 +156,7 @@ let editorPlaySeconds = null;
 let session = 0;
 let pollTimer = null;
 let newslinePollTimer = null;
+/** @type {NewslineStatus|null} */
 let lastNewsline = null;
 let newslinePlaying = false;
 let statsTimer = null;
@@ -68,6 +167,7 @@ let homeSseConnected = false;
 let statsSseWanted = false;
 let statsSseAbort = null;
 let statsSseConnected = false;
+/** @type {HomeUpcoming|null} */
 let upcoming = null;
 let clockSkewMs = 0;
 let homeBusy = false;
@@ -76,7 +176,9 @@ let ledFailed = false;
 let ledBlinkTimer = null;
 let ledBlinkUntil = 0;
 let defaultScript = "";
+/** @type {Array.<AnnouncementItem>} */
 let announcements = [];
+/** @type {Array.<ScheduleRow>} */
 let schedules = [];
 let settings = {
   slot_half_window_minutes: DEFAULT_SLOT_HALF_WINDOW_MINUTES,
@@ -186,7 +288,8 @@ function updateAuthChrome() {
     const el = document.getElementById(id);
     if (el) el.disabled = readOnly;
   }
-  document.getElementById("newsline-check")?.classList.toggle("hidden", readOnly);
+  const newslineCheck = document.getElementById("newsline-check");
+  if (newslineCheck) newslineCheck.classList.toggle("hidden", readOnly);
   syncNewslineCheckButton();
   applyEditorReadOnly();
 }
@@ -452,7 +555,8 @@ function showScreen(id) {
 }
 
 function isBootScreenActive() {
-  return document.getElementById("view-boot")?.classList.contains("active");
+  const el = document.getElementById("view-boot");
+  return Boolean(el && el.classList.contains("active"));
 }
 
 async function fetchServerReady() {
@@ -477,7 +581,7 @@ function showBoot(message = "Starting server, please wait…") {
     err.textContent = "";
   }
   if (retryWrap) retryWrap.classList.add("hidden");
-  panel?.classList.remove("has-error");
+  if (panel) panel.classList.remove("has-error");
   showScreen("view-boot");
 }
 
@@ -515,7 +619,7 @@ function showBootError(message) {
     err.textContent = message;
   }
   if (retryWrap) retryWrap.classList.remove("hidden");
-  panel?.classList.add("has-error");
+  if (panel) panel.classList.add("has-error");
   showScreen("view-boot");
 }
 
@@ -561,7 +665,7 @@ function formatCountdown(ms) {
 function goToHash(hash) {
   const current = location.hash || "#/";
   if (current === hash || (hash === "#/" && (current === "" || current === "#"))) {
-    route();
+    route().catch(() => {});
     return;
   }
   location.hash = hash;
@@ -1158,6 +1262,7 @@ function fillScheduleForm(schedule) {
   syncKindFields();
 }
 
+/** @param {Array.<ClockCell>|null|undefined} clock */
 function renderClock(clock) {
   const grid = document.getElementById("clock-grid");
   grid.replaceChildren();
@@ -1192,6 +1297,7 @@ function nextRunSortKey(value) {
   return Number.isNaN(ms) ? Number.POSITIVE_INFINITY : ms;
 }
 
+/** @param {Array.<ScheduleRow>} rows */
 function renderSchedules(rows) {
   const body = document.getElementById("schedule-rows");
   const empty = document.getElementById("schedule-empty");
@@ -1228,7 +1334,7 @@ function renderSchedules(rows) {
         const label = row.name ? `the schedule "${row.name}"` : "this schedule";
         if (!window.confirm(`Are you sure that you want to delete ${label}?`)) return;
         const res = await fetch(`/api/schedules/${row.schedule_id}`, { method: "DELETE" });
-        if (res.ok) refreshHome();
+        if (res.ok) refreshHome().catch(() => {});
       });
       actions.append(del);
       if (triggerNowEnabled) {
@@ -1348,6 +1454,7 @@ function newslineElapsedSuffix(seconds) {
   return ` ${formatSegmentElapsed(seconds)}`;
 }
 
+/** @param {NewslineStatus|null|undefined} newsline */
 function renderNewsline(newsline) {
   const status = document.getElementById("newsline-status");
   if (!status) return;
@@ -1440,6 +1547,7 @@ function syncAnnouncementKind() {
   document.getElementById("spoken-fields").classList.toggle("hidden", kind === "newsline");
 }
 
+/** @param {AnnouncementItem|null|undefined} item */
 function showLengthWarning(item) {
   const box = document.getElementById("length-warning");
   if (!box) return;
@@ -1453,6 +1561,7 @@ function showLengthWarning(item) {
   box.classList.remove("hidden");
 }
 
+/** @param {Array.<AnnouncementItem>} items */
 function renderLibrary(items) {
   const body = document.getElementById("library-rows");
   const empty = document.getElementById("library-empty");
@@ -1506,7 +1615,7 @@ function renderLibrary(items) {
         window.alert(typeof detail === "string" ? detail : "Could not delete");
         return;
       }
-      refreshHome();
+      refreshHome().catch(() => {});
     });
     if (!readOnly) tr.querySelector(".row-actions").append(del);
     tr.addEventListener("click", () => goToHash(`#/announcements/${item.id}`));
@@ -1533,7 +1642,7 @@ function applyHomeLiveStatus(payload) {
   const fetchedAt = payload.now ? Date.parse(payload.now) : Date.now() + clockSkewMs;
   const fetchedAtMs = Number.isNaN(fetchedAt) ? Date.now() + clockSkewMs : fetchedAt;
   upcoming = payload.upcoming
-    ? { ...payload.upcoming, fetchedAt: fetchedAtMs }
+    ? /** @type {HomeUpcoming} */ ({ ...payload.upcoming, fetchedAt: fetchedAtMs })
     : null;
   if (typeof payload.newsline_playing === "boolean") {
     newslinePlaying = payload.newsline_playing;
@@ -2059,6 +2168,7 @@ async function saveAnnouncement() {
     showError("announcement-error", await errorDetail(res));
     return;
   }
+  /** @type {AnnouncementItem} */
   const saved = await res.json();
   if (saved.too_long) {
     showLengthWarning(saved);
@@ -2841,11 +2951,11 @@ document.getElementById("back-announcement").addEventListener("click", () => goT
 document.getElementById("back-schedule").addEventListener("click", () => goToHash("#/"));
 document.getElementById("save-announcement").addEventListener("click", () => {
   if (readOnly) return;
-  saveAnnouncement();
+  saveAnnouncement().catch((err) => window.alert(err.message));
 });
 document.getElementById("save-schedule").addEventListener("click", () => {
   if (readOnly) return;
-  saveSchedule();
+  saveSchedule().catch((err) => window.alert(err.message));
 });
 document.getElementById("speak").addEventListener("click", speak);
 document.getElementById("stop").addEventListener("click", stop);
@@ -2927,7 +3037,7 @@ async function saveNewslineSettings() {
       repeater_timeout_seconds: Number(document.getElementById("repeater-timeout").value),
     }),
   });
-  refreshHome();
+  refreshHome().catch(() => {});
 }
 
 for (const id of ["news-check-start", "news-check-stop", "repeater-timeout"]) {
@@ -2973,7 +3083,7 @@ document.getElementById("baseline-randomize").addEventListener("change", async (
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ baseline_randomize: event.target.checked }),
   });
-  refreshHome();
+  refreshHome().catch(() => {});
 });
 
 document.getElementById("boot-retry").addEventListener("click", () => {
