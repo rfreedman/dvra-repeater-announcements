@@ -28,8 +28,10 @@ def test_announcement_rejects_empty_text_after_strip() -> None:
 
 
 def test_announcement_rejects_text_over_max_length() -> None:
+    from app.schemas import TtsAnnouncementIn
+
     with pytest.raises(ValidationError):
-        _ = TtsAnnouncement(name="Test", text="x" * (MAX_TEXT_CHARS + 1))
+        _ = TtsAnnouncementIn(name="Test", text="x" * (MAX_TEXT_CHARS + 1))
 
 
 def test_store_document_rejects_invalid_announcement_on_load(store: AnnouncementStore) -> None:

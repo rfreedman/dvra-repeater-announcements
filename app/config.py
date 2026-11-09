@@ -104,6 +104,8 @@ PIPER_QUALITIES = _piper_qualities()
 HOST = os.environ.get("TTS_HOST", "0.0.0.0")
 PORT = int(os.environ.get("TTS_PORT", "8000"))
 MAX_TEXT_CHARS = int(os.environ.get("TTS_MAX_TEXT_CHARS", "5000"))
+# Hard ceiling for stored announcement text. The live limit is MAX_TEXT_CHARS.
+TEXT_CHARS_CEILING = 20_000
 DEFAULT_SPEED = float(os.environ.get("TTS_SPEED", "1.0"))
 DEFAULT_SENTENCE_PAUSE = float(os.environ.get("TTS_SENTENCE_PAUSE", "0.25"))
 # Bounds for speed / pause / busy retry (Announcement model and /api/speak, /api/announcements).
@@ -262,11 +264,123 @@ def fire_verbose_log_enabled() -> bool:
     return FIRE_VERBOSE_LOG
 
 
+def enforce_text_limit(text: str) -> str:
+    """Reject announcement text longer than the current admin setting."""
+    if len(text) > MAX_TEXT_CHARS:
+        raise ValueError(f"Text must be at most {MAX_TEXT_CHARS} characters")
+    return text
+
+
 def piper_quality_allowed(voice_id: str) -> bool:
     """Return True if this voice id is allowed by TTS_PIPER_QUALITIES."""
     if PIPER_QUALITIES == "medium":
         return voice_id.endswith("-medium")
     return True
+
+
+def assign_live_settings(
+    *,
+    station_call: str,
+    station_name: str,
+    app_title: str,
+    default_voice: str,
+    speed: float,
+    sentence_pause: float,
+    ptt_lead_seconds: float,
+    busy_retry_seconds: float,
+    busy_give_up_seconds: float,
+    max_text_chars: int,
+    piper_qualities: str,
+    timezone: str,
+    slot_lookahead_hours: int,
+    scheduler_max_wait_seconds: float,
+    session_idle_seconds: int,
+    login_max_failures: int,
+    login_window_seconds: float,
+    trigger_now: bool,
+    fire_verbose_log: bool,
+) -> None:
+    """Publish operator settings for the rest of this process.
+
+    Call sites that read these names on ``app.config`` (not a copied import)
+    see the new values on the next use.
+    """
+    raw_title = app_title.strip()
+    # These names are module-level so existing call sites can read them live.
+    # Direct assignment is rejected because the names are uppercase.
+    published: dict[str, object] = {
+        "STATION_CALL": station_call,
+        "STATION_NAME": station_name,
+        "APP_TITLE": raw_title or f"{station_call} Announcements",
+        "DEFAULT_PIPER_VOICE": default_voice,
+        "DEFAULT_SPEED": speed,
+        "DEFAULT_SENTENCE_PAUSE": sentence_pause,
+        "PTT_LEAD_SECONDS": ptt_lead_seconds,
+        "DEFAULT_BUSY_RETRY_SECONDS": busy_retry_seconds,
+        "DEFAULT_BUSY_GIVE_UP_SECONDS": busy_give_up_seconds,
+        "MAX_TEXT_CHARS": max_text_chars,
+        "PIPER_QUALITIES": piper_qualities,
+        "TIMEZONE": timezone,
+        "LOOKAHEAD_HOURS": slot_lookahead_hours,
+        "SCHEDULER_MAX_WAIT_SECONDS": scheduler_max_wait_seconds,
+        "SESSION_IDLE_SECONDS": session_idle_seconds,
+        "LOGIN_MAX_FAILURES": login_max_failures,
+        "LOGIN_WINDOW_SECONDS": login_window_seconds,
+        "TRIGGER_NOW": trigger_now,
+        "FIRE_VERBOSE_LOG": fire_verbose_log,
+    }
+    module = globals()
+    for name, value in published.items():
+        module[name] = value
+
+    os.environ["STATION_CALL"] = station_call
+    os.environ["STATION_NAME"] = station_name
+    os.environ["APP_TITLE"] = raw_title
+    os.environ["TTS_DEFAULT_VOICE"] = default_voice
+    os.environ["TTS_SPEED"] = _env_number(speed)
+    os.environ["TTS_SENTENCE_PAUSE"] = _env_number(sentence_pause)
+    os.environ["TTS_PTT_LEAD_SECONDS"] = _env_number(ptt_lead_seconds)
+    os.environ["TTS_BUSY_RETRY_SECONDS"] = _env_number(busy_retry_seconds)
+    os.environ["TTS_BUSY_GIVE_UP_SECONDS"] = _env_number(busy_give_up_seconds)
+    os.environ["TTS_MAX_TEXT_CHARS"] = str(max_text_chars)
+    os.environ["TTS_PIPER_QUALITIES"] = piper_qualities
+    os.environ["TTS_TIMEZONE"] = timezone
+    os.environ["TTS_SLOT_LOOKAHEAD_HOURS"] = str(slot_lookahead_hours)
+    os.environ["TTS_SCHEDULER_MAX_WAIT_SECONDS"] = _env_number(scheduler_max_wait_seconds)
+    os.environ["TTS_SESSION_IDLE_SECONDS"] = str(session_idle_seconds)
+    os.environ["TTS_LOGIN_MAX_FAILURES"] = str(login_max_failures)
+    os.environ["TTS_LOGIN_WINDOW_SECONDS"] = _env_number(login_window_seconds)
+    os.environ["TTS_TRIGGER_NOW"] = "true" if trigger_now else "false"
+    os.environ["TTS_FIRE_VERBOSE_LOG"] = "true" if fire_verbose_log else "false"
+
+
+def _env_number(value: float) -> str:
+    return format(value, "g")
+
+
+def editable_env_updates() -> dict[str, str]:
+    """The .env keys the admin form owns, from the values last published."""
+    return {
+        "STATION_CALL": STATION_CALL,
+        "STATION_NAME": STATION_NAME,
+        "APP_TITLE": os.environ.get("APP_TITLE", "").strip(),
+        "TTS_DEFAULT_VOICE": DEFAULT_PIPER_VOICE,
+        "TTS_SPEED": _env_number(DEFAULT_SPEED),
+        "TTS_SENTENCE_PAUSE": _env_number(DEFAULT_SENTENCE_PAUSE),
+        "TTS_PTT_LEAD_SECONDS": _env_number(PTT_LEAD_SECONDS),
+        "TTS_BUSY_RETRY_SECONDS": _env_number(DEFAULT_BUSY_RETRY_SECONDS),
+        "TTS_BUSY_GIVE_UP_SECONDS": _env_number(DEFAULT_BUSY_GIVE_UP_SECONDS),
+        "TTS_MAX_TEXT_CHARS": str(MAX_TEXT_CHARS),
+        "TTS_PIPER_QUALITIES": PIPER_QUALITIES,
+        "TTS_TIMEZONE": TIMEZONE,
+        "TTS_SLOT_LOOKAHEAD_HOURS": str(LOOKAHEAD_HOURS),
+        "TTS_SCHEDULER_MAX_WAIT_SECONDS": _env_number(SCHEDULER_MAX_WAIT_SECONDS),
+        "TTS_SESSION_IDLE_SECONDS": str(SESSION_IDLE_SECONDS),
+        "TTS_LOGIN_MAX_FAILURES": str(LOGIN_MAX_FAILURES),
+        "TTS_LOGIN_WINDOW_SECONDS": _env_number(LOGIN_WINDOW_SECONDS),
+        "TTS_TRIGGER_NOW": "true" if TRIGGER_NOW else "false",
+        "TTS_FIRE_VERBOSE_LOG": "true" if FIRE_VERBOSE_LOG else "false",
+    }
 
 
 def session_secret() -> str:

@@ -23,8 +23,8 @@ from app.config import (
     MAX_BUSY_RETRY_SECONDS,
     MAX_SENTENCE_PAUSE,
     MAX_SPEECH_SPEED,
-    MAX_TEXT_CHARS,
     MIN_SPEECH_SPEED,
+    TEXT_CHARS_CEILING,
 )
 from app.model_common import new_id, normalize_announcement_text, normalize_entity_name
 
@@ -63,7 +63,7 @@ class TtsAnnouncement(AnnouncementCommon):
     """Spoken Piper text."""
 
     kind: Literal["tts"] = "tts"
-    text: str = Field(default="", max_length=MAX_TEXT_CHARS)
+    text: str = Field(default="", max_length=TEXT_CHARS_CEILING)
     voice: str | None = None
     speed: float = Field(default=DEFAULT_SPEED, gt=MIN_SPEECH_SPEED, le=MAX_SPEECH_SPEED)
     sentence_pause: float = Field(

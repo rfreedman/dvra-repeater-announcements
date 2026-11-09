@@ -12,7 +12,8 @@ from datetime import datetime
 from typing import Protocol, cast, runtime_checkable
 
 from app.audio import PcmChunk
-from app.config import DRA_COS_LINE, DRA_USB_CHANNEL, PTT_LEAD_SECONDS, radio_backend
+from app import config as app_config
+from app.config import DRA_COS_LINE, DRA_USB_CHANNEL, radio_backend
 from app.playback import play_chunks
 from app.radio_errors import (
     ChannelBusyError as ChannelBusyError,
@@ -217,7 +218,7 @@ def transmit(
 
     play = play_fn or play_chunks
     sleep = sleep_fn or time.sleep
-    lead = PTT_LEAD_SECONDS if lead_seconds is None else lead_seconds
+    lead = app_config.PTT_LEAD_SECONDS if lead_seconds is None else lead_seconds
     usb = as_usb_transmit(radio)
 
     if channel_blocks_transmit(radio, clear_seconds=clear_seconds):

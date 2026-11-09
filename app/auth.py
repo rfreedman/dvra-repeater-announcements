@@ -7,7 +7,8 @@ from typing import Annotated
 import bcrypt
 from fastapi import Depends, HTTPException, Request
 
-from app.config import SESSION_IDLE_SECONDS, login_max_failures, login_window_seconds
+from app import config as app_config
+from app.config import login_max_failures, login_window_seconds
 from app.users import Role, User, get_user_store
 
 SESSION_USER_KEY = "user_id"
@@ -98,6 +99,10 @@ def clear_session(request: Request) -> None:
     request.session.clear()
 
 
+def session_is_idle(last_active: float, now: float) -> bool:
+    return (now - last_active) > app_config.SESSION_IDLE_SECONDS
+
+
 def _idle_expired(request: Request) -> bool:
     raw: str | None = request.session.get(SESSION_LAST_ACTIVE_KEY)
     if raw is None:
@@ -106,7 +111,7 @@ def _idle_expired(request: Request) -> bool:
         last_active = float(raw)
     except (TypeError, ValueError):
         return True
-    return (time.time() - last_active) > SESSION_IDLE_SECONDS
+    return session_is_idle(last_active, time.time())
 
 
 def touch_session(request: Request) -> None:

@@ -46,3 +46,12 @@ python scripts/dra36m_check.py retest -c left --with-voice --lead 0.6
 **Linux (NUC):** udev rules + `plugdev` for CM119 HID/USB — [`dra36m-check-tests.md`](../docs/final-hardware/dra36m-check-tests.md#linux-nuc-udev-and-plugdev).
 
 Subcommands: `probe`, **`probe-all`**, `monitor`, `snap`, `ptt`, `tone`, `smoke`, `voice`, `voice-gate`, `retest`, **`dual-smoke`**, **`dual-voice`**, **`dual-retest`** (dual = both DRAs on the NUC).
+
+## `work_time.py`
+
+Estimate active work time from commit timestamps. Gaps of 2 hours or less count as one sitting; longer gaps start a new one. The quoted figure adds a 45-minute lead-in per sitting, for work before that sitting's first commit.
+
+```bash
+python scripts/work_time.py
+python scripts/work_time.py --threshold 3
+```

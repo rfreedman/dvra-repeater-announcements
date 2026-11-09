@@ -9,10 +9,10 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from app import config as app_config
 from app.config import (
     DEFAULT_BUSY_GIVE_UP_SECONDS,
     DRA_CLEAR_SECONDS,
-    PTT_LEAD_SECONDS,
 )
 from app.fire import (
     FireContext,
@@ -244,7 +244,7 @@ def run_scheduled_fire(
         mark_last_run=store.set_last_run,
         consume_baseline=store.consume_baseline_slot,
         load=load,
-        ptt_lead_seconds=PTT_LEAD_SECONDS,
+        ptt_lead_seconds=app_config.PTT_LEAD_SECONDS,
         set_running=_set_running,
         clear_running=_clear_running,
         set_running_wait=_set_running_wait,
@@ -407,7 +407,7 @@ def _run_manual_trigger_body(
         mark_last_run=_no_last_run,
         consume_baseline=_no_baseline_consume,
         load=load,
-        ptt_lead_seconds=PTT_LEAD_SECONDS,
+        ptt_lead_seconds=app_config.PTT_LEAD_SECONDS,
         set_running=_set_running,
         clear_running=_clear_running,
         set_running_wait=_set_running_wait,

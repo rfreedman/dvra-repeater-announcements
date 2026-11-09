@@ -250,7 +250,7 @@ def test_login_rate_limit_follows_env(users: UserStore, admin_user: User, monkey
 def test_idle_timeout_clears_session(users: UserStore, admin_user: User, monkeypatch: pytest.MonkeyPatch) -> None:
     _ = users
     _ = admin_user
-    monkeypatch.setattr("app.auth.SESSION_IDLE_SECONDS", 30)
+    monkeypatch.setattr("app.config.SESSION_IDLE_SECONDS", 30)
     clock = {"t": 1_000_000.0}
     def fake_time() -> float:
         return clock["t"]

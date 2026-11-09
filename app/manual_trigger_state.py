@@ -10,7 +10,8 @@ from zoneinfo import ZoneInfo
 
 from apscheduler.triggers.date import DateTrigger
 
-from app.config import DRA_CLEAR_SECONDS, TIMEZONE
+from app import config as app_config
+from app.config import DRA_CLEAR_SECONDS
 from app.fire_trace import fire_trace
 from app.live_notify import notify_home_live_status
 from app.manual_trigger_types import (
@@ -198,7 +199,7 @@ def nudge_manual_defer_jobs_if_clear_ready() -> None:
     idle_s = float(idle.continuous_idle_seconds())
     if idle_s < DRA_CLEAR_SECONDS:
         return
-    zone = ZoneInfo(TIMEZONE)
+    zone = ZoneInfo(app_config.TIMEZONE)
     now = datetime.now(zone)
     for typed_job in cast(list[SchedulerJob], sched.get_jobs()):
         job_id = typed_job.id or ""

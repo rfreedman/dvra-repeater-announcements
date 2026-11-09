@@ -17,7 +17,7 @@ from piper import PiperVoice, SynthesisConfig
 from piper.download_voices import VOICE_PATTERN, download_voice
 
 from app.audio import PauseSegment, PcmChunk, parse_script, silence_chunk, with_sentence_pauses
-from app.config import DEFAULT_PIPER_VOICE, PIPER_VOICES_DIR, PIPER_VOICES_FILE, piper_quality_allowed
+from app.config import PIPER_VOICES_DIR, PIPER_VOICES_FILE, piper_quality_allowed
 from app.tts.base import Engine, VoiceError, VoiceInfo
 
 log = logging.getLogger("app.tts.piper")
@@ -173,14 +173,21 @@ class PiperEngine(Engine):
 
     def __init__(self, voices_dir: Path | None = None, default_voice: str | None = None) -> None:
         self.voices_dir: Path = Path(voices_dir or PIPER_VOICES_DIR)
-        self._default_voice: str = default_voice or DEFAULT_PIPER_VOICE
+        self._explicit_default: str | None = default_voice.strip() if default_voice else None
         self._models: dict[str, PiperVoice] = {}
         self._locks: dict[str, threading.Lock] = {}
         self._global: threading.Lock = threading.Lock()
 
+    def effective_default_voice(self) -> str:
+        if self._explicit_default:
+            return self._explicit_default
+        from app.config import DEFAULT_PIPER_VOICE
+
+        return DEFAULT_PIPER_VOICE
+
     @override
     def default_voice_id(self) -> str:
-        return self._default_voice
+        return self.effective_default_voice()
 
     @override
     def list_voices(self) -> list[VoiceInfo]:
@@ -206,7 +213,7 @@ class PiperEngine(Engine):
                         quality=_quality_from_id(voice_id),
                         description="Local Piper voice model.",
                         downloaded=True,
-                        default=voice_id == self._default_voice,
+                        default=voice_id == self.effective_default_voice(),
                     )
                 )
         return voices
@@ -214,10 +221,10 @@ class PiperEngine(Engine):
     @override
     def try_resolve(self, voice: str | None) -> str | None:
         if not voice:
-            return self._default_voice
+            return self.effective_default_voice()
         key = voice.strip()
         if not key:
-            return self._default_voice
+            return self.effective_default_voice()
         lowered = key.lower()
         if lowered in _featured_by_alias:
             return _featured_by_alias[lowered].id
@@ -321,7 +328,7 @@ class PiperEngine(Engine):
             quality=meta.quality,
             description=meta.description,
             downloaded=self._model_path(meta.id).exists(),
-            default=meta.id == self._default_voice,
+            default=meta.id == self.effective_default_voice(),
             alias=meta.alias,
         )
 

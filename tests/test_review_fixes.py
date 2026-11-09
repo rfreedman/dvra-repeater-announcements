@@ -36,7 +36,7 @@ def test_background_poll_does_not_extend_idle_session(users: UserStore, admin_us
     """Header presence alone marks a background poll; its value is ignored."""
     _ = users
     _ = admin_user
-    monkeypatch.setattr("app.auth.SESSION_IDLE_SECONDS", 30)
+    monkeypatch.setattr("app.config.SESSION_IDLE_SECONDS", 30)
     clock = {"t": 1_000_000.0}
     def fake_time() -> float:
         return clock["t"]
@@ -54,7 +54,7 @@ def test_background_poll_does_not_extend_idle_session(users: UserStore, admin_us
 def test_request_without_background_header_extends_idle_session(users: UserStore, admin_user: User, monkeypatch: pytest.MonkeyPatch) -> None:
     _ = users
     _ = admin_user
-    monkeypatch.setattr("app.auth.SESSION_IDLE_SECONDS", 30)
+    monkeypatch.setattr("app.config.SESSION_IDLE_SECONDS", 30)
     clock = {"t": 1_000_000.0}
     def fake_time() -> float:
         return clock["t"]

@@ -4,11 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{APP_TITLE}}</title>
-    <link rel="icon" href="/static/favicon.ico" sizes="any" />
-    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
-    <link rel="icon" href="/static/favicon-32.png" type="image/png" sizes="32x32" />
-    <link rel="icon" href="/static/favicon-16.png" type="image/png" sizes="16x16" />
-    <link rel="apple-touch-icon" href="/static/apple-touch-icon.png" sizes="180x180" />
+    <link rel="icon" href="/branding/favicon?v={{CONFIG_GENERATION}}" />
+    <link rel="apple-touch-icon" href="/branding/logo?v={{CONFIG_GENERATION}}" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -20,7 +17,7 @@
   <body>
     <main class="shell wide">
       <header class="mast">
-        <img class="logo" src="/static/logo.png" alt="{{STATION_NAME}}" width="48" height="48" id="station-logo" />
+        <img class="logo" src="/branding/logo?v={{CONFIG_GENERATION}}" alt="{{STATION_NAME}}" width="{{LOGO_DISPLAY_WIDTH}}" height="{{LOGO_DISPLAY_HEIGHT}}" style="--logo-width: {{LOGO_DISPLAY_WIDTH}}px; --logo-height: {{LOGO_DISPLAY_HEIGHT}}px" id="station-logo" />
         <div class="mast-title">
           <h1 id="app-heading"><span id="app-title-heading">{{APP_TITLE}}</span><span id="station-heading" class="mast-station-name">{{STATION_NAME}}</span></h1>
           <span class="mast-version">v{{APP_VERSION}}</span>
@@ -45,7 +42,7 @@
           <div class="mast-nav-row">
             <button type="button" class="ghost small" id="nav-home">Home</button>
             <button type="button" class="ghost small" id="nav-help">How to schedule</button>
-            <button type="button" class="ghost small hidden" id="nav-users">Users</button>
+            <button type="button" class="ghost small hidden" id="nav-admin">Admin</button>
             <button type="button" class="ghost small hidden" id="nav-logout">Log out</button>
           </div>
         </nav>
@@ -134,49 +131,253 @@
         </section>
       </section>
 
-      <section id="view-users" class="screen">
-        <section class="panel">
-          <div class="toolbar">
-            <h2 class="subhead">Users</h2>
-          </div>
-          <div class="table-wrap">
-            <table class="schedules" id="users-table">
-              <thead>
-                <tr>
-                  <th>Username</th>
-                  <th>Role</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody id="users-rows"></tbody>
-            </table>
-          </div>
-        </section>
-        <section class="panel">
-          <h2 class="subhead" id="user-form-title">Add user</h2>
-          <input type="hidden" id="user-edit-id" value="" />
-          <section class="voice-row">
-            <label class="label" for="user-username">Username</label>
-            <input id="user-username" type="text" maxlength="64" autocomplete="off" />
+      <section id="view-admin" class="screen">
+        <nav class="admin-nav" aria-label="Admin">
+          <button type="button" class="ghost small" id="admin-tab-users">Users</button>
+          <button type="button" class="ghost small" id="admin-tab-environment">Environment</button>
+          <button type="button" class="ghost small" id="admin-tab-branding">Logo and icon</button>
+        </nav>
+
+        <div id="admin-users">
+          <section class="panel">
+            <div class="toolbar">
+              <h2 class="subhead">Users</h2>
+            </div>
+            <div class="table-wrap">
+              <table class="schedules" id="users-table">
+                <thead>
+                  <tr>
+                    <th>Username</th>
+                    <th>Role</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="users-rows"></tbody>
+              </table>
+            </div>
           </section>
-          <section class="voice-row">
-            <label class="label" for="user-password">Password</label>
-            <input id="user-password" type="password" maxlength="256" autocomplete="new-password" />
-            <p class="lede tight" id="user-password-hint">At least 8 characters. Leave blank when editing to keep the current password.</p>
+          <section class="panel">
+            <h2 class="subhead" id="user-form-title">Add user</h2>
+            <input type="hidden" id="user-edit-id" value="" />
+            <section class="voice-row">
+              <label class="label" for="user-username">Username</label>
+              <input id="user-username" type="text" maxlength="64" autocomplete="off" />
+            </section>
+            <section class="voice-row">
+              <label class="label" for="user-password">Password</label>
+              <input id="user-password" type="password" maxlength="256" autocomplete="new-password" />
+              <p class="lede tight" id="user-password-hint">At least 8 characters. Leave blank when editing to keep the current password.</p>
+            </section>
+            <section class="voice-row">
+              <label class="label" for="user-role">Role</label>
+              <select id="user-role">
+                <option value="readonly">Read-Only</option>
+                <option value="admin">Admin</option>
+              </select>
+            </section>
+            <div class="actions">
+              <button type="button" class="primary" id="user-save">Save user</button>
+              <button type="button" class="ghost hidden" id="user-cancel">Cancel</button>
+            </div>
+            <p id="user-error" class="status-error" hidden></p>
           </section>
-          <section class="voice-row">
-            <label class="label" for="user-role">Role</label>
-            <select id="user-role">
-              <option value="readonly">Read-Only</option>
-              <option value="admin">Admin</option>
-            </select>
+        </div>
+
+        <div id="admin-environment" class="hidden">
+          <section class="panel">
+            <h2 class="subhead">Environment</h2>
+            <p class="lede tight">
+              These settings apply as soon as you save. Open browsers reload so the new station name, title, and defaults show up. Radio hardware, file paths, the web port, and the session secret stay in the server .env file and still need a restart.
+            </p>
+            <div class="config-current">
+              <p class="lede tight" id="config-current-when"></p>
+              <p class="lede tight" id="config-current-short"></p>
+              <p class="lede tight hidden" id="config-current-long"></p>
+            </div>
           </section>
-          <div class="actions">
-            <button type="button" class="primary" id="user-save">Save user</button>
-            <button type="button" class="ghost hidden" id="user-cancel">Cancel</button>
-          </div>
-          <p id="user-error" class="status-error" hidden></p>
-        </section>
+          <section class="panel">
+            <h2 class="subhead">Station</h2>
+            <section class="voice-row">
+              <label class="label" for="cfg-station-call">Call sign</label>
+              <input id="cfg-station-call" type="text" maxlength="32" autocomplete="off" />
+            </section>
+            <section class="voice-row">
+              <label class="label" for="cfg-station-name">Station name</label>
+              <input id="cfg-station-name" type="text" maxlength="80" autocomplete="off" />
+            </section>
+            <section class="voice-row">
+              <label class="label" for="cfg-app-title">Page title</label>
+              <input id="cfg-app-title" type="text" maxlength="80" autocomplete="off" />
+              <p class="lede tight">Leave blank to use “{call} Announcements”.</p>
+            </section>
+            <section class="voice-row">
+              <label class="label" for="cfg-timezone">Timezone</label>
+              <input id="cfg-timezone" type="text" maxlength="64" autocomplete="off" placeholder="America/New_York" />
+            </section>
+          </section>
+          <section class="panel">
+            <h2 class="subhead">Speech defaults</h2>
+            <p class="lede tight">Used for new announcements. Announcements already saved keep their own voice settings.</p>
+            <section class="voice-row">
+              <label class="label" for="cfg-default-voice">Default voice</label>
+              <select id="cfg-default-voice"></select>
+            </section>
+            <section class="voice-row">
+              <label class="label" for="cfg-qualities">Voice qualities</label>
+              <select id="cfg-qualities">
+                <option value="all">All</option>
+                <option value="medium">Medium only</option>
+              </select>
+            </section>
+            <section class="voice-row">
+              <label class="label" for="cfg-speed">Speed</label>
+              <input id="cfg-speed" type="number" min="0.26" max="2" step="0.05" />
+            </section>
+            <section class="voice-row">
+              <label class="label" for="cfg-pause">Sentence pause (seconds)</label>
+              <input id="cfg-pause" type="number" min="0" max="2" step="0.05" />
+            </section>
+            <section class="voice-row">
+              <label class="label" for="cfg-ptt-lead">PTT lead (seconds)</label>
+              <input id="cfg-ptt-lead" type="number" min="0" max="10" step="0.1" />
+            </section>
+            <section class="voice-row">
+              <label class="label" for="cfg-busy-retry">Busy retry (seconds)</label>
+              <input id="cfg-busy-retry" type="number" min="0.1" max="120" step="1" />
+            </section>
+            <section class="voice-row">
+              <label class="label" for="cfg-busy-give-up">Busy give-up (seconds)</label>
+              <input id="cfg-busy-give-up" type="number" min="0.1" max="600" step="1" />
+            </section>
+            <section class="voice-row">
+              <label class="label" for="cfg-max-chars">Max announcement length (characters)</label>
+              <input id="cfg-max-chars" type="number" min="1" max="20000" step="1" />
+            </section>
+          </section>
+          <section class="panel">
+            <h2 class="subhead">Scheduler and sign-in</h2>
+            <section class="voice-row">
+              <label class="label" for="cfg-lookahead">Slot lookahead (hours)</label>
+              <input id="cfg-lookahead" type="number" min="1" max="336" step="1" />
+            </section>
+            <section class="voice-row">
+              <label class="label" for="cfg-max-wait">Scheduler wake (seconds)</label>
+              <input id="cfg-max-wait" type="number" min="0.5" max="60" step="0.5" />
+            </section>
+            <section class="voice-row">
+              <label class="label" for="cfg-idle">Sign out after idle (seconds)</label>
+              <input id="cfg-idle" type="number" min="60" max="86400" step="60" />
+            </section>
+            <section class="voice-row">
+              <label class="label" for="cfg-login-failures">Failed sign-ins before lockout</label>
+              <input id="cfg-login-failures" type="number" min="1" max="50" step="1" />
+            </section>
+            <section class="voice-row">
+              <label class="label" for="cfg-login-window">Lockout window (seconds)</label>
+              <input id="cfg-login-window" type="number" min="10" max="3600" step="1" />
+            </section>
+            <label class="inline-check">
+              <input id="cfg-trigger-now" type="checkbox" />
+              Show Trigger now on schedule rows
+            </label>
+            <label class="inline-check">
+              <input id="cfg-fire-verbose" type="checkbox" />
+              Verbose transmit logs
+            </label>
+          </section>
+          <section class="panel">
+            <h2 class="subhead">Save this configuration</h2>
+            <section class="voice-row">
+              <label class="label" for="cfg-short">Short description</label>
+              <input id="cfg-short" type="text" maxlength="120" autocomplete="off" />
+            </section>
+            <section class="voice-row">
+              <label class="label" for="cfg-long">Long description</label>
+              <textarea id="cfg-long" rows="4" maxlength="4000"></textarea>
+              <p class="lede tight">Optional. Shown when you look up this version later.</p>
+            </section>
+            <div class="actions">
+              <button type="button" class="primary" id="config-save">Save configuration</button>
+            </div>
+            <p id="config-error" class="status-error" hidden></p>
+          </section>
+          <section class="panel">
+            <h2 class="subhead">Previous configurations</h2>
+            <div class="table-wrap">
+              <table class="schedules" id="config-history-table">
+                <thead>
+                  <tr>
+                    <th>Saved</th>
+                    <th>Description</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="config-history-rows"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <div id="admin-branding" class="hidden">
+          <section class="panel">
+            <h2 class="subhead">Logo</h2>
+            <img id="branding-logo-preview" class="brand-preview" alt="Current logo" width="{{LOGO_DISPLAY_WIDTH}}" height="{{LOGO_DISPLAY_HEIGHT}}" style="--logo-width: {{LOGO_DISPLAY_WIDTH}}px; --logo-height: {{LOGO_DISPLAY_HEIGHT}}px" src="/branding/logo?v={{CONFIG_GENERATION}}" />
+            <label class="inline-check">
+              <input id="logo-display-square" type="checkbox" {{LOGO_SQUARE_CHECKED}} />
+              Constrain logo to square
+            </label>
+            <section class="voice-row">
+              <label class="label" id="logo-display-width-label" for="logo-display-width">{{LOGO_WIDTH_LABEL}}</label>
+              <input id="logo-display-width" type="number" min="16" max="256" step="1" value="{{LOGO_DISPLAY_WIDTH}}" />
+            </section>
+            <section id="logo-display-height-row" class="{{LOGO_HEIGHT_ROW_CLASS}}">
+              <label class="label" for="logo-display-height">Header height</label>
+              <input id="logo-display-height" type="number" min="16" max="256" step="1" value="{{LOGO_DISPLAY_HEIGHT}}" />
+            </section>
+            <p class="lede tight">This logo is {{LOGO_PIXEL_WIDTH}}×{{LOGO_PIXEL_HEIGHT}} pixels. The header shows it at {{LOGO_DISPLAY_WIDTH}}×{{LOGO_DISPLAY_HEIGHT}}. Saving changes that box. 16–256. The image keeps its proportions.</p>
+            <div class="actions">
+              <button type="button" class="primary" id="logo-display-save">Save display size</button>
+            </div>
+            <p id="logo-display-error" class="status-error" hidden></p>
+            <ul class="file-instructions">
+              <li>PNG, JPEG, or WebP.</li>
+              <li>256×256 is the file size to aim for. A square file fills a square header box.</li>
+              <li>Accepted sizes are 64×64 through 2048×2048 pixels. Maximum file size is 2 MB.</li>
+            </ul>
+            <section class="voice-row">
+              <label class="label" for="logo-file">Logo file</label>
+              <input id="logo-file" type="file" accept="image/png,image/jpeg,image/webp" />
+            </section>
+            <label class="inline-check">
+              <input id="logo-also-favicon" type="checkbox" checked />
+              Also use this logo as the favicon
+            </label>
+            <p class="lede tight">The server center-crops the logo to a square and scales it to a 32×32 icon.</p>
+            <div class="actions">
+              <button type="button" class="primary" id="logo-upload">Upload logo</button>
+              <button type="button" class="ghost" id="logo-reset">Use the built-in logo</button>
+            </div>
+            <p id="logo-error" class="status-error" hidden></p>
+          </section>
+          <section class="panel">
+            <h2 class="subhead">Favicon</h2>
+            <img id="branding-favicon-preview" class="brand-preview" alt="Current favicon" width="32" height="32" src="/branding/favicon?v={{CONFIG_GENERATION}}" />
+            <ul class="file-instructions">
+              <li>PNG or ICO.</li>
+              <li>Square, 32×32 recommended. Accepted sizes are 16×16 through 256×256 pixels. Maximum file size is 2 MB.</li>
+              <li>You can skip this and upload only a logo with “Also use this logo as the favicon” checked.</li>
+            </ul>
+            <section class="voice-row">
+              <label class="label" for="favicon-file">Favicon file</label>
+              <input id="favicon-file" type="file" accept="image/png,image/x-icon,.ico" />
+            </section>
+            <div class="actions">
+              <button type="button" class="primary" id="favicon-upload">Upload favicon</button>
+              <button type="button" class="ghost" id="favicon-reset">Use the built-in icon</button>
+            </div>
+            <p id="favicon-error" class="status-error" hidden></p>
+          </section>
+        </div>
       </section>
 
       <section id="view-home" class="screen">

@@ -15,13 +15,17 @@ from pydantic import ValidationError
 from starlette.middleware.sessions import SessionMiddleware
 
 from app import __version__
-from app.config import APP_TITLE, STATIC_DIR, STATION_NAME, session_secret
+from app import config as app_config
+from app.admin_config import config_generation
+from app.branding import logo_display, logo_pixel_size
+from app.config import STATIC_DIR, session_secret
 from app.deps import AuthUser
 from app.home_live import build_home_live_status
 from app.pcm_cache import warm_all
 from app.radio import active_radio_mode_label
 from app.registry import get_registry
 from app.runtime import get_runtime
+from app.routes.admin import router as admin_router
 from app.routes.announcements import router as announcements_router
 from app.routes.newsline import router as newsline_router
 from app.routes.auth import router as auth_router
@@ -128,7 +132,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         stop_scheduler()
 
 
-app = FastAPI(title=APP_TITLE, version=__version__, lifespan=lifespan)
+app = FastAPI(title=app_config.APP_TITLE, version=__version__, lifespan=lifespan)
 app.add_middleware(
     SessionMiddleware,
     secret_key=session_secret(),
@@ -146,14 +150,23 @@ async def startup_gate_middleware(
 ) -> Response:
     path = request.url.path
     if path == "/api/ready" or not path.startswith("/api/"):
-        return await call_next(request)
+        return _stamp_generation(await call_next(request))
     if not is_startup_ready():
-        return JSONResponse(
-            content={"detail": "starting"},
-            status_code=503,
-            headers={"Retry-After": "2"},
+        return _stamp_generation(
+            JSONResponse(
+                content={"detail": "starting"},
+                status_code=503,
+                headers={"Retry-After": "2"},
+            )
         )
-    return await call_next(request)
+    return _stamp_generation(await call_next(request))
+
+
+def _stamp_generation(response: Response) -> Response:
+    response.headers["X-Config-Generation"] = str(config_generation())
+    # A cached response can keep an old generation and make the next page reload forever.
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.get("/api/health")
@@ -243,6 +256,7 @@ async def system_stats_events(request: Request, _user: AuthUser) -> StreamingRes
 
 
 app.include_router(auth_router)
+app.include_router(admin_router)
 app.include_router(speak_router)
 app.include_router(announcements_router)
 app.include_router(schedules_router)
@@ -252,10 +266,21 @@ app.include_router(newsline_router)
 @app.get("/")
 def index() -> HTMLResponse:
     page = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    display = logo_display()
+    pixel_width, pixel_height = logo_pixel_size()
+    square = display.width == display.height
     page = (
         page.replace("{{APP_VERSION}}", html.escape(__version__))
-        .replace("{{APP_TITLE}}", html.escape(APP_TITLE))
-        .replace("{{STATION_NAME}}", html.escape(STATION_NAME))
+        .replace("{{APP_TITLE}}", html.escape(app_config.APP_TITLE))
+        .replace("{{STATION_NAME}}", html.escape(app_config.STATION_NAME))
+        .replace("{{CONFIG_GENERATION}}", str(config_generation()))
+        .replace("{{LOGO_DISPLAY_WIDTH}}", str(display.width))
+        .replace("{{LOGO_DISPLAY_HEIGHT}}", str(display.height))
+        .replace("{{LOGO_PIXEL_WIDTH}}", str(pixel_width))
+        .replace("{{LOGO_PIXEL_HEIGHT}}", str(pixel_height))
+        .replace("{{LOGO_SQUARE_CHECKED}}", "checked" if square else "")
+        .replace("{{LOGO_WIDTH_LABEL}}", "Header size" if square else "Header width")
+        .replace("{{LOGO_HEIGHT_ROW_CLASS}}", "voice-row hidden" if square else "voice-row")
     )
     return HTMLResponse(page)
 

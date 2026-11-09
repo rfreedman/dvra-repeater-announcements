@@ -23,8 +23,9 @@ from app.config import (
     MAX_BUSY_RETRY_SECONDS,
     MAX_SENTENCE_PAUSE,
     MAX_SPEECH_SPEED,
-    MAX_TEXT_CHARS,
     MIN_SPEECH_SPEED,
+    TEXT_CHARS_CEILING,
+    enforce_text_limit,
     TIMEZONE,
 )
 from app.models import (
@@ -49,13 +50,13 @@ class TtsSpeechParams(BaseModel):
 
 
 class SpeakRequest(TtsSpeechParams):
-    text: str = Field(..., min_length=1, max_length=MAX_TEXT_CHARS)
+    text: str = Field(..., min_length=1, max_length=TEXT_CHARS_CEILING)
     voice: str | None = None
 
     @field_validator("text")
     @classmethod
     def text_present(cls, value: str) -> str:
-        return normalize_announcement_text(value)
+        return enforce_text_limit(normalize_announcement_text(value))
 
 
 class NewslinePreviewIn(BaseModel):
@@ -156,7 +157,7 @@ class AnnouncementInCommon(BaseModel):
 
 class TtsAnnouncementIn(AnnouncementInCommon, TtsSpeechParams):
     kind: Literal["tts"] = "tts"
-    text: str = Field(default="", max_length=MAX_TEXT_CHARS)
+    text: str = Field(default="", max_length=TEXT_CHARS_CEILING)
     voice: str | None = None
 
     @field_validator("text")
@@ -166,7 +167,7 @@ class TtsAnnouncementIn(AnnouncementInCommon, TtsSpeechParams):
 
     @model_validator(mode="after")
     def text_for_spoken(self) -> TtsAnnouncementIn:
-        self.text = normalize_announcement_text(self.text)
+        self.text = enforce_text_limit(normalize_announcement_text(self.text))
         return self
 
 

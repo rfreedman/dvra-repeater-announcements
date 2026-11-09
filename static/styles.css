@@ -133,8 +133,8 @@ body {
 }
 
 .logo {
-  width: 48px;
-  height: 48px;
+  width: var(--logo-width, 48px);
+  height: var(--logo-height, 48px);
   border-radius: 0;
   flex: none;
   object-fit: contain;
@@ -1134,4 +1134,47 @@ button.small {
 a.ghost {
   display: inline-flex;
   align-items: center;
+}
+
+.admin-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 16px;
+}
+
+.admin-nav button.is-active {
+  border-color: var(--copper);
+  color: var(--ink);
+}
+
+.config-current {
+  display: grid;
+  gap: 4px;
+}
+
+.file-instructions {
+  color: var(--muted);
+  margin: 12px 0;
+  padding-left: 1.2rem;
+}
+
+.brand-preview {
+  display: block;
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  background: var(--bg-2);
+  border-radius: 10px;
+  margin-bottom: 12px;
+}
+
+#branding-logo-preview {
+  width: var(--logo-width, 48px);
+  height: var(--logo-height, 48px);
+}
+
+#admin-environment .inline-check,
+#admin-branding .inline-check {
+  margin: 8px 0;
 }

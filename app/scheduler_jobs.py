@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 from apscheduler.triggers.date import DateTrigger
 
-from app.config import LOOKAHEAD_HOURS, TIMEZONE
+from app import config as app_config
 from app.schedule_logic import resolve_slot, resolve_window
 from app.scheduler_instance import (
     DEFER_MISFIRE_GRACE_SECONDS,
@@ -78,7 +78,7 @@ def add_defer_job(
         return False
     _ = sched.add_job(
         func,
-        DateTrigger(run_date=as_local(run_at, ZoneInfo(TIMEZONE))),
+        DateTrigger(run_date=as_local(run_at, ZoneInfo(app_config.TIMEZONE))),
         id=defer_job_id(slot_key),
         replace_existing=True,
         kwargs=dict(kwargs),
@@ -109,7 +109,7 @@ def sync_jobs() -> None:
     document = get_store().document()
     zone = zone_for(document.settings.timezone)
     now = datetime.now(zone)
-    until = now + timedelta(hours=LOOKAHEAD_HOURS)
+    until = now + timedelta(hours=app_config.LOOKAHEAD_HOURS)
     # Overlays fire up to the slot half-window after their slot center.
     lookback = timedelta(
         minutes=document.settings.slot_half_window_minutes,

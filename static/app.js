@@ -201,6 +201,17 @@ let editorBaselinePrefs = null;
 let editorKey = "";
 let ignoreHashChange = false;
 let boot = Promise.resolve();
+function generationFromPage() {
+  const src = document.getElementById("station-logo")?.getAttribute("src") || "";
+  const match = /[?&]v=(\d+)/.exec(src);
+  if (!match) return null;
+  const generation = Number(match[1]);
+  return Number.isFinite(generation) ? generation : null;
+}
+
+// Start from the generation baked into this document. A cached API response
+// can still carry an older header; treating that as the baseline reloads forever.
+let seenConfigGeneration = generationFromPage();
 
 const nativeFetch = window.fetch.bind(window);
 
@@ -232,6 +243,7 @@ window.fetch = async function trackedFetch(input, init) {
   }
   try {
     const res = await nativeFetch(input, opts);
+    noteConfigGeneration(res);
     ledFailed = !res.ok && res.status !== 401;
     paintLed();
     if (
@@ -276,7 +288,7 @@ function updateAuthChrome() {
   readOnly = loggedIn && currentUser.role === "readonly";
   document.getElementById("nav-home").classList.toggle("hidden", !loggedIn);
   document.getElementById("nav-help").classList.toggle("hidden", !loggedIn);
-  document.getElementById("nav-users").classList.toggle("hidden", !isAdmin());
+  document.getElementById("nav-admin").classList.toggle("hidden", !isAdmin());
   document.getElementById("nav-logout").classList.toggle("hidden", !loggedIn);
   document.getElementById("system-stats").classList.toggle("hidden", !loggedIn);
   const userLabel = document.getElementById("nav-user");
@@ -2864,6 +2876,374 @@ class PcmPlayer {
   }
 }
 
+function noteConfigGeneration(res) {
+  const raw = res.headers.get("X-Config-Generation");
+  if (raw == null || raw === "") return;
+  const generation = Number(raw);
+  if (!Number.isFinite(generation)) return;
+  if (seenConfigGeneration == null) {
+    seenConfigGeneration = generation;
+    return;
+  }
+  if (generation > seenConfigGeneration) {
+    seenConfigGeneration = generation;
+    location.reload();
+  }
+}
+
+function apiErrorMessage(payload, fallback) {
+  const detail = payload?.detail;
+  if (typeof detail === "string" && detail) return detail;
+  if (Array.isArray(detail) && detail.length) {
+    const message = detail[0]?.msg;
+    if (typeof message === "string" && message) {
+      return message.replace(/^Value error,\s*/, "");
+    }
+  }
+  return fallback;
+}
+
+function fillLogoDisplayForm() {
+  const widthInput = document.getElementById("logo-display-width");
+  const heightInput = document.getElementById("logo-display-height");
+  const square = document.getElementById("logo-display-square");
+  if (!widthInput || !heightInput || !square) return;
+  widthInput.value = widthInput.getAttribute("value") || "";
+  heightInput.value = heightInput.getAttribute("value") || "";
+  square.checked = widthInput.value === heightInput.value;
+  applyLogoSquareMode();
+}
+
+function showAdminSection(section) {
+  for (const name of ["users", "environment", "branding"]) {
+    document.getElementById(`admin-${name}`).classList.toggle("hidden", name !== section);
+    document.getElementById(`admin-tab-${name}`).classList.toggle("is-active", name === section);
+  }
+  if (section === "branding") fillLogoDisplayForm();
+}
+
+function adminSectionFromKey(key) {
+  const section = String(key || "").split("/")[1];
+  if (section === "environment" || section === "branding") return section;
+  return "users";
+}
+
+function formatSavedAt(iso, timeZone) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      timeZone: timeZone || undefined,
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(date);
+  } catch {
+    return date.toLocaleString();
+  }
+}
+
+function readConfigForm() {
+  return {
+    station_call: document.getElementById("cfg-station-call").value.trim(),
+    station_name: document.getElementById("cfg-station-name").value.trim(),
+    app_title: document.getElementById("cfg-app-title").value.trim(),
+    default_voice: document.getElementById("cfg-default-voice").value,
+    speed: Number(document.getElementById("cfg-speed").value),
+    sentence_pause: Number(document.getElementById("cfg-pause").value),
+    ptt_lead_seconds: Number(document.getElementById("cfg-ptt-lead").value),
+    busy_retry_seconds: Number(document.getElementById("cfg-busy-retry").value),
+    busy_give_up_seconds: Number(document.getElementById("cfg-busy-give-up").value),
+    max_text_chars: Number(document.getElementById("cfg-max-chars").value),
+    piper_qualities: document.getElementById("cfg-qualities").value,
+    timezone: document.getElementById("cfg-timezone").value.trim(),
+    slot_lookahead_hours: Number(document.getElementById("cfg-lookahead").value),
+    scheduler_max_wait_seconds: Number(document.getElementById("cfg-max-wait").value),
+    session_idle_seconds: Number(document.getElementById("cfg-idle").value),
+    login_max_failures: Number(document.getElementById("cfg-login-failures").value),
+    login_window_seconds: Number(document.getElementById("cfg-login-window").value),
+    trigger_now: document.getElementById("cfg-trigger-now").checked,
+    fire_verbose_log: document.getElementById("cfg-fire-verbose").checked,
+  };
+}
+
+function fillConfigForm(values) {
+  document.getElementById("cfg-station-call").value = values.station_call || "";
+  document.getElementById("cfg-station-name").value = values.station_name || "";
+  document.getElementById("cfg-app-title").value = values.app_title || "";
+  document.getElementById("cfg-qualities").value = values.piper_qualities || "all";
+  document.getElementById("cfg-speed").value = String(values.speed ?? "");
+  document.getElementById("cfg-pause").value = String(values.sentence_pause ?? "");
+  document.getElementById("cfg-ptt-lead").value = String(values.ptt_lead_seconds ?? "");
+  document.getElementById("cfg-busy-retry").value = String(values.busy_retry_seconds ?? "");
+  document.getElementById("cfg-busy-give-up").value = String(values.busy_give_up_seconds ?? "");
+  document.getElementById("cfg-max-chars").value = String(values.max_text_chars ?? "");
+  document.getElementById("cfg-timezone").value = values.timezone || "";
+  document.getElementById("cfg-lookahead").value = String(values.slot_lookahead_hours ?? "");
+  document.getElementById("cfg-max-wait").value = String(values.scheduler_max_wait_seconds ?? "");
+  document.getElementById("cfg-idle").value = String(values.session_idle_seconds ?? "");
+  document.getElementById("cfg-login-failures").value = String(values.login_max_failures ?? "");
+  document.getElementById("cfg-login-window").value = String(values.login_window_seconds ?? "");
+  document.getElementById("cfg-trigger-now").checked = Boolean(values.trigger_now);
+  document.getElementById("cfg-fire-verbose").checked = Boolean(values.fire_verbose_log);
+}
+
+async function fillVoiceOptions(selected) {
+  const res = await fetch("/api/voices");
+  const catalogPayload = res.ok ? await res.json() : { voices: [] };
+  const select = document.getElementById("cfg-default-voice");
+  select.replaceChildren();
+  let found = false;
+  for (const voice of catalogPayload.voices || []) {
+    const option = document.createElement("option");
+    option.value = voice.id;
+    const bits = [voice.name, voice.quality].filter(Boolean);
+    option.textContent = bits.length ? `${bits.join(" · ")} (${voice.id})` : voice.id;
+    if (voice.id === selected) found = true;
+    select.append(option);
+  }
+  if (selected && !found) {
+    const option = document.createElement("option");
+    option.value = selected;
+    option.textContent = selected;
+    select.append(option);
+  }
+  if (selected) select.value = selected;
+}
+
+async function refreshAdminConfig() {
+  setError("config-error", "");
+  const res = await fetch("/api/admin/config");
+  let payload = {};
+  try {
+    payload = await res.json();
+  } catch {
+    /* ignore */
+  }
+  if (!res.ok) {
+    setError("config-error", apiErrorMessage(payload, "Could not load configuration"));
+    return;
+  }
+  const current = payload.current || {};
+  const values = current.values || {};
+  fillConfigForm(values);
+  await fillVoiceOptions(values.default_voice || "");
+  document.getElementById("cfg-short").value = "";
+  document.getElementById("cfg-long").value = "";
+  const when = formatSavedAt(current.saved_at, values.timezone);
+  document.getElementById("config-current-when").textContent = when ? `Current configuration, saved ${when}` : "";
+  document.getElementById("config-current-short").textContent = current.short_description || "";
+  const longEl = document.getElementById("config-current-long");
+  longEl.textContent = current.long_description || "";
+  longEl.classList.toggle("hidden", !current.long_description);
+  renderConfigHistory(payload);
+}
+
+function renderConfigHistory(payload) {
+  const body = document.getElementById("config-history-rows");
+  body.replaceChildren();
+  const current = payload.current || {};
+  const zone = current.values?.timezone;
+  const previous = (payload.history || []).filter((entry) => entry.id !== current.id);
+  if (!previous.length) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 3;
+    td.textContent = "No earlier configurations yet.";
+    tr.append(td);
+    body.append(tr);
+    return;
+  }
+  for (const entry of previous) {
+    const tr = document.createElement("tr");
+    const when = document.createElement("td");
+    when.textContent = formatSavedAt(entry.saved_at, zone);
+    const desc = document.createElement("td");
+    desc.textContent = entry.short_description || "";
+    const actions = document.createElement("td");
+    actions.className = "row-actions";
+    if (entry.long_description) {
+      const more = document.createElement("button");
+      more.type = "button";
+      more.className = "ghost";
+      more.textContent = "Description";
+      const detail = document.createElement("p");
+      detail.className = "lede tight hidden";
+      detail.textContent = entry.long_description;
+      more.addEventListener("click", () => detail.classList.toggle("hidden"));
+      desc.append(detail);
+      actions.append(more);
+    }
+    const revert = document.createElement("button");
+    revert.type = "button";
+    revert.className = "ghost";
+    revert.textContent = "Revert";
+    revert.addEventListener("click", () => {
+      const label = `${formatSavedAt(entry.saved_at, zone)} (${entry.short_description})`;
+      if (!window.confirm(`Revert to the configuration saved ${label}?`)) return;
+      revertConfig(entry.id).catch((err) => window.alert(err.message));
+    });
+    actions.append(revert);
+    tr.append(when, desc, actions);
+    body.append(tr);
+  }
+}
+
+async function saveAdminConfig() {
+  setError("config-error", "");
+  const res = await fetch("/api/admin/config", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      values: readConfigForm(),
+      short_description: document.getElementById("cfg-short").value,
+      long_description: document.getElementById("cfg-long").value,
+    }),
+  });
+  let payload = {};
+  try {
+    payload = await res.json();
+  } catch {
+    /* ignore */
+  }
+  if (!res.ok) {
+    setError("config-error", apiErrorMessage(payload, "Could not save configuration"));
+    return;
+  }
+  location.reload();
+}
+
+async function revertConfig(id) {
+  const res = await fetch("/api/admin/config/revert", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id }),
+  });
+  let payload = {};
+  try {
+    payload = await res.json();
+  } catch {
+    /* ignore */
+  }
+  if (!res.ok) {
+    window.alert(apiErrorMessage(payload, "Could not revert"));
+    return;
+  }
+  if (payload.changed === false) return;
+  location.reload();
+}
+
+function refreshBrandingPreview() {
+  const generation = seenConfigGeneration ?? Date.now();
+  const logo = document.getElementById("branding-logo-preview");
+  const icon = document.getElementById("branding-favicon-preview");
+  if (logo) logo.src = `/branding/logo?v=${generation}`;
+  if (icon) icon.src = `/branding/favicon?v=${generation}`;
+}
+
+function logoSquareConstrained() {
+  const square = document.getElementById("logo-display-square");
+  return Boolean(square && square.checked);
+}
+
+function applyLogoSquareMode() {
+  const square = logoSquareConstrained();
+  const widthInput = document.getElementById("logo-display-width");
+  const heightInput = document.getElementById("logo-display-height");
+  const heightRow = document.getElementById("logo-display-height-row");
+  const widthLabel = document.getElementById("logo-display-width-label");
+  if (square && widthInput && heightInput) heightInput.value = widthInput.value;
+  if (heightRow) heightRow.classList.toggle("hidden", square);
+  if (widthLabel) widthLabel.textContent = square ? "Header size" : "Header width";
+  previewLogoDisplay();
+}
+
+function readLogoDisplay() {
+  const width = Number(document.getElementById("logo-display-width").value);
+  const height = logoSquareConstrained()
+    ? width
+    : Number(document.getElementById("logo-display-height").value);
+  if (!Number.isInteger(width) || !Number.isInteger(height)) return null;
+  return { width, height };
+}
+
+function previewLogoDisplay() {
+  const size = readLogoDisplay();
+  const preview = document.getElementById("branding-logo-preview");
+  if (!size || !preview) return;
+  preview.style.setProperty("--logo-width", `${size.width}px`);
+  preview.style.setProperty("--logo-height", `${size.height}px`);
+  preview.width = size.width;
+  preview.height = size.height;
+}
+
+async function saveLogoDisplay() {
+  setError("logo-display-error", "");
+  const size = readLogoDisplay();
+  if (!size) {
+    setError("logo-display-error", "Enter a whole number of pixels for width and height");
+    return;
+  }
+  const res = await fetch("/api/admin/branding/display", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(size),
+  });
+  let payload = {};
+  try {
+    payload = await res.json();
+  } catch {
+    /* ignore */
+  }
+  if (!res.ok) {
+    setError("logo-display-error", apiErrorMessage(payload, "Could not save the display size"));
+    return;
+  }
+  location.reload();
+}
+
+async function uploadBranding(url, inputId, errorId, extra) {
+  setError(errorId, "");
+  const input = document.getElementById(inputId);
+  const file = input.files && input.files[0];
+  if (!file) {
+    setError(errorId, "Choose a file first");
+    return;
+  }
+  const body = new FormData();
+  body.append("file", file);
+  if (extra) {
+    for (const [key, value] of Object.entries(extra)) body.append(key, value);
+  }
+  const res = await fetch(url, { method: "POST", body });
+  let payload = {};
+  try {
+    payload = await res.json();
+  } catch {
+    /* ignore */
+  }
+  if (!res.ok) {
+    setError(errorId, apiErrorMessage(payload, "Could not upload"));
+    return;
+  }
+  location.reload();
+}
+
+async function resetBranding(url, errorId) {
+  setError(errorId, "");
+  const res = await fetch(url, { method: "DELETE" });
+  if (!res.ok) {
+    let payload = {};
+    try {
+      payload = await res.json();
+    } catch {
+      /* ignore */
+    }
+    setError(errorId, apiErrorMessage(payload, "Could not restore the built-in image"));
+    return;
+  }
+  location.reload();
+}
+
 function routeKey(hash = location.hash) {
   const raw = String(hash || "").replace(/^#/, "") || "/";
   const [path] = raw.split("?");
@@ -2871,7 +3251,7 @@ function routeKey(hash = location.hash) {
   if (!parts.length) return "home";
   if (parts[0] === "login") return "login";
   if (parts[0] === "setup") return "setup";
-  if (parts[0] === "users") return "users";
+  if (parts[0] === "users" || parts[0] === "admin") return "admin";
   if (parts[0] === "help") return "help";
   if (parts[0] === "announcements") return parts[1] === "new" ? "ann-new" : `ann/${parts[1]}`;
   if (parts[0] === "schedules") {
@@ -2928,7 +3308,10 @@ async function route() {
       ignoreHashChange = false;
       if (editorKey === "home") showScreen("view-home");
       else if (editorKey === "help") showScreen("view-help");
-      else if (editorKey === "users") showScreen("view-users");
+      else if (String(editorKey).startsWith("admin")) {
+        showScreen("view-admin");
+        showAdminSection(adminSectionFromKey(editorKey));
+      }
       else if (editorKey.startsWith("ann")) showScreen("view-announcement");
       else if (editorKey.startsWith("sched")) showScreen("view-schedule");
       return;
@@ -2946,16 +3329,36 @@ async function route() {
       return;
     }
     if (parts[0] === "users") {
+      goToHash("#/admin/users");
+      return;
+    }
+    if (parts[0] === "admin") {
       if (!isAdmin()) {
         goToHash("#/");
         return;
       }
+      const section = parts[1] || "users";
+      if (section !== "users" && section !== "environment" && section !== "branding") {
+        goToHash("#/admin/users");
+        return;
+      }
+      if (!parts[1]) {
+        goToHash("#/admin/users");
+        return;
+      }
       stopHomePolling();
-      editorKey = "users";
+      editorKey = `admin/${section}`;
       clearEditorGuard();
-      resetUserForm();
-      showScreen("view-users");
-      await refreshUsers();
+      showScreen("view-admin");
+      showAdminSection(section);
+      if (section === "users") {
+        resetUserForm();
+        await refreshUsers();
+      } else if (section === "environment") {
+        await refreshAdminConfig();
+      } else {
+        refreshBrandingPreview();
+      }
       return;
     }
     if (parts[0] === "help") {
@@ -3036,7 +3439,41 @@ document.getElementById("new-announcement").addEventListener("click", () => {
 });
 document.getElementById("nav-home").addEventListener("click", () => goToHash("#/"));
 document.getElementById("nav-help").addEventListener("click", () => goToHash("#/help"));
-document.getElementById("nav-users").addEventListener("click", () => goToHash("#/users"));
+document.getElementById("nav-admin").addEventListener("click", () => goToHash("#/admin/users"));
+document.getElementById("admin-tab-users").addEventListener("click", () => goToHash("#/admin/users"));
+document.getElementById("admin-tab-environment").addEventListener("click", () => goToHash("#/admin/environment"));
+document.getElementById("admin-tab-branding").addEventListener("click", () => goToHash("#/admin/branding"));
+document.getElementById("config-save").addEventListener("click", () => {
+  saveAdminConfig().catch((err) => window.alert(err.message));
+});
+document.getElementById("logo-display-square").addEventListener("change", applyLogoSquareMode);
+document.getElementById("logo-display-width").addEventListener("input", () => {
+  if (logoSquareConstrained()) {
+    document.getElementById("logo-display-height").value = document.getElementById("logo-display-width").value;
+  }
+  previewLogoDisplay();
+});
+document.getElementById("logo-display-height").addEventListener("input", previewLogoDisplay);
+document.getElementById("logo-display-save").addEventListener("click", () => {
+  saveLogoDisplay().catch((err) => window.alert(err.message));
+});
+document.getElementById("logo-upload").addEventListener("click", () => {
+  const also = document.getElementById("logo-also-favicon").checked ? "true" : "false";
+  uploadBranding("/api/admin/branding/logo", "logo-file", "logo-error", { also_favicon: also }).catch((err) =>
+    window.alert(err.message)
+  );
+});
+document.getElementById("favicon-upload").addEventListener("click", () => {
+  uploadBranding("/api/admin/branding/favicon", "favicon-file", "favicon-error").catch((err) =>
+    window.alert(err.message)
+  );
+});
+document.getElementById("logo-reset").addEventListener("click", () => {
+  resetBranding("/api/admin/branding/logo", "logo-error").catch((err) => window.alert(err.message));
+});
+document.getElementById("favicon-reset").addEventListener("click", () => {
+  resetBranding("/api/admin/branding/favicon", "favicon-error").catch((err) => window.alert(err.message));
+});
 document.getElementById("nav-logout").addEventListener("click", () => {
   logout().catch((err) => window.alert(err.message));
 });

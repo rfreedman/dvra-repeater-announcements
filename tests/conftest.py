@@ -59,6 +59,55 @@ def _fake_sounddevice_query_devices(
 
 
 @pytest.fixture(autouse=True)
+def restore_operator_settings() -> Iterator[None]:
+    """Admin saves publish process-wide settings. Put them back after each test."""
+    import app.admin_config as admin_config
+    from app.auth import login_limiter
+    from app.config import assign_live_settings
+    from app.scheduler import PromptBackgroundScheduler
+    from app.scheduler_instance import get_scheduler
+
+    snapshot = admin_config.current_values()
+    generation = admin_config.config_generation()
+    yield
+    assign_live_settings(
+        station_call=snapshot.station_call,
+        station_name=snapshot.station_name,
+        app_title=snapshot.app_title,
+        default_voice=snapshot.default_voice,
+        speed=snapshot.speed,
+        sentence_pause=snapshot.sentence_pause,
+        ptt_lead_seconds=snapshot.ptt_lead_seconds,
+        busy_retry_seconds=snapshot.busy_retry_seconds,
+        busy_give_up_seconds=snapshot.busy_give_up_seconds,
+        max_text_chars=snapshot.max_text_chars,
+        piper_qualities=snapshot.piper_qualities,
+        timezone=snapshot.timezone,
+        slot_lookahead_hours=snapshot.slot_lookahead_hours,
+        scheduler_max_wait_seconds=snapshot.scheduler_max_wait_seconds,
+        session_idle_seconds=snapshot.session_idle_seconds,
+        login_max_failures=snapshot.login_max_failures,
+        login_window_seconds=snapshot.login_window_seconds,
+        trigger_now=snapshot.trigger_now,
+        fire_verbose_log=snapshot.fire_verbose_log,
+    )
+    login_limiter.max_failures = snapshot.login_max_failures
+    login_limiter.window_seconds = snapshot.login_window_seconds
+    scheduler = get_scheduler()
+    if isinstance(scheduler, PromptBackgroundScheduler):
+        scheduler.max_wait_seconds = max(0.5, snapshot.scheduler_max_wait_seconds)
+    admin_config.set_config_generation(generation)
+
+
+@pytest.fixture(autouse=True)
+def isolate_admin_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Admin saves must not touch the developer .env, history, or branding files."""
+    monkeypatch.setenv("TTS_DOTENV_PATH", str(tmp_path / "runtime.env"))
+    monkeypatch.setenv("TTS_CONFIG_HISTORY_PATH", str(tmp_path / "config_history.json"))
+    monkeypatch.setenv("TTS_BRANDING_DIR", str(tmp_path / "branding"))
+
+
+@pytest.fixture(autouse=True)
 def headless_portaudio_on_ci(monkeypatch: pytest.MonkeyPatch) -> None:
     """Headless GitHub runners expose PortAudio without usable device indices."""
     if not os.environ.get("GITHUB_ACTIONS"):
