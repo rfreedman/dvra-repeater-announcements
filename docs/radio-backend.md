@@ -30,7 +30,7 @@ Each optional extension is a `@runtime_checkable` Protocol in [`app/radio.py`](.
 | `CosPollingRadio` | `warm_open_hid()`, `refresh_cos() -> bool`, `ptt_keyed` (property) | DRA | Background COS poll support. Keep CM119 HID open, read COS, skip sampling while keyed. |
 | `AudioReplugRadio` | `sync_audio_output_indices_if_changed(*, after_usb_event: bool = False) -> bool` | DRA | Refresh PortAudio output indices after USB replug. Called from startup and replug recovery. |
 
-PortAudio device enumeration helpers live in [`app/dra_portaudio.py`](../app/dra_portaudio.py); PCM write/aplay paths stay in [`app/dra_playback.py`](../app/dra_playback.py).
+PortAudio device enumeration helpers live in [`app/dra_portaudio.py`](../app/dra_portaudio.py); PCM write/aplay paths stay in [`app/dra_playback.py`](../app/dra_playback.py). COS sampling and idle credit live in [`app/dra_cos.py`](../app/dra_cos.py); the in-flight USB abort registry lives in [`app/dra_usb_session.py`](../app/dra_usb_session.py). [`DraRadio`](../app/dra_radio.py) delegates to those and keeps HID, PTT, and `from_config`.
 
 ## Errors
 

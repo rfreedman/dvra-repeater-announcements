@@ -2,12 +2,11 @@
 from __future__ import annotations
 
 import logging
-import subprocess
 import sys
 import threading
 import time
 from collections.abc import Callable, Iterable
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from app.audio import PcmChunk
 from app.cm119 import (
@@ -15,14 +14,11 @@ from app.cm119 import (
     HidDevice,
     HidDeviceEntry,
     HidModule,
-    cos_line_busy,
     ensure_hid_module,
     list_cm119_hid_entries,
     open_cm119_hid_at,
-    read_hid_sample,
     set_gpio3_ptt,
 )
-from app.fire_trace import fire_trace
 from app.config import (
     DRA_AUDIO_DEVICE_SPECS,
     DRA_COS_ACTIVE_HIGH,
@@ -30,6 +26,9 @@ from app.config import (
     DRA_HID_PATH_BYTES,
     DRA_USB_CHANNEL,
 )
+from app.dra_cos import CosMonitor
+from app.dra_usb_session import UsbTransmitSession
+from app.fire_trace import fire_trace
 from app.radio_errors import ChannelBusyError
 
 log = logging.getLogger("app.dra_radio")
@@ -44,23 +43,14 @@ class DraRadio:
     _hid_adapters: list[Cm119HidAdapter]
     _audio_indices: list[int]
     _usb_channel: str
-    _cos_line: str
-    _cos_active_low: bool
     _lock: threading.Lock
+    _cos: CosMonitor
+    _usb: UsbTransmitSession
     _ptt_devices: list[HidDevice]
     _ptt_keyed: bool
-    _idle_since_mono: float | None
-    _last_cos_busy: bool | None
-    _cos_devices: list[HidDevice | None]
-    _last_cos_raw_hex: str | None
     _usb_hid_absent: bool
     _usb_hid_reconnected_pending: bool
     _pending_audio_indices: list[int] | None
-    _transmit_abort: threading.Event
-    _usb_transmit_active: bool
-    _active_playback_streams: list[object]
-    _active_aplay_procs: list[subprocess.Popen[bytes]]
-    _play_streams_lock: threading.Lock
 
     def __init__(
         self,
@@ -78,23 +68,19 @@ class DraRadio:
         self._hid_adapters = hid_adapters
         self._audio_indices = audio_indices
         self._usb_channel = usb_channel
-        self._cos_line = cos_line
-        self._cos_active_low = not cos_active_high
         self._lock = threading.Lock()
+        self._cos = CosMonitor(
+            self._lock,
+            line=cos_line,
+            active_low=not cos_active_high,
+            device_count=len(hid_adapters),
+        )
+        self._usb = UsbTransmitSession()
         self._ptt_devices = []
         self._ptt_keyed = False
-        self._idle_since_mono = None
-        self._last_cos_busy = None
-        self._cos_devices = [None] * len(hid_adapters)
-        self._last_cos_raw_hex = None
         self._usb_hid_absent = False
         self._usb_hid_reconnected_pending = False
         self._pending_audio_indices = None
-        self._transmit_abort = threading.Event()
-        self._usb_transmit_active = False
-        self._active_playback_streams = []
-        self._active_aplay_procs = []
-        self._play_streams_lock = threading.Lock()
 
     @property
     def ptt_keyed(self) -> bool:
@@ -106,7 +92,7 @@ class DraRadio:
         return not self._usb_hid_absent
 
     def transmit_abort_is_set(self) -> bool:
-        return self._transmit_abort.is_set()
+        return self._usb.abort_is_set()
 
     def runtime_usb_hid_tracking_enabled(self) -> bool:
         """Linux NUC hot-unplug/replug; off for tests with fake adapters and non-Linux dev."""
@@ -194,42 +180,6 @@ class DraRadio:
             cos_active_high=DRA_COS_ACTIVE_HIGH,
         )
 
-    def _apply_cos_busy(self, is_busy: bool) -> None:
-        """Update idle credit; one decoded busy sample resets it (a kerchunk may be one sample)."""
-        mono = time.monotonic()
-        if is_busy:
-            self._idle_since_mono = None
-            self._last_cos_busy = True
-        else:
-            if self._idle_since_mono is None:
-                self._idle_since_mono = mono
-            self._last_cos_busy = False
-
-    def _idle_seconds_unlocked(self) -> float:
-        if self._idle_since_mono is None:
-            return 0.0
-        return max(0.0, time.monotonic() - self._idle_since_mono)
-
-    def _close_cos_devices_locked(self) -> None:
-        for index, dev in enumerate(self._cos_devices):
-            if dev is None:
-                continue
-            try:
-                dev.close()
-            except OSError:
-                pass
-            self._cos_devices[index] = None
-
-    def _drop_cos_device_locked(self, index: int) -> None:
-        dev = self._cos_devices[index]
-        if dev is None:
-            return
-        try:
-            dev.close()
-        except OSError:
-            pass
-        self._cos_devices[index] = None
-
     def _enumerate_hid_entries(self) -> list[HidDeviceEntry]:
         hid = ensure_hid_module()
         entries = list_cm119_hid_entries(hid)
@@ -255,78 +205,35 @@ class DraRadio:
             return []
         return entries
 
-    def _register_playback_stream(self, stream: object) -> None:
-        with self._play_streams_lock:
-            self._active_playback_streams.append(stream)
-
-    def _register_aplay_proc(self, proc: subprocess.Popen[bytes]) -> None:
-        with self._play_streams_lock:
-            self._active_aplay_procs.append(proc)
-
-    def _playback_in_progress(self) -> bool:
-        with self._play_streams_lock:
-            return bool(self._active_aplay_procs or self._active_playback_streams)
-
     def begin_usb_transmit(self) -> None:
         """Covers USB lead silence + keyed PCM (``transmit()`` on DRA)."""
-        self._transmit_abort.clear()
-        self._usb_transmit_active = True
+        self._usb.begin()
 
     def end_usb_transmit(self) -> None:
-        self._usb_transmit_active = False
-        self._transmit_abort.clear()
-        with self._play_streams_lock:
-            self._active_playback_streams.clear()
-            self._active_aplay_procs.clear()
-
-    def _kill_active_aplay_procs(self) -> None:
-        with self._play_streams_lock:
-            procs = list(self._active_aplay_procs)
-            self._active_aplay_procs.clear()
-        for proc in procs:
-            if proc.poll() is None:
-                try:
-                    proc.kill()
-                except OSError:
-                    log.debug("Kill aplay after USB loss", exc_info=True)
-
-    def _close_active_playback_streams(self) -> None:
-        with self._play_streams_lock:
-            streams = list(self._active_playback_streams)
-            self._active_playback_streams.clear()
-        for stream in streams:
-            try:
-                exit_fn = getattr(stream, "__exit__", None)
-                if callable(exit_fn):
-                    _ = exit_fn(None, None, None)
-            except Exception:
-                log.debug("Closing playback stream after USB loss", exc_info=True)
+        self._usb.end()
 
     def abort_transmit_due_to_usb_loss(self) -> None:
         """Stop USB audio when the CM119 disappears mid-fire (PTT cleared in software only)."""
-        self._transmit_abort.set()
-        self._kill_active_aplay_procs()
-        self._close_active_playback_streams()
-        log.warning("DRA USB unplugged during transmit; aborting playback")
+        self._usb.abort()
 
     def _enter_usb_hid_absent_state(self) -> None:
         abort_playback = False
-        playback_active = self._playback_in_progress()
+        playback_active = self._usb.playback_in_progress()
         with self._lock:
             newly_absent = not self._usb_hid_absent
+            transmit_active = self._usb.transmit_active()
             abort_playback = newly_absent and (
-                self._ptt_keyed or self._usb_transmit_active or playback_active
+                self._ptt_keyed or transmit_active or playback_active
             )
             if self._ptt_keyed:
                 log.warning("DRA USB unplugged while PTT keyed; closing COS handles")
-            elif abort_playback and self._usb_transmit_active:
+            elif abort_playback and transmit_active:
                 log.warning("DRA USB unplugged during USB audio (pre-PTT lead or playback)")
-            self._close_cos_devices_locked()
+            self._cos.close_devices_unlocked()
             # USB is gone — do not write PTT to stale HID handles; clear software state.
             self._ptt_devices = []
             self._ptt_keyed = False
-            self._idle_since_mono = None
-            self._last_cos_busy = None
+            self._cos.forget_idle_unlocked()
             self._usb_hid_absent = True
         if newly_absent:
             log.warning(
@@ -452,10 +359,9 @@ class DraRadio:
                 Cm119HidAdapter(path=entries[i]["path"], label=self._hid_adapters[i].label)
                 for i in range(count)
             ]
-            self._close_cos_devices_locked()
+            self._cos.close_devices_unlocked()
             self._ptt_devices = []
-            self._idle_since_mono = None
-            self._last_cos_busy = None
+            self._cos.forget_idle_unlocked()
         log.info(
             "DRA USB replug: CM119 HID paths updated (%s → %s)",
             ", ".join(p.hex() for p in old_paths),
@@ -469,10 +375,9 @@ class DraRadio:
             if self._ptt_keyed:
                 log.warning("USB replug HID reset skipped while PTT is keyed")
                 return
-            self._close_cos_devices_locked()
+            self._cos.close_devices_unlocked()
             self._ptt_devices = []
-            self._idle_since_mono = None
-            self._last_cos_busy = None
+            self._cos.forget_idle_unlocked()
             log.info("DRA USB replug: closed cached CM119 HID handles and cleared COS idle credit")
 
     def _open_hid_path(self, hid: HidModule, path: bytes) -> HidDevice:
@@ -491,22 +396,13 @@ class DraRadio:
     def _ensure_adapter_hid_locked(
         self, hid: HidModule, index: int, adapter: Cm119HidAdapter
     ) -> HidDevice:
-        dev = self._cos_devices[index]
-        if dev is not None:
-            return dev
-        if len(self._hid_adapters) == 1:
-            self._close_cos_devices_locked()
-        else:
-            stale = self._cos_devices[index]
-            if stale is not None:
-                try:
-                    stale.close()
-                except OSError:
-                    pass
-                self._cos_devices[index] = None
-        dev = self._open_hid_path(hid, adapter.path)
-        self._cos_devices[index] = dev
-        return dev
+        return self._cos.ensure_device_unlocked(
+            hid,
+            index,
+            adapter,
+            single_adapter=len(self._hid_adapters) == 1,
+            open_hid=self._open_hid_path,
+        )
 
     def warm_open_hid(self) -> None:
         """Open CM119 HID once and keep it (avoids macOS open/close races with PTT)."""
@@ -537,91 +433,6 @@ class DraRadio:
                     err,
                 )
 
-    def _sample_one_cos_locked(
-        self, hid: HidModule, adapter: object, index: int
-    ) -> bool | None:
-        if self._ptt_keyed:
-            return None
-        if not isinstance(adapter, Cm119HidAdapter):
-            read_tri = getattr(adapter, "read_cos_tri_state", None)
-            if callable(read_tri):
-                result = read_tri(
-                    hid,
-                    line=self._cos_line,
-                    active_low=self._cos_active_low,
-                )
-                return result if isinstance(result, bool) or result is None else None
-            read_legacy = getattr(adapter, "read_cos_busy", None)
-            if callable(read_legacy):
-                result = read_legacy(
-                    hid,
-                    line=self._cos_line,
-                    active_low=self._cos_active_low,
-                    persistent_dev=None,
-                )
-                return result if isinstance(result, bool) or result is None else None
-            return None
-        try:
-            dev = self._ensure_adapter_hid_locked(hid, index, adapter)
-        except OSError:
-            log.debug("COS HID open failed on %s", adapter.label, exc_info=True)
-            return None
-        sample = read_hid_sample(dev)
-        raw = sample.raw
-        if raw is None:
-            log.debug("COS no HID report on %s; reopening HID handle", adapter.label)
-            self._drop_cos_device_locked(index)
-            try:
-                dev = self._ensure_adapter_hid_locked(hid, index, adapter)
-            except OSError:
-                log.debug("COS HID reopen failed on %s", adapter.label, exc_info=True)
-                return None
-            sample = read_hid_sample(dev)
-            raw = sample.raw
-            if raw is None:
-                log.debug("COS no HID report on %s after reopen", adapter.label)
-                return None
-        self._last_cos_raw_hex = raw.hex()
-        busy = cos_line_busy(
-            raw,
-            line=self._cos_line,
-            active_low=self._cos_active_low,
-        )
-        fire_trace(
-            "COS %s raw=%s decoded_busy=%s idle_credit=%.2fs line=%s active_low=%s",
-            adapter.label,
-            self._last_cos_raw_hex,
-            busy,
-            self._idle_seconds_unlocked(),
-            self._cos_line,
-            self._cos_active_low,
-        )
-        return busy
-
-    def _sample_channel_busy_locked(self, hid: HidModule) -> bool:
-        saw_busy = False
-        saw_idle = False
-        for index, adapter in enumerate(self._hid_adapters):
-            tri = self._sample_one_cos_locked(hid, adapter, index)
-            if tri is True:
-                saw_busy = True
-            elif tri is False:
-                saw_idle = True
-        if saw_busy:
-            self._apply_cos_busy(True)
-            return True
-        if saw_idle:
-            self._apply_cos_busy(False)
-            return False
-        if self._last_cos_busy is False and self._idle_since_mono is not None:
-            fire_trace(
-                "COS sample missed; keeping idle credit %.2fs",
-                self._idle_seconds_unlocked(),
-            )
-            return False
-        log.debug("COS indeterminate; treating as busy for gating")
-        return True
-
     def refresh_cos(self) -> bool:
         """Read COS once and update idle tracking (background poll)."""
         from app.dra_alsa_mixer import apply_cm119_replug_recovery
@@ -631,26 +442,23 @@ class DraRadio:
             return True
         hid = ensure_hid_module()
         with self._lock:
-            return self._sample_channel_busy_locked(hid)
+            return self._cos.sample_channel_busy_locked(
+                hid,
+                ptt_keyed=self._ptt_keyed,
+                adapters=self._hid_adapters,
+                open_hid=self._open_hid_path,
+            )
 
     def continuous_idle_seconds(self) -> float:
-        with self._lock:
-            if self._idle_since_mono is None:
-                return 0.0
-            return max(0.0, time.monotonic() - self._idle_since_mono)
+        return self._cos.continuous_idle_seconds()
 
     @property
     def last_cos_busy(self) -> bool | None:
-        with self._lock:
-            return self._last_cos_busy
+        return self._cos.last_cos_busy()
 
     def cos_defer_snapshot(self) -> tuple[bool | None, float]:
         """Last COS state + idle credit without opening HID (for UI status)."""
-        with self._lock:
-            idle = 0.0
-            if self._idle_since_mono is not None:
-                idle = max(0.0, time.monotonic() - self._idle_since_mono)
-            return self._last_cos_busy, idle
+        return self._cos.defer_snapshot()
 
     def channel_busy(self) -> bool:
         return self.refresh_cos()
@@ -666,47 +474,17 @@ class DraRadio:
         fail_fast_on_busy: bool = False,
     ) -> bool:
         """Wait for ``clear_seconds`` of continuous COS idle before PTT (voice-gate style)."""
-        from app.dra_alsa_mixer import apply_cm119_replug_recovery
+        from app import dra_cos
 
-        apply_cm119_replug_recovery(self)
-        if clear_seconds <= 0:
-            return not self.channel_busy()
-        poll = max(0.05, poll_seconds)
-        clear_remaining = clear_seconds
-        clear_ready_at: datetime | None = None
-
-        idle = self.continuous_idle_seconds()
-        if idle >= clear_seconds:
-            log.info("COS clear satisfied (%.1fs idle before PTT)", idle)
-            return True
-        if not self.channel_busy():
-            clear_remaining = clear_seconds - idle
-
-        while True:
-            current = now()
-            if current >= deadline:
-                return False
-            if self.channel_busy():
-                if clear_ready_at is not None:
-                    log.debug("Clear window reset — COS busy again")
-                clear_ready_at = None
-                clear_remaining = clear_seconds
-                if fail_fast_on_busy:
-                    return False
-                remaining = (deadline - current).total_seconds()
-                sleep_fn(min(poll, max(0.0, remaining)))
-                continue
-            if clear_ready_at is None:
-                clear_ready_at = current + timedelta(seconds=clear_remaining)
-                log.info(
-                    "COS idle — waiting %.1fs continuous clear before PTT",
-                    clear_remaining,
-                )
-            elif current >= clear_ready_at:
-                return True
-            sleep_until = min(clear_ready_at, deadline)
-            remaining = (sleep_until - current).total_seconds()
-            sleep_fn(min(poll, max(0.0, remaining)))
+        return dra_cos.wait_for_transmit_clear(
+            self,
+            clear_seconds=clear_seconds,
+            poll_seconds=poll_seconds,
+            deadline=deadline,
+            now=now,
+            sleep_fn=sleep_fn,
+            fail_fast_on_busy=fail_fast_on_busy,
+        )
 
     def set_ptt(self, keyed: bool) -> None:
         hid = ensure_hid_module()
@@ -794,22 +572,20 @@ class DraRadio:
                 device_indices=self._audio_indices,
                 channel=self._usb_channel,
                 lead_silence=max(0.0, lead_seconds),
-                should_abort=self._transmit_abort.is_set,
-                register_stream=self._register_playback_stream,
-                register_aplay_proc=self._register_aplay_proc,
+                should_abort=self._usb.abort_is_set,
+                register_stream=self._usb.register_stream,
+                register_aplay_proc=self._usb.register_aplay_proc,
             )
         except Exception as exc:
             if isinstance(exc, TransmitAbortError):
                 raise
-            if self._transmit_abort.is_set() or self._usb_hid_absent:
+            if self._usb.abort_is_set() or self._usb_hid_absent:
                 raise TransmitAbortError("DRA USB playback aborted") from exc
             raise
 
     def set_idle_credit(self, idle_seconds: float) -> None:
         """Pretend COS has been idle for ``idle_seconds`` (tests)."""
-        with self._lock:
-            self._last_cos_busy = False
-            self._idle_since_mono = time.monotonic() - idle_seconds
+        self._cos.set_idle_credit(idle_seconds)
 
     def hid_adapter_path(self, index: int = 0) -> bytes:
         return self._hid_adapters[index].path
