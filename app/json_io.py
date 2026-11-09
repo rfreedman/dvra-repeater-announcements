@@ -1,7 +1,7 @@
 """Versioned JSON read/write used by the announcement store, users, and Newsline state.
 
 Kept as a leaf so Newsline state does not import ``app.store`` (that closed an
-import cycle through ``schedule_logic`` → ``playlist``).
+import cycle through ``schedule_play`` → ``playlist``). Keep that playlist import inside the function.
 """
 
 from __future__ import annotations
