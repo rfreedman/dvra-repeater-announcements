@@ -4,9 +4,8 @@ import re
 
 from rapidfuzz import fuzz
 
-from app.newsline.engine.align import normalize_tokens
 from app.newsline.engine.models import Segment, SegmentKind
-from app.newsline.engine.transcript import clean_spoken_line, line_is_spoken
+from app.newsline.engine.script_phrases import speakable_line_token_lists
 
 _BREAK_HEAD_PATTERNS = (
     "time for you to identify your station",
@@ -16,26 +15,6 @@ _BREAK_HEAD_PATTERNS = (
 )
 
 _OPENER_HEAD_TOKENS = 28
-
-
-def speakable_line_token_lists(segment: Segment) -> list[list[str]]:
-    lines: list[list[str]] = []
-    if segment.kind == SegmentKind.BREAK:
-        from app.newsline.engine.transcript import strip_break_prefix
-
-        text = strip_break_prefix(segment.title)
-        toks = normalize_tokens(text)
-        if len(toks) >= 3:
-            lines.append(toks)
-        return lines
-    for line in segment.body_lines:
-        if not line_is_spoken(line):
-            continue
-        cleaned = clean_spoken_line(line)
-        toks = normalize_tokens(cleaned)
-        if len(toks) >= 3:
-            lines.append(toks)
-    return lines
 
 
 def first_line_opener_score(segment: Segment, spoken: list[str]) -> float | None:

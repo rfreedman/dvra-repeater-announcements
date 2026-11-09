@@ -6,9 +6,12 @@ from pathlib import Path
 from rapidfuzz import fuzz
 
 from app.newsline.engine.align import (
-    signoff_phrases,
     normalize_token,
     normalize_tokens,
+)
+from app.newsline.engine.script_phrases import (
+    signoff_phrases,
+    speakable_line_token_lists,
 )
 from app.newsline.engine.models import Boundary, Segment, SegmentKind, WordTiming
 from app.newsline.engine.split import ExportSlot
@@ -17,7 +20,6 @@ from app.newsline.engine.verify_fulltext import (
     break_boilerplate_in_head,
     first_line_opener_score,
     next_story_opener_inside,
-    speakable_line_token_lists,
 )
 
 _SLICE_NEXT_INSIDE_SCORE = 80.0

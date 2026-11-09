@@ -1,505 +1,35 @@
-"""Inspect intro, break, and close handoffs and place quiet cuts from landmarks.
+"""Rewrite intro, break, and close boundaries from handoff landmarks.
 
-Structural split is tracked in GitHub issue #62. Cut/QA code still imports
-private helpers from ``align`` and ``verify_fulltext``. Do not split this file
-or rename those helpers until tests cover handoff inspection and quiet-cut
-placement. Packing tests are not that coverage.
+Landmark matching lives in ``handoff_landmarks``, quiet-cut placement in
+``handoff_cuts``, and window ASR in ``handoff_window``. Script phrases those
+steps share with alignment and slice QA come from ``script_phrases``.
 """
 
 from __future__ import annotations
 
-from typing import cast
-
-import subprocess
-import tempfile
 from pathlib import Path
 
-from rapidfuzz import fuzz
-
-from app.newsline.engine.align import (
-    signoff_phrases,
-    normalize_tokens,
+from app.newsline.engine.handoff_cuts import (
+    LONG_GAP_SEC,
+    MIN_CART_SEC,
+    clamp_before_opener,
+    cut_after_signoff,
+    cut_before_opener,
+    cut_between_landmarks,
+    dual_cuts_before_opener,
+    quiet_just_before,
+    snap_past_sting_callsign,
 )
-from app.newsline.engine.models import Boundary, Segment, SegmentKind, WordTiming
+from app.newsline.engine.handoff_landmarks import best_opener, best_signoff
+from app.newsline.engine.handoff_window import transcribe_handoff_window
+from app.newsline.engine.models import Boundary, Segment, SegmentKind
 from app.newsline.engine.silence_cuts import (
     cut_in_silence_gap,
+    extend_through_speech,
     find_cut_after_tone_beeps,
     longest_quiet_run,
     quiet_runs,
 )
-from app.newsline.engine.silence_cuts import (
-    extend_through_speech as extend_through_speech,
-)
-from app.newsline.engine.transcribe import pcm_float32_from_wav
-from app.newsline.engine.verify_fulltext import speakable_line_token_lists
-
-_MIN_MATCH = 86.0
-_MIN_MATCH_LOOSE = 82.0
-# Cart / location-sting gaps between intro and first story are often multi-second.
-_LONG_GAP_SEC = 1.5
-# Billboard / cart span below this is treated as collapsed (peers are ~12–15s).
-_MIN_CART_SEC = 3.0
-
-
-def _orderedmatch_score(anchor: list[str], window: list[str]) -> float:
-    """Ordered string ratio only — token_set_ratio false-matches shared little words."""
-    if not anchor or not window or len(anchor) != len(window):
-        return 0.0
-    return float(fuzz.ratio(" ".join(anchor), " ".join(window)))
-
-
-def _opener_phrase(segment: Segment) -> list[str]:
-    lines = speakable_line_token_lists(segment)
-    if not lines:
-        return normalize_tokens(segment.speakable_text)[:8]
-    return lines[0][: min(10, len(lines[0]))]
-
-
-def _signoff_candidates(segment: Segment) -> list[list[str]]:
-    """Sign-off / intro-tail phrases from the segment's own script only."""
-    return signoff_phrases(segment)
-
-
-def _opener_candidates(segment: Segment) -> list[list[str]]:
-    base = _opener_phrase(segment)
-    out: list[list[str]] = []
-    if len(base) >= 4:
-        out.append(base)
-        out.append(base[:6] if len(base) > 6 else base)
-        out.append(base[:4])
-        # Beep trains often garble the first word(s); match the stable tail.
-        if len(base) >= 6:
-            out.append(base[1:7])
-            out.append(base[2:8] if len(base) >= 8 else base[2:])
-    elif base:
-        out.append(base)
-    return out
-
-
-def _decode_window_wav(audio: Path, t0: float, t1: float, out_wav: Path) -> None:
-    dur = max(0.1, t1 - t0)
-    _ = subprocess.run(
-        [
-            "ffmpeg",
-            "-y",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-ss",
-            f"{max(0.0, t0):.3f}",
-            "-i",
-            str(audio),
-            "-t",
-            f"{dur:.3f}",
-            "-ar",
-            "16000",
-            "-ac",
-            "1",
-            str(out_wav),
-        ],
-        check=True,
-    )
-
-
-def transcribe_handoff_window(
-    audio: Path,
-    t0: float,
-    t1: float,
-    *,
-    model_name: str = "base.en",
-) -> list[WordTiming]:
-    """ASR the handoff neighborhood; word times are absolute on the master timeline."""
-    from app.newsline.engine.whisper_model import get_whisper_model
-
-    model = get_whisper_model(model_name)
-    with tempfile.TemporaryDirectory() as td:
-        wav = Path(td) / "win.wav"
-        _decode_window_wav(audio, t0, t1, wav)
-        segments, _info = model.transcribe(
-            pcm_float32_from_wav(wav),
-            word_timestamps=True,
-            language="en",
-            vad_filter=False,
-        )
-        words: list[WordTiming] = []
-        for seg in segments:
-            seg_words = cast(object, getattr(seg, "words", None))
-            if not seg_words:
-                continue
-            from collections.abc import Iterable
-
-            for w in cast(Iterable[object], seg_words):
-                word = cast(object, getattr(w, "word", None))
-                start = cast(object, getattr(w, "start", None))
-                end = cast(object, getattr(w, "end", None))
-                if (
-                    not isinstance(word, str)
-                    or not word
-                    or not isinstance(start, (int, float))
-                    or not isinstance(end, (int, float))
-                ):
-                    continue
-                words.append(
-                    WordTiming(
-                        word=word.strip(),
-                        start=t0 + float(start),
-                        end=t0 + float(end),
-                    )
-                )
-        return words
-
-
-def _flatten(words: list[WordTiming]) -> tuple[list[str], list[int]]:
-    tokens: list[str] = []
-    owners: list[int] = []
-    for i, w in enumerate(words):
-        for tok in normalize_tokens(w.word):
-            tokens.append(tok)
-            owners.append(i)
-    return tokens, owners
-
-
-def _find_phrase_span(
-    phrase: list[str],
-    words: list[WordTiming],
-    *,
-    not_before: float | None = None,
-    not_after: float | None = None,
-    prefer: str = "best",
-    min_match: float = _MIN_MATCH,
-) -> tuple[float, float, float] | None:
-    """Return ``(start, end, score)`` for the best phrase match in ``words``."""
-    if not phrase or not words:
-        return None
-    tokens, owners = _flatten(words)
-    width = len(phrase)
-    if width > len(tokens):
-        return None
-    candidates: list[tuple[float, float, float, int]] = []
-    for i in range(len(tokens) - width + 1):
-        w0 = words[owners[i]]
-        if not_before is not None and w0.start < not_before:
-            continue
-        if not_after is not None and w0.start > not_after:
-            continue
-        window = tokens[i : i + width]
-        # Require the first token to be a strong match (blocks callsign↔opener swaps).
-        if fuzz.ratio(phrase[0], window[0]) < 80:
-            continue
-        score = _orderedmatch_score(phrase, window)
-        if score < min_match:
-            continue
-        w1 = words[owners[i + width - 1]]
-        candidates.append((w0.start, w1.end, score, i))
-    if not candidates:
-        return None
-    if prefer == "latest":
-        candidates.sort(key=lambda c: (c[1], c[2]))
-        start, end, score, _ = candidates[-1]
-    elif prefer == "earliest":
-        candidates.sort(key=lambda c: (c[0], -c[2]))
-        start, end, score, _ = candidates[0]
-    else:
-        candidates.sort(key=lambda c: (c[2], c[1]))
-        start, end, score, _ = candidates[-1]
-    return start, end, score
-
-
-def best_signoff(
-    words: list[WordTiming],
-    segment: Segment,
-    *,
-    not_after: float | None = None,
-) -> tuple[float, float, float] | None:
-    best: tuple[float, float, float] | None = None
-    for phrase in _signoff_candidates(segment):
-        loose = len(phrase) <= 5
-        hit = _find_phrase_span(
-            phrase,
-            words,
-            not_after=not_after,
-            prefer="latest",
-            min_match=_MIN_MATCH_LOOSE if loose else _MIN_MATCH,
-        )
-        if hit is None:
-            continue
-        if best is None or hit[1] > best[1] or (
-            abs(hit[1] - best[1]) < 0.05 and hit[2] > best[2]
-        ):
-            best = hit
-    return best
-
-
-def best_opener(
-    words: list[WordTiming],
-    segment: Segment,
-    *,
-    not_before: float | None = None,
-) -> tuple[float, float, float] | None:
-    best: tuple[float, float, float] | None = None
-    for phrase in _opener_candidates(segment):
-        hit = _find_phrase_span(
-            phrase,
-            words,
-            not_before=not_before,
-            prefer="earliest",
-            min_match=_MIN_MATCH_LOOSE if len(phrase) <= 4 else _MIN_MATCH,
-        )
-        if hit is None:
-            continue
-        if best is None or hit[0] < best[0] or (
-            abs(hit[0] - best[0]) < 0.05 and hit[2] > best[2]
-        ):
-            best = hit
-    return best
-
-
-def _quiet_just_before(
-    energy_frames: list[tuple[float, float]],
-    target: float,
-    *,
-    lookback: float = 1.2,
-    min_silence_sec: float = 0.10,
-) -> tuple[float, float] | None:
-    """
-    Substantial quiet run ending near ``target``.
-
-    Ignores tiny mid-callsign dips; requires the run to end within 0.25s of target.
-    """
-    runs = quiet_runs(
-        energy_frames,
-        target - lookback,
-        target + 0.05,
-        min_silence_sec=min_silence_sec,
-    )
-    near = [g for g in runs if target - 0.25 <= g[1] <= target + 0.08]
-    if not near:
-        return None
-    return max(near, key=lambda g: (g[1] - g[0], g[1]))
-
-
-def _rms_at(energy_frames: list[tuple[float, float]], t: float) -> float:
-    if not energy_frames:
-        return 0.0
-    best = min(energy_frames, key=lambda fr: abs(fr[0] - t))
-    return float(best[1])
-
-
-def _loud_near(
-    energy_frames: list[tuple[float, float]],
-    t: float,
-    *,
-    before: float = 0.55,
-    after: float = 0.2,
-    thr: float = 1500.0,
-) -> bool:
-    """True if loud frames sit in ``[t-before, t+after]`` (callsign still ringing)."""
-    lo, hi = t - before, t + after
-    return any(lo <= tt <= hi and r >= thr for tt, r in energy_frames)
-
-
-def _clamp_before_opener(
-    cut: float, opener_start: float, *, not_before: float = 0.0
-) -> float:
-    """Hard invariant: cut must land strictly before the next opener."""
-    limit = opener_start - 0.04
-    cut = min(cut, limit)
-    return max(not_before + 0.02, cut)
-
-
-def _snap_past_sting_callsign(
-    energy_frames: list[tuple[float, float]],
-    cut_b: float,
-    opener_start: float,
-    *,
-    not_before: float,
-    max_advance: float = 1.25,
-) -> float:
-    """
-    Intro→story: if ``cut_b`` lands mid location-sting callsign (false-early
-    opener), advance into the quiet island before the real story speech.
-
-    Allows a small advance past ASR ``opener_start`` when energy shows the
-    callsign continuing through that time (Report 2552 WD9GCO @ ~46.9 with
-    opener ASR @ 46.8). Caps advance so we do not eat into the story.
-    """
-    if not energy_frames:
-        return cut_b
-    loud_here = _loud_near(
-        energy_frames, cut_b, before=0.12, after=0.20, thr=1500.0
-    ) or _rms_at(energy_frames, cut_b) > 1500.0
-    if not loud_here:
-        return cut_b
-
-    search_hi = opener_start + max_advance
-    runs = quiet_runs(
-        energy_frames,
-        max(not_before, cut_b - 0.05),
-        search_hi + 0.35,
-        min_silence_sec=0.10,
-    )
-    after = [g for g in runs if g[0] >= cut_b - 0.08 and g[0] <= search_hi]
-    if not after:
-        return cut_b
-    gap = min(after, key=lambda g: g[0])
-    snapped = cut_in_silence_gap(gap[0], gap[1])
-    return max(cut_b, min(snapped, search_hi))
-
-
-def _cut_before_opener(
-    energy_frames: list[tuple[float, float]],
-    opener_start: float,
-    *,
-    not_before: float = 0.0,
-    lookback: float = 1.5,
-) -> float:
-    """
-    Cut in quiet immediately before the next opener.
-
-    When Whisper glues the opener onto the end of a cart/story callsign
-    (opener_start lands in a mid-callsign dip or just after), prefer quiet
-    *before* the opener. Never return a cut at or after ``opener_start``.
-    """
-    fallback = _clamp_before_opener(
-        opener_start - 0.04, opener_start, not_before=not_before
-    )
-    # Quiet ending within 0.25s of the opener is the real handoff gap.
-    # Do not veto it just because the preceding callsign is still loud in a
-    # wider lookback (that is normal for abutting story→break gaps and was
-    # clipping mid-callsign, e.g. KC0|DGY on 2544_07).
-    gap = _quiet_just_before(
-        energy_frames, opener_start, lookback=lookback, min_silence_sec=0.10
-    )
-    if gap is not None and gap[0] >= not_before - 0.05:
-        return _clamp_before_opener(
-            cut_in_silence_gap(gap[0], gap[1]), opener_start, not_before=not_before
-        )
-
-    # No quiet abutting opener: Whisper may have glued opener onto callsign —
-    # finish residual speech, then take the latest quiet still before opener.
-    glued = _loud_near(energy_frames, opener_start, before=0.55, after=0.35)
-    if glued or _rms_at(energy_frames, opener_start) > 1500.0:
-        probe = max(not_before, opener_start - 0.45)
-        extended = extend_through_speech(
-            energy_frames, probe, max_extend=min(2.2, opener_start - probe), min_quiet_sec=0.14
-        )
-        extended = min(extended, opener_start - 0.05)
-        before = quiet_runs(
-            energy_frames,
-            max(not_before, extended - 0.8),
-            opener_start,
-            min_silence_sec=0.10,
-        )
-        before = [
-            g
-            for g in before
-            if g[0] >= not_before - 0.05 and g[0] < opener_start - 0.04
-        ]
-        if before:
-            # Prefer the quiet run closest to the opener (ends latest).
-            gap_b = max(before, key=lambda g: g[1])
-            return _clamp_before_opener(
-                cut_in_silence_gap(gap_b[0], gap_b[1]),
-                opener_start,
-                not_before=not_before,
-            )
-
-    return fallback
-
-
-def _dual_cuts_before_opener(
-    energy_frames: list[tuple[float, float]],
-    opener_start: float,
-    *,
-    not_before: float,
-) -> tuple[float, float] | None:
-    """
-    Rebuild intro→story dual edges when the cart gap collapsed.
-
-    ``cut_b`` sits just before the opener; ``cut_a`` at the start of a long
-    quiet/cart island before that opener. Returns None if no long quiet exists.
-    """
-    cut_b = _cut_before_opener(
-        energy_frames,
-        opener_start,
-        not_before=not_before,
-        lookback=1.5,
-    )
-    search_lo = max(not_before, opener_start - 22.0)
-    search_hi = max(search_lo + 0.5, opener_start - 0.12)
-    runs = quiet_runs(
-        energy_frames, search_lo, search_hi, min_silence_sec=0.35
-    )
-    near = [
-        g
-        for g in runs
-        if g[1] >= opener_start - 2.5 and (g[1] - g[0]) >= _MIN_CART_SEC
-    ]
-    if not near:
-        near = [g for g in runs if (g[1] - g[0]) >= _MIN_CART_SEC]
-    if not near:
-        return None
-    gap = max(near, key=lambda g: (g[1] - g[0], g[1]))
-    cut_a = gap[0] + min(0.08, 0.25 * (gap[1] - gap[0]))
-    cut_b = min(cut_b, opener_start - 0.04, gap[1] - 0.02)
-    cut_b = max(cut_b, cut_a + _MIN_CART_SEC * 0.5)
-    cut_b = _clamp_before_opener(cut_b, opener_start, not_before=cut_a)
-    cut_b = _snap_past_sting_callsign(
-        energy_frames, cut_b, opener_start, not_before=cut_a
-    )
-    if cut_b - cut_a < _MIN_CART_SEC * 0.6:
-        return None
-    return cut_a, cut_b
-
-
-def _cut_after_signoff(
-    energy_frames: list[tuple[float, float]],
-    signoff_end: float,
-    opener_start: float,
-) -> float:
-    """
-    Cut after the full callsign/tail, never before ``signoff_end``.
-
-    Used when Whisper abuts or overlaps sign-off and opener word times — the
-    acoustic callsign often continues a few hundred ms past the word ``end``.
-    """
-    hi = max(opener_start, signoff_end) + 0.6
-    runs = quiet_runs(
-        energy_frames,
-        signoff_end - 0.05,
-        hi,
-        min_silence_sec=0.08,
-    )
-    # First quiet that begins at/after the sign-off (post-callsign gap).
-    after = [g for g in runs if g[0] >= signoff_end - 0.06]
-    if after:
-        gap = after[0]
-        return cut_in_silence_gap(gap[0], gap[1])
-    # No measured quiet: keep the entire sign-off; slight bleed into close
-    # is better than clipping the callsign.
-    return signoff_end + 0.04
-
-
-def cut_between_landmarks(
-    energy_frames: list[tuple[float, float]],
-    signoff_end: float,
-    opener_start: float,
-) -> float:
-    """Place cut in quiet between landmarks — always the gap just before opener."""
-    # Abutting / overlapped Whisper times: never cut inside the callsign.
-    if opener_start <= signoff_end + 0.2:
-        return _cut_after_signoff(energy_frames, signoff_end, opener_start)
-
-    if opener_start <= signoff_end + 0.03:
-        return _cut_after_signoff(energy_frames, signoff_end, opener_start)
-
-    # Real gap: quiet abutting opener; if ASR glued opener onto a callsign, advance.
-    return _cut_before_opener(
-        energy_frames,
-        opener_start,
-        not_before=signoff_end,
-        lookback=min(2.0, max(0.3, opener_start - signoff_end)),
-    )
 
 
 def refine_handoff_from_inspection(
@@ -628,7 +158,7 @@ def refine_handoff_from_inspection(
 
         # Abutting handoff (typical last-story → close): keep full callsign.
         if gap_len <= 0.25:
-            cut = _cut_after_signoff(energy_frames, signoff_end, opener_start)
+            cut = cut_after_signoff(energy_frames, signoff_end, opener_start)
             return (
                 cut,
                 cut,
@@ -636,13 +166,13 @@ def refine_handoff_from_inspection(
             )
 
         if allow_dual and (
-            gap_len >= _LONG_GAP_SEC
+            gap_len >= LONG_GAP_SEC
             or prev_seg.kind == SegmentKind.INTRO
         ):
             # Long cart/break: end previous just after sign-off; start next just before opener.
             # Intro with a collapsed align gap still needs dual edges from energy.
-            if gap_len < _MIN_CART_SEC and prev_seg.kind == SegmentKind.INTRO:
-                rebuilt = _dual_cuts_before_opener(
+            if gap_len < MIN_CART_SEC and prev_seg.kind == SegmentKind.INTRO:
+                rebuilt = dual_cuts_before_opener(
                     energy_frames,
                     opener_start,
                     not_before=max(0.0, signoff_end - 18.0),
@@ -670,7 +200,7 @@ def refine_handoff_from_inspection(
                 cut_a = cut_between_landmarks(
                     energy_frames, signoff_end, signoff_end + 0.8
                 )
-            cut_b = _cut_before_opener(
+            cut_b = cut_before_opener(
                 energy_frames,
                 opener_start,
                 not_before=signoff_end + 0.3,
@@ -680,17 +210,17 @@ def refine_handoff_from_inspection(
                 # Pull cut_a earlier rather than pushing cut_b past the opener.
                 cut_a = min(cut_a, cut_b - 0.15)
                 cut_a = max(cut_a, signoff_end)
-            cut_b = _clamp_before_opener(
+            cut_b = clamp_before_opener(
                 cut_b, opener_start, not_before=cut_a
             )
             if prev_seg.kind == SegmentKind.INTRO:
-                cut_b = _snap_past_sting_callsign(
+                cut_b = snap_past_sting_callsign(
                     energy_frames,
                     cut_b,
                     opener_start,
                     not_before=cut_a,
                 )
-            if cut_b - cut_a >= _MIN_CART_SEC * 0.5 or gap_len >= _LONG_GAP_SEC:
+            if cut_b - cut_a >= MIN_CART_SEC * 0.5 or gap_len >= LONG_GAP_SEC:
                 return (
                     cut_a,
                     cut_b,
@@ -701,7 +231,7 @@ def refine_handoff_from_inspection(
                 )
 
         cut = cut_between_landmarks(energy_frames, signoff_end, opener_start)
-        cut = _clamp_before_opener(cut, opener_start, not_before=signoff_end)
+        cut = clamp_before_opener(cut, opener_start, not_before=signoff_end)
         return (
             cut,
             cut,
@@ -712,7 +242,7 @@ def refine_handoff_from_inspection(
     if opener is not None:
         opener_start = opener[0]
         floor = max(0.0, edge_a - 0.5)
-        cut_b = _cut_before_opener(
+        cut_b = cut_before_opener(
             energy_frames,
             opener_start,
             not_before=floor,
@@ -721,12 +251,12 @@ def refine_handoff_from_inspection(
         if allow_dual:
             cut_a = edge_a
             collapsed = (
-                opener_start - cut_a < _MIN_CART_SEC
+                opener_start - cut_a < MIN_CART_SEC
                 or cut_b < cut_a + 0.15
                 or cut_b >= opener_start - 0.02
             )
             if collapsed:
-                rebuilt = _dual_cuts_before_opener(
+                rebuilt = dual_cuts_before_opener(
                     energy_frames,
                     opener_start,
                     not_before=max(0.0, floor - 12.0),
@@ -742,18 +272,18 @@ def refine_handoff_from_inspection(
                         ),
                     )
                 # Last resort: keep dual but never past opener.
-                cut_b = _clamp_before_opener(
+                cut_b = clamp_before_opener(
                     cut_b, opener_start, not_before=floor
                 )
                 if cut_b < cut_a + 0.15:
                     cut_a = max(floor, cut_b - 0.5)
             else:
                 cut_b = max(cut_b, cut_a + 0.15)
-                cut_b = _clamp_before_opener(
+                cut_b = clamp_before_opener(
                     cut_b, opener_start, not_before=cut_a
                 )
             if prev_seg.kind == SegmentKind.INTRO:
-                cut_b = _snap_past_sting_callsign(
+                cut_b = snap_past_sting_callsign(
                     energy_frames,
                     cut_b,
                     opener_start,
@@ -765,7 +295,7 @@ def refine_handoff_from_inspection(
                 f"inspect opener@{opener_start:.2f} →keep/{cut_b:.2f}",
             )
         if prev_seg.kind == SegmentKind.INTRO:
-            cut_b = _snap_past_sting_callsign(
+            cut_b = snap_past_sting_callsign(
                 energy_frames,
                 cut_b,
                 opener_start,
@@ -865,7 +395,7 @@ def _refine_story_story_residual_before_opener(
     if opener_start > provisional_cut + 6.0:
         return None
     lookback = min(2.5, max(0.4, opener_start - provisional_cut + 0.3))
-    gap = _quiet_just_before(
+    gap = quiet_just_before(
         energy_frames,
         opener_start,
         lookback=lookback,
@@ -886,7 +416,7 @@ def _refine_story_story_residual_before_opener(
     if loud_sec < 0.40:
         return None
     cut = cut_in_silence_gap(gap[0], gap[1])
-    cut = _clamp_before_opener(
+    cut = clamp_before_opener(
         cut, opener_start, not_before=provisional_cut - 0.1
     )
     if cut < provisional_cut + 0.25:
@@ -1079,9 +609,9 @@ def refine_boundaries_by_inspection(
             continue
         prev, nxt = out[i - 1], out[i + 1]
         cart_start, cart_end = prev.end, max(prev.end, nxt.start)
-        if cart_end - cart_start < _MIN_CART_SEC:
+        if cart_end - cart_start < MIN_CART_SEC:
             # Align/inspect collapsed the cart — rebuild from energy before first story.
-            rebuilt = _dual_cuts_before_opener(
+            rebuilt = dual_cuts_before_opener(
                 energy_frames,
                 nxt.start + 0.05,
                 not_before=max(0.0, prev.start + 8.0),

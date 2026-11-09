@@ -11,12 +11,9 @@ import contextlib
 from pathlib import Path
 
 from app.newsline.engine.correct import apply_slice_boundary_corrections
-from app.newsline.engine.handoff_inspect import (
-    best_opener,
-    best_signoff,
-    cut_between_landmarks,
-    transcribe_handoff_window,
-)
+from app.newsline.engine.handoff_cuts import cut_between_landmarks
+from app.newsline.engine.handoff_landmarks import best_opener, best_signoff
+from app.newsline.engine.handoff_window import transcribe_handoff_window
 from app.newsline.engine.models import Boundary, Segment, SegmentKind, WordTiming
 from app.newsline.engine.silence_cuts import (
     load_mono_pcm16,

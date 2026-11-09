@@ -5,7 +5,12 @@ import re
 from rapidfuzz import fuzz
 
 from app.newsline.engine.models import Segment, SegmentKind, WordTiming
-from app.newsline.engine.transcript import line_is_spoken, strip_speaker_tag
+from app.newsline.engine.script_phrases import (
+    normalize_token as normalize_token,
+    normalize_tokens as normalize_tokens,
+    signoff_phrases,
+)
+from app.newsline.engine.transcript import strip_speaker_tag
 
 _MIN_SEGMENT_SEC = 5.0
 _BILLBOARD_MIN_SEC = 14.0
@@ -23,19 +28,6 @@ def estimated_min_duration(segment: Segment) -> float:
         return _BILLBOARD_MIN_SEC
     word_count = len(normalize_tokens(segment.speakable_text))
     return max(_MIN_SEGMENT_SEC, word_count / _WORDS_PER_SECOND)
-
-
-def normalize_token(text: str) -> str:
-    text = text.lower()
-    text = text.replace("'", "'")
-    text = re.sub(r"[^a-z0-9'/]+", "", text)
-    return text
-
-
-def normalize_tokens(text: str) -> list[str]:
-    raw = re.sub(r"[^\w\s'/]", " ", text.lower())
-    tokens = [normalize_token(t) for t in raw.split() if normalize_token(t)]
-    return tokens
 
 
 def flatten_words(
@@ -210,58 +202,6 @@ def _time_after_phrase(
         return None, score, search_from
     wi = word_for_token[end_idx]
     return words[wi].end, score, idx
-
-
-def signoff_phrases(segment: Segment) -> list[list[str]]:
-    """
-    Suffixes of the segment's last *speakable* script line.
-
-    Uses ``line_is_spoken`` so parenthetical credit lines are skipped.
-    Length and skip-first-token variants help ASR wording drift (still the
-    same ``.txt`` line — no stock phrases).
-    """
-    out: list[list[str]] = []
-    seen: set[tuple[str, ...]] = set()
-
-    def _add(phrase: list[str]) -> None:
-        key = tuple(phrase)
-        if len(phrase) >= 3 and key not in seen:
-            seen.add(key)
-            out.append(phrase)
-
-    def _add_suffixes(tokens: list[str]) -> None:
-        for n in (8, 6, 5, 4, 3):
-            if len(tokens) >= n:
-                _add(tokens[-n:])
-        if len(tokens) > 8:
-            _add(tokens[-min(10, len(tokens)) :])
-
-    if segment.kind == SegmentKind.INTRO:
-        toks = normalize_tokens(segment.speakable_text)
-        _add_suffixes(toks)
-        for skip in (1, 2):
-            if len(toks) > skip + 2:
-                _add_suffixes(toks[skip:])
-        return out
-
-    last_tokens: list[str] | None = None
-    for line in reversed(segment.body_lines):
-        if not line_is_spoken(line):
-            continue
-        tokens = normalize_tokens(_clean_line_for_anchor(line))
-        if len(tokens) >= 3:
-            last_tokens = tokens
-            break
-    if last_tokens is None:
-        return out
-
-    _add_suffixes(last_tokens)
-    # ASR often rewords the first word(s) of a sign-off line; still the same
-    # script tokens after the skip.
-    for skip in (1, 2):
-        if len(last_tokens) > skip + 2:
-            _add_suffixes(last_tokens[skip:])
-    return out
 
 
 def last_signoff_end_in_range(
