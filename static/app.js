@@ -1962,7 +1962,9 @@ function stopStatsPolling() {
 }
 
 function updateCount() {
-  document.getElementById("count").textContent = `${textEl.value.length} / ${textEl.maxLength}`;
+  const used = textEl.value.length;
+  const max = textEl.maxLength;
+  document.getElementById("count").textContent = max > 0 ? `${used} / ${max}` : String(used);
 }
 
 function updateDeliveryLabels() {

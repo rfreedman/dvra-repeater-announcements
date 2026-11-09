@@ -606,11 +606,6 @@ def as_dra_radio(radio: object) -> DraRadio | None:
     return radio if isinstance(radio, DraRadio) else None
 
 
-# Back-compat alias for call sites / tests still importing the old name.
-def dra_radio_from(radio: object) -> DraRadio | None:
-    return as_dra_radio(radio)
-
-
 
 
 

@@ -76,6 +76,19 @@ def test_next_run_names_the_schedule_when_it_differs_from_the_announcement() -> 
     assert "Pick an announcement." in source
 
 
+def test_announcement_text_limit_comes_from_voices_payload() -> None:
+    source = APP_JS.read_text(encoding="utf-8")
+    html = (APP_JS.parent / "index.html").read_text(encoding="utf-8")
+    textarea = html.split('id="text"', 1)[1].split(">", 1)[0]
+    assert "maxlength" not in textarea
+    assert "0 / 5000" not in html
+    branding = source.split("function applyBrandingFromCatalog()", 1)[1].split(
+        "async function loadVoices()", 1
+    )[0]
+    assert "catalog.max_text_chars" in branding
+    assert "textEl.maxLength = maxChars" in branding
+
+
 def test_new_forms_leave_name_days_and_slots_empty() -> None:
     source = APP_JS.read_text(encoding="utf-8")
     html = (APP_JS.parent / "index.html").read_text(encoding="utf-8")

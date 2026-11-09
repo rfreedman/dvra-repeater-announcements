@@ -412,11 +412,12 @@ def test_newsline_packages_are_declared_for_deploy() -> None:
 
 
 def test_voices_payload_includes_busy_caps(client: TestClient) -> None:
-    from app.config import MAX_BUSY_GIVE_UP_SECONDS, PTT_LEAD_SECONDS
+    from app.config import MAX_BUSY_GIVE_UP_SECONDS, MAX_TEXT_CHARS, PTT_LEAD_SECONDS
 
     payload = json_dict(client.get("/api/voices"))
     assert payload["max_busy_give_up_seconds"] == MAX_BUSY_GIVE_UP_SECONDS
     assert payload["ptt_lead_seconds"] == PTT_LEAD_SECONDS
+    assert payload["max_text_chars"] == MAX_TEXT_CHARS
 
 
 def test_meta_returns_calendar_labels_and_default_priorities(client: TestClient) -> None:
