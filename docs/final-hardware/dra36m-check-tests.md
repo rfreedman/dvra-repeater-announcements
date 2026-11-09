@@ -14,7 +14,7 @@ Script path: [`scripts/dra36m_check.py`](../../scripts/dra36m_check.py) ([`scrip
 | Single DRA | Intel **NUC** | **IC-207H** (production) | same `retest` | **Pass** (2026-10-24) |
 | Dual DRA | Intel **NUC** | **IC-2720** + **FT-8900R** | `dual-retest -c left --with-voice --lead 0.6` | **Pass** (2026-10-24) |
 
-Earlier **macOS + IC-2720** checkout (2026-10-10) is recorded in [`bench-record.md`](bench-record.md). On-air production will use **two IC-207H**; dual **`dual-retest`** with both production rigs on the NUC is not recorded yet.
+Earlier **macOS + IC-2720** checkout (2026-10-10) is recorded in [`bench-record.md`](bench-record.md). The announcements app (`TTS_RADIO_BACKEND=dra`) has been run on the NUC with two DRAs and transmitted on both radios. On-air production will use **two IC-207H**; dual **`dual-retest`** with both production rigs on the NUC is not recorded yet.
 
 ---
 

@@ -1,6 +1,6 @@
 # NUC production notes (shack)
 
-Operational lessons from **Xubuntu on the Intel NUC** + **DRA-36M** bench checkout (2026-10). On the NUC (2026-10-24): **single-radio** `retest` with **IC-2720** and **IC-207H**; **dual DRA** `dual-retest` with **IC-2720** + **FT-8900R**. Re-run `probe-all` / `dual-retest` when both production **IC-207H** replace the bench pair. For jumpers, checkout order, and `dra36m_check.py` commands, see [`final-hardware/`](final-hardware/README.md).
+Operational lessons from **Xubuntu on the Intel NUC** + **DRA-36M** bench checkout (2026-10). On the NUC (2026-10-24): **single-radio** `retest` with **IC-2720** and **IC-207H**; **dual DRA** `dual-retest` with **IC-2720** + **FT-8900R**. The announcements app (`TTS_RADIO_BACKEND=dra`) has been run on this NUC with two DRAs and transmitted on both radios. Re-run `probe-all` / `dual-retest` when both production **IC-207H** replace the bench pair. For jumpers, checkout order, and `dra36m_check.py` commands, see [`final-hardware/`](final-hardware/README.md).
 
 After **deploy or restart**, busy-retry / defer state and login lockout counters are in-memory only — see [README — Process restart and in-memory state](../README.md#process-restart-and-in-memory-state).
 

@@ -6,7 +6,7 @@ This is the production radio interface for the announcements app.
 
 **Host:** a used **Intel NUC** running **64-bit Xubuntu**, with an **internal SSD**. A Raspberry Pi 4 was considered as the host, but the NUC was chosen instead: faster CPU, internal SSD, and approximately the same cost in 2026.
 
-**Bench status (October 2026):** On the **Intel NUC**, single-DRA **`retest`** passed with **IC-2720** and **IC-207H**; dual-DRA **`dual-retest`** passed with **IC-2720** + **FT-8900R**. Summary: [verification table](dra36m-check-tests.md#verification-status-october-2026), [bench record](bench-record.md), [dual checklist](dra36m-check-tests.md#dual-dra-two-adapters-on-one-host).
+**Bench status (October 2026):** On the **Intel NUC**, single-DRA **`retest`** passed with **IC-2720** and **IC-207H**; dual-DRA **`dual-retest`** passed with **IC-2720** + **FT-8900R**. The announcements app (`TTS_RADIO_BACKEND=dra`) has been run on this NUC with two DRAs and transmitted on both radios. Summary: [verification table](dra36m-check-tests.md#verification-status-october-2026), [bench record](bench-record.md), [dual checklist](dra36m-check-tests.md#dual-dra-two-adapters-on-one-host).
 
 ## Parts list / cost
 
@@ -151,7 +151,7 @@ Announcements go out on **both** radios at once. Never talk on one machine while
 
 SQL polarity: radio pin 6 is **high when the squelch is open**. CM119A COS for AllStar is normally **active-low**. Invert in software after measuring, or use any NPN inverter Masters documents for that COS input. Confirm with a DMM on pin 6 (squelched vs open) and on the HID bit before relying on busy detect.
 
-**Application:** Set `TTS_RADIO_BACKEND=dra` on the **one Intel NUC** that runs this app (keep `stub` on dev Macs without hardware). The app uses [`DraRadio`](../../app/dra_radio.py): defer/drop on busy, **re-check after synthesize**, optional **`TTS_DRA_CLEAR_SECONDS`** (continuous idle before PTT, same idea as `voice-gate`). While the scheduler runs, **background COS polling** (`TTS_DRA_COS_TRACK`, default on) accrues idle time so Trigger now or a slot fire can **key immediately** if the channel was already quiet long enough. Final busy check at keying; **both** PTT lines together; **left** USB channel; PTT lead as USB silence.
+**Application:** Set `TTS_RADIO_BACKEND=dra` on the **one Intel NUC** that runs this app (keep `stub` on dev Macs without hardware). That configuration has been tested on the NUC with two DRAs: the app transmitted on both radios. The app uses [`DraRadio`](../../app/dra_radio.py): defer/drop on busy, **re-check after synthesize**, optional **`TTS_DRA_CLEAR_SECONDS`** (continuous idle before PTT, same idea as `voice-gate`). While the scheduler runs, **background COS polling** (`TTS_DRA_COS_TRACK`, default on) accrues idle time so Trigger now or a slot fire can **key immediately** if the channel was already quiet long enough. Final busy check at keying; **both** PTT lines together; **left** USB channel; PTT lead as USB silence.
 
 **One DRA** (Mac dev or a single radio on the NUC): optional **`TTS_DRA_HID_PATH`** (hex from `probe`) when several CM119 interfaces exist.
 

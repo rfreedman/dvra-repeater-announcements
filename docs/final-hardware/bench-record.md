@@ -2,7 +2,7 @@
 
 Copy this file or extend it when moving from dev (Mac) to production (NUC). **Production (both radios): JU3 = L, USB left channel, R16.**
 
-**Intel NUC (2026-10-24):** Single-DRA **`retest`** **pass** with **IC-2720** (dev/test rig) and with production **IC-207H**. Dual-DRA **`dual-retest`** **pass** with **IC-2720** + **FT-8900R** (2× DRA-36M on the NUC).
+**Intel NUC (2026-10-24):** Single-DRA **`retest`** **pass** with **IC-2720** (dev/test rig) and with production **IC-207H**. Dual-DRA **`dual-retest`** **pass** with **IC-2720** + **FT-8900R** (2× DRA-36M on the NUC). The announcements app (`TTS_RADIO_BACKEND=dra`) has been run on this NUC with two DRAs and transmitted on both radios.
 
 **macOS (2026-10-10):** Earlier **IC-2720** checkout on a dev MacBook — see sign-off below. **NUC + 2× IC-207H** dual checkout is not recorded yet.
 
