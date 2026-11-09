@@ -338,8 +338,6 @@ function applyEditorReadOnly() {
     if (!el) continue;
     el.disabled = lockAnnouncement;
   }
-  const save = document.getElementById("save-announcement");
-  if (save) save.disabled = lockAnnouncement;
   setPlaybackButtons(editorPlaying);
   for (const el of scheduleEditorControls()) {
     if (!el) continue;
@@ -350,6 +348,7 @@ function applyEditorReadOnly() {
   )) {
     input.disabled = readOnly;
   }
+  syncEditorSave();
 }
 
 async function refreshAuth() {
@@ -679,6 +678,7 @@ function confirmDiscardEdits() {
 function formSnapshot() {
   if (document.getElementById("view-announcement").classList.contains("active")) {
     return JSON.stringify({
+      kind: document.getElementById("announcement-kind").value,
       name: nameEl.value,
       text: textEl.value,
       voice: voiceEl.value,
@@ -686,10 +686,18 @@ function formSnapshot() {
       pause: pauseEl.value,
       busyRetry: document.getElementById("busy-retry").value,
       busyGiveup: document.getElementById("busy-giveup").value,
+      newsOpening: document.getElementById("news-opening").value,
+      newsStation: document.getElementById("news-station").value,
+      newsClosing: document.getElementById("news-closing").value,
+      newsResume: document.getElementById("news-resume").value,
+      newsGap: document.getElementById("news-gap").value,
     });
   }
   if (document.getElementById("view-schedule").classList.contains("active")) {
-    return JSON.stringify(readSchedulePayload());
+    const payload = readSchedulePayload();
+    // Compare the name as typed. readSchedulePayload trims it for the request.
+    payload.name = document.getElementById("sched-name").value;
+    return JSON.stringify(payload);
   }
   return "";
 }
@@ -698,12 +706,23 @@ function isEditorDirty() {
   return editorBaseline !== null && formSnapshot() !== editorBaseline;
 }
 
+function syncEditorSave() {
+  const announcementSave = document.getElementById("save-announcement");
+  if (announcementSave) {
+    announcementSave.disabled = readOnly || editorPlaying || !isEditorDirty();
+  }
+  const scheduleSave = document.getElementById("save-schedule");
+  if (scheduleSave) scheduleSave.disabled = readOnly || !isEditorDirty();
+}
+
 function markEditorClean() {
   editorBaseline = formSnapshot();
+  syncEditorSave();
 }
 
 function clearEditorGuard() {
   editorBaseline = null;
+  syncEditorSave();
 }
 
 function primaryPendingManual() {
@@ -2913,6 +2932,7 @@ async function route() {
       }
       stopHomePolling();
       showScreen("view-announcement");
+      clearEditorGuard();
       await Promise.all([ensureVoices(), boot]);
       if (parts[1] === "new") blankAnnouncement();
       else await loadAnnouncement(parts[1]);
@@ -2928,6 +2948,7 @@ async function route() {
       }
       stopHomePolling();
       showScreen("view-schedule");
+      clearEditorGuard();
       const metaReady = ensureScheduleMeta();
       if (!announcements.length) {
         const lib = await fetch("/api/announcements");
@@ -3034,6 +3055,7 @@ document.getElementById("reset").addEventListener("click", () => {
     renderVoices(catalog.default_voice);
     updateDeliveryLabels();
   }
+  syncEditorSave();
 });
 document.getElementById("newsline-reset").addEventListener("click", () => {
   if (readOnly) return;
@@ -3043,6 +3065,7 @@ document.getElementById("newsline-reset").addEventListener("click", () => {
   fillSpokenSelect("news-resume", "", { optional: true });
   document.getElementById("news-gap").value = "2";
   setStatus("Ready");
+  syncEditorSave();
 });
 textEl.addEventListener("input", () => {
   updateCount();
@@ -3087,6 +3110,12 @@ if (manualDropDismiss) {
 }
 
 document.getElementById("announcement-kind").addEventListener("change", syncAnnouncementKind);
+
+for (const id of ["view-announcement", "view-schedule"]) {
+  const view = document.getElementById(id);
+  view.addEventListener("input", syncEditorSave);
+  view.addEventListener("change", syncEditorSave);
+}
 
 async function saveNewslineSettings() {
   if (readOnly) return;

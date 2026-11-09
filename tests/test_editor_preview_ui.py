@@ -8,9 +8,29 @@ APP_JS = Path(__file__).resolve().parents[1] / "static" / "app.js"
 def test_form_locks_while_playing_and_stop_stays_on_playback_buttons() -> None:
     source = APP_JS.read_text(encoding="utf-8")
     assert "readOnly || editorPlaying" in source
-    assert "save.disabled = lockAnnouncement" in source
+    assert "readOnly || editorPlaying || !isEditorDirty()" in source
+    assert "scheduleSave.disabled = readOnly || !isEditorDirty()" in source
     assert "document.getElementById(\"stop\").disabled = !playing" in source
     assert "stopNews.disabled = !playing" in source
+
+
+def test_save_stays_disabled_until_the_editor_differs_from_its_original() -> None:
+    source = APP_JS.read_text(encoding="utf-8")
+    snapshot = source.split("function formSnapshot()", 1)[1].split("function isEditorDirty()", 1)[0]
+    assert "announcement-kind" in snapshot
+    assert "news-station" in snapshot
+    assert 'payload.name = document.getElementById("sched-name").value' in snapshot
+    sync = source.split("function syncEditorSave()", 1)[1].split("function markEditorClean()", 1)[0]
+    assert "readOnly || editorPlaying || !isEditorDirty()" in sync
+    assert "readOnly || !isEditorDirty()" in sync
+    assert "syncEditorSave()" in source.split("function markEditorClean()", 1)[1].split(
+        "function clearEditorGuard()", 1
+    )[0]
+    listeners = source.split('for (const id of ["view-announcement", "view-schedule"])', 1)[1].split(
+        "async function saveNewslineSettings()", 1
+    )[0]
+    assert 'addEventListener("input", syncEditorSave)' in listeners
+    assert 'addEventListener("change", syncEditorSave)' in listeners
 
 
 def test_playback_stops_when_leaving_the_announcement_editor() -> None:
