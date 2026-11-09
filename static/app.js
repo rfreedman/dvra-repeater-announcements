@@ -194,6 +194,10 @@ let currentUser = null;
 let authReady = false;
 let readOnly = false;
 let editorBaseline = null;
+/** Play length shown when the editor was opened; restored by Reset. */
+let editorBaselinePlaySeconds = null;
+/** `announcements-prefs` when the editor was opened, or null if unset. */
+let editorBaselinePrefs = null;
 let editorKey = "";
 let ignoreHashChange = false;
 let boot = Promise.resolve();
@@ -713,15 +717,50 @@ function syncEditorSave() {
   }
   const scheduleSave = document.getElementById("save-schedule");
   if (scheduleSave) scheduleSave.disabled = readOnly || !isEditorDirty();
+  for (const id of ["reset", "newsline-reset"]) {
+    const button = document.getElementById(id);
+    if (button) button.disabled = readOnly || editorPlaying || !isEditorDirty();
+  }
 }
 
 function markEditorClean() {
   editorBaseline = formSnapshot();
+  editorBaselinePlaySeconds = editorPlaySeconds;
+  editorBaselinePrefs = localStorage.getItem(PREFS_KEY);
   syncEditorSave();
 }
 
 function clearEditorGuard() {
   editorBaseline = null;
+  editorBaselinePlaySeconds = null;
+  editorBaselinePrefs = null;
+  syncEditorSave();
+}
+
+function resetAnnouncementEdits() {
+  if (readOnly || editorPlaying || !isEditorDirty() || editorBaseline == null) return;
+  const saved = JSON.parse(editorBaseline);
+  document.getElementById("announcement-kind").value = saved.kind;
+  nameEl.value = saved.name;
+  textEl.value = saved.text;
+  speedEl.value = saved.speed;
+  pauseEl.value = saved.pause;
+  document.getElementById("busy-retry").value = saved.busyRetry;
+  document.getElementById("busy-giveup").value = saved.busyGiveup;
+  fillSpokenSelect("news-opening", saved.newsOpening, { optional: true });
+  fillSpokenSelect("news-station", saved.newsStation);
+  fillSpokenSelect("news-closing", saved.newsClosing, { optional: true });
+  fillSpokenSelect("news-resume", saved.newsResume, { optional: true });
+  document.getElementById("news-gap").value = saved.newsGap;
+  if (catalog) renderVoices(saved.voice);
+  editorPlaySeconds = editorBaselinePlaySeconds;
+  if (editorBaselinePrefs == null) localStorage.removeItem(PREFS_KEY);
+  else localStorage.setItem(PREFS_KEY, editorBaselinePrefs);
+  syncAnnouncementKind();
+  updateCount();
+  updateDeliveryLabels();
+  showError("announcement-error", "");
+  showKnownPlayLength();
   syncEditorSave();
 }
 
@@ -3048,27 +3087,8 @@ document.getElementById("newsline-play").addEventListener("click", () => {
   playNewsline().catch(() => {});
 });
 document.getElementById("newsline-stop").addEventListener("click", stop);
-document.getElementById("reset").addEventListener("click", () => {
-  if (readOnly) return;
-  localStorage.removeItem(PREFS_KEY);
-  if (catalog) {
-    speedEl.value = String(catalog.speed ?? 1);
-    pauseEl.value = String(catalog.sentence_pause ?? 0.25);
-    renderVoices(catalog.default_voice);
-    updateDeliveryLabels();
-  }
-  syncEditorSave();
-});
-document.getElementById("newsline-reset").addEventListener("click", () => {
-  if (readOnly) return;
-  fillSpokenSelect("news-opening", "", { optional: true });
-  fillSpokenSelect("news-station", spokenAnnouncements()[0]?.id || "");
-  fillSpokenSelect("news-closing", "", { optional: true });
-  fillSpokenSelect("news-resume", "", { optional: true });
-  document.getElementById("news-gap").value = "2";
-  setStatus("Ready");
-  syncEditorSave();
-});
+document.getElementById("reset").addEventListener("click", resetAnnouncementEdits);
+document.getElementById("newsline-reset").addEventListener("click", resetAnnouncementEdits);
 textEl.addEventListener("input", () => {
   updateCount();
   clearKnownPlayLength();

@@ -14,6 +14,35 @@ def test_form_locks_while_playing_and_stop_stays_on_playback_buttons() -> None:
     assert "stopNews.disabled = !playing" in source
 
 
+def test_announcement_reset_undoes_edits_and_stays_disabled_when_clean() -> None:
+    source = APP_JS.read_text(encoding="utf-8")
+    html = (APP_JS.parent / "index.html").read_text(encoding="utf-8")
+    assert 'id="reset" disabled' in html
+    assert 'id="newsline-reset" disabled' in html
+    assert 'getElementById("reset").addEventListener("click", resetAnnouncementEdits)' in source
+    assert (
+        'getElementById("newsline-reset").addEventListener("click", resetAnnouncementEdits)'
+        in source
+    )
+    helper = source.split("function resetAnnouncementEdits()", 1)[1].split("\nfunction ", 1)[0]
+    assert "editorBaseline" in helper
+    assert "nameEl.value = saved.name" in helper
+    assert "textEl.value = saved.text" in helper
+    assert "speedEl.value = saved.speed" in helper
+    assert "pauseEl.value = saved.pause" in helper
+    assert "renderVoices(saved.voice)" in helper
+    assert "editorBaselinePrefs" in helper
+    assert "editorBaselinePlaySeconds" in helper
+    assert "catalog.default_voice" not in helper
+    assert "catalog.speed" not in helper
+    sync = source.split("function syncEditorSave()", 1)[1].split("function markEditorClean()", 1)[0]
+    assert '["reset", "newsline-reset"]' in sync
+    assert "readOnly || editorPlaying || !isEditorDirty()" in sync
+    clean = source.split("function markEditorClean()", 1)[1].split("function clearEditorGuard()", 1)[0]
+    assert "editorBaselinePrefs = localStorage.getItem(PREFS_KEY)" in clean
+    assert "editorBaselinePlaySeconds = editorPlaySeconds" in clean
+
+
 def test_save_stays_disabled_until_the_editor_differs_from_its_original() -> None:
     source = APP_JS.read_text(encoding="utf-8")
     snapshot = source.split("function formSnapshot()", 1)[1].split("function isEditorDirty()", 1)[0]
