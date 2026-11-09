@@ -288,12 +288,22 @@ def test_trigger_now_plays_without_changing_last_or_next(client, store, radio, m
     assert ("ptt", False) in radio.events
 
 
-def test_index_shows_app_version(client):
-    from app import __version__
+def test_index_shows_branding_before_login(client):
+    import html
 
-    html = client.get("/").text
-    assert f"v{__version__}" in html
-    assert "{{APP_VERSION}}" not in html
+    from app import __version__
+    from app.config import APP_TITLE, STATION_NAME
+
+    page = client.get("/").text
+    title = html.escape(APP_TITLE)
+    station = html.escape(STATION_NAME)
+    assert f"v{__version__}" in page
+    assert f"<title>{title}</title>" in page
+    assert f'id="app-heading">{title}</h1>' in page
+    assert f'alt="{station}"' in page
+    assert "{{APP_VERSION}}" not in page
+    assert "{{APP_TITLE}}" not in page
+    assert "{{STATION_NAME}}" not in page
 
 
 def test_installed_version_matches_pyproject():

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 import logging
 import time
@@ -14,7 +15,7 @@ from pydantic import ValidationError
 from starlette.middleware.sessions import SessionMiddleware
 
 from app import __version__
-from app.config import APP_TITLE, STATIC_DIR, session_secret
+from app.config import APP_TITLE, STATIC_DIR, STATION_NAME, session_secret
 from app.deps import AuthUser
 from app.home_live import build_home_live_status
 from app.pcm_cache import warm_all
@@ -240,8 +241,13 @@ app.include_router(newsline_router)
 
 @app.get("/")
 def index() -> HTMLResponse:
-    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-    return HTMLResponse(html.replace("{{APP_VERSION}}", __version__))
+    page = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    page = (
+        page.replace("{{APP_VERSION}}", html.escape(__version__))
+        .replace("{{APP_TITLE}}", html.escape(APP_TITLE))
+        .replace("{{STATION_NAME}}", html.escape(STATION_NAME))
+    )
+    return HTMLResponse(page)
 
 
 if STATIC_DIR.exists():
