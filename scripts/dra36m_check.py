@@ -711,7 +711,7 @@ def cmd_dual_voice(args) -> int:
     hids = _open_hids_for_pairs(hid, pairs)
     text = _voice_text_from_args(args.text)
     if not text:
-        text = "This is a dual DRA test announcement from the Delaware Valley Radio Association."
+        text = "This is a dual DRA test announcement."
 
     try:
         print(f"Synthesizing Piper voice… ({len(text)} chars)")
@@ -1045,7 +1045,7 @@ def cmd_voice(args) -> int:
     dev = _open_cm119_hid(hid)
     text = _voice_text_from_args(args.text)
     if not text:
-        text = "This is a test announcement from the Delaware Valley Radio Association."
+        text = "This is a test announcement."
 
     print(f"Synthesizing Piper voice… ({len(text)} chars)")
     registry = get_registry()
@@ -1615,7 +1615,7 @@ def main() -> int:
     p_dual_retest.add_argument("--with-voice", action="store_true")
     p_dual_retest.add_argument(
         "--voice-text",
-        default="This is a dual DRA test announcement from the Delaware Valley Radio Association.",
+        default="This is a dual DRA test announcement.",
     )
     p_dual_retest.add_argument("-v", "--voice", help="Piper voice id or alias")
     p_dual_retest.add_argument("--lead", type=float, default=0.4)
@@ -1766,7 +1766,7 @@ def main() -> int:
     )
     p_retest.add_argument(
         "--voice-text",
-        default="This is a test announcement from the Delaware Valley Radio Association.",
+        default="This is a test announcement.",
         help="Text for --with-voice",
     )
     p_retest.add_argument("-v", "--voice", help="Piper voice id or alias")

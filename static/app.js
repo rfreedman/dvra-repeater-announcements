@@ -2100,8 +2100,10 @@ function applyBrandingFromCatalog() {
   if (!catalog) return;
   const title = catalog.app_title || "Announcements";
   document.title = title;
-  const heading = document.getElementById("app-heading");
-  if (heading) heading.textContent = title;
+  const appTitle = document.getElementById("app-title-heading");
+  if (appTitle) appTitle.textContent = title;
+  const stationHeading = document.getElementById("station-heading");
+  if (stationHeading && catalog.station_name) stationHeading.textContent = catalog.station_name;
   const logo = document.getElementById("station-logo");
   if (logo && catalog.station_name) logo.alt = catalog.station_name;
   const maxChars = catalog.max_text_chars;

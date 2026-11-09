@@ -42,7 +42,7 @@
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `STATION_CALL` | *(required)* | Call sign shown in the UI / idle assertion name |
-| `STATION_NAME` | *(required)* | Club or station name (logo alt text) |
+| `STATION_NAME` | *(required)* | Club or station name (page heading and logo alt text) |
 | `APP_TITLE` | `{STATION_CALL} Announcements` | FastAPI / browser title; omit to use the derived default |
 
 Startup fails if `STATION_CALL` or `STATION_NAME` is missing or blank. Set them in `.env` (see [`.env.example`](../.env.example)).

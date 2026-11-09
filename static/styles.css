@@ -104,11 +104,22 @@ body {
 }
 
 .mast h1 {
+  display: flex;
+  flex-direction: column;
   font-family: "IBM Plex Sans", sans-serif;
   font-size: 1.7rem;
   font-weight: 500;
   letter-spacing: -0.04em;
+  line-height: 1.15;
   margin: 0;
+}
+
+.mast-station-name {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.3;
 }
 
 .mast-title {
