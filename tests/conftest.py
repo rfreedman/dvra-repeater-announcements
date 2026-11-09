@@ -3,7 +3,9 @@ from __future__ import annotations
 import os
 
 # Must be set before any app module is imported (app.config reads them at import).
-os.environ.setdefault("TTS_SESSION_SECRET", "test-session-secret-for-pytest")
+_ = os.environ.setdefault("TTS_SESSION_SECRET", "test-session-secret-for-pytest")
+_ = os.environ.setdefault("STATION_CALL", "N0TST")
+_ = os.environ.setdefault("STATION_NAME", "Test Radio Club")
 os.environ["TTS_SKIP_DOTENV"] = "1"
 
 from pathlib import Path

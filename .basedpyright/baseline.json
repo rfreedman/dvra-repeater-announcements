@@ -102,14 +102,6 @@
         ],
         "./tests/conftest.py": [
             {
-                "code": "reportUnusedCallResult",
-                "range": {
-                    "startColumn": 0,
-                    "endColumn": 77,
-                    "lineCount": 1
-                }
-            },
-            {
                 "code": "reportUnknownParameterType",
                 "range": {
                     "startColumn": 36,

@@ -20,7 +20,7 @@ Dependencies live in `pyproject.toml` + `uv.lock` (commit both). Use `uv add` / 
 
 **Deploy to the NUC:** [docs/deploy-nuc.md](docs/deploy-nuc.md) (`scripts/deploy`, `serve.sh`, version bumps, restart behavior).
 
-**Environment variables:** [docs/env-reference.md](docs/env-reference.md) and [`.env.example`](.env.example). Station branding defaults (`TTS_STATION_CALL`, `TTS_STATION_NAME`, `TTS_APP_TITLE`) can white-label the UI title.
+**Environment variables:** [docs/env-reference.md](docs/env-reference.md) and [`.env.example`](.env.example). `STATION_CALL` and `STATION_NAME` are required; optional `APP_TITLE` defaults to `{STATION_CALL} Announcements`.
 
 ## Web UI
 

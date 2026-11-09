@@ -37,6 +37,16 @@
 | `TTS_SLOT_HALF_WINDOW_MINUTES` | `10` | How far an overlay may shift from its slot center |
 | `TTS_TRIGGER_NOW` | `false` | Dev only: show **Trigger now** on schedule rows (does not change Last or the next slot) |
 
+### Station identity
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `STATION_CALL` | *(required)* | Call sign shown in the UI / idle assertion name |
+| `STATION_NAME` | *(required)* | Club or station name (logo alt text) |
+| `APP_TITLE` | `{STATION_CALL} Announcements` | FastAPI / browser title; omit to use the derived default |
+
+Startup fails if `STATION_CALL` or `STATION_NAME` is missing or blank. Set them in `.env` (see [`.env.example`](../.env.example)).
+
 ### Defer timing (fixed in code, not env vars)
 
 These complement `TTS_BUSY_RETRY_SECONDS` on each announcement and `TTS_DRA_CLEAR_SECONDS` / `TTS_DRA_CLEAR_POLL_SECONDS` for COS. They are **not** configurable today; names live in `app/fire.py` and `app/scheduler.py` if you need to tune behavior in a fork.

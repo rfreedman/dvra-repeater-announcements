@@ -65,6 +65,14 @@ def _env_positive(
     return value
 
 
+def _require_env(name: str) -> str:
+    """Return a non-empty env value, or raise (missing station identity must stop startup)."""
+    value = os.environ.get(name, "").strip()
+    if not value:
+        raise RuntimeError(f"{name} is required (set it in .env)")
+    return value
+
+
 # Tests set TTS_SKIP_DOTENV=1 so a developer's .env cannot change their results.
 if not _env_flag("TTS_SKIP_DOTENV"):
     _load_dotenv(ROOT_DIR / ".env")
@@ -230,13 +238,10 @@ TRIGGER_NOW = _env_flag("TTS_TRIGGER_NOW", False)
 FIRE_VERBOSE_LOG = _env_flag("TTS_FIRE_VERBOSE_LOG", False)
 SESSION_IDLE_SECONDS = int(os.environ.get("TTS_SESSION_IDLE_SECONDS", str(30 * 60)))
 
-# Station identity for UI / FastAPI title / idle assertion (defaults match W2ZQ / DVRA).
-STATION_CALL = os.environ.get("TTS_STATION_CALL", "W2ZQ").strip() or "W2ZQ"
-STATION_NAME = (
-    os.environ.get("TTS_STATION_NAME", "Delaware Valley Radio Association").strip()
-    or "Delaware Valley Radio Association"
-)
-APP_TITLE = os.environ.get("TTS_APP_TITLE", "").strip() or f"{STATION_CALL} Announcements"
+# Station identity for UI / FastAPI title / idle assertion (call and name are required).
+STATION_CALL = _require_env("STATION_CALL")
+STATION_NAME = _require_env("STATION_NAME")
+APP_TITLE = os.environ.get("APP_TITLE", "").strip() or f"{STATION_CALL} Announcements"
 
 
 def login_max_failures() -> int:
