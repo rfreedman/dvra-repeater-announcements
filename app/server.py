@@ -21,6 +21,7 @@ from app.home_live import build_home_live_status
 from app.pcm_cache import warm_all
 from app.radio import active_radio_mode_label
 from app.registry import get_registry
+from app.runtime import get_runtime
 from app.routes.announcements import router as announcements_router
 from app.routes.newsline import router as newsline_router
 from app.routes.auth import router as auth_router
@@ -32,6 +33,7 @@ from app.sse_hub import (
     shutdown_sse_streams,
     sse_shutting_down,
     subscribe,
+    wire_home_live_publishers,
     subscribe_stats,
     unsubscribe,
     unsubscribe_stats,
@@ -87,6 +89,8 @@ complete_startup = _complete_startup
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     import app.sse_hub as sse_hub
 
+    _ = get_runtime()
+    wire_home_live_publishers()
     sse_hub.set_event_loop(asyncio.get_running_loop())
     sse_hub.clear_shutdown_state()
     clear_startup_ready()

@@ -72,7 +72,19 @@ class PromptBackgroundScheduler(BackgroundScheduler):
         return self._process_jobs()
 
 
+def wire_scheduler_runners() -> None:
+    """Publish fire callables on the process runtime.
+
+    Job modules cannot import this façade (that cycle is why the runners are
+    registered here). Importing the façade registers them; startup registers
+    them again so the lifespan path is explicit.
+    """
+    register_scheduled_fire_runner(run_scheduled_fire)
+    register_manual_trigger_runner(run_manual_trigger)
+
+
 def start_scheduler() -> None:
+    wire_scheduler_runners()
     if get_scheduler() is not None:
         sync_jobs()
         start_cos_tracking()
@@ -101,6 +113,5 @@ def stop_scheduler() -> None:
     log.info("Scheduler stopped")
 
 
-# Job callables are registered here so jobs/manual-state modules need not import fire.
-register_scheduled_fire_runner(run_scheduled_fire)
-register_manual_trigger_runner(run_manual_trigger)
+# Job modules cannot import this façade, so runners are published on import.
+wire_scheduler_runners()

@@ -75,7 +75,6 @@ class UsersDocument(BaseModel):
 
 
 _lock = threading.Lock()
-_store: UserStore | None = None
 
 
 class UserStore:
@@ -188,12 +187,18 @@ class UserStore:
 
 
 def get_user_store() -> UserStore:
-    global _store
-    if _store is None:
-        _store = UserStore(USERS_PATH)
-    return _store
+    from app.runtime import get_runtime
+
+    runtime = get_runtime()
+    users = runtime.users
+    if isinstance(users, UserStore):
+        return users
+    created = UserStore(USERS_PATH)
+    runtime.users = created
+    return created
 
 
 def set_user_store(store: UserStore | None) -> None:
-    global _store
-    _store = store
+    from app.runtime import get_runtime
+
+    get_runtime().users = store

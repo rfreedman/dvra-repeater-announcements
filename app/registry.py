@@ -82,11 +82,19 @@ class EngineRegistry:
         return self.engine.list_voices()
 
 
-_registry: EngineRegistry | None = None
-
-
 def get_registry() -> EngineRegistry:
-    global _registry
-    if _registry is None:
-        _registry = EngineRegistry()
-    return _registry
+    from app.runtime import get_runtime
+
+    runtime = get_runtime()
+    registry = runtime.registry
+    if isinstance(registry, EngineRegistry):
+        return registry
+    created = EngineRegistry()
+    runtime.registry = created
+    return created
+
+
+def set_registry(registry: EngineRegistry | None) -> None:
+    from app.runtime import get_runtime
+
+    get_runtime().registry = registry

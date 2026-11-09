@@ -223,8 +223,14 @@ def format_sse(event: str, data: SsePayload) -> str:
     return f"event: {event}\ndata: {body}\n\n"
 
 
-register_home_live_publishers(
-    status=publish_home_live_status,
-    data_changed=publish_home_data_changed,
-    throttled=publish_home_live_status_throttled,
-)
+def wire_home_live_publishers() -> None:
+    """Connect live-notify hooks to this process's SSE fan-out.
+
+    The server lifespan calls this. Importing ``sse_hub`` does not, so a
+    library import has no publisher side effect.
+    """
+    register_home_live_publishers(
+        status=publish_home_live_status,
+        data_changed=publish_home_data_changed,
+        throttled=publish_home_live_status_throttled,
+    )

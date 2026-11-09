@@ -24,7 +24,6 @@ from app.schedule_logic import (
 )
 
 _lock = threading.Lock()
-_store: AnnouncementStore | None = None
 
 
 def empty_document() -> StoreDocument:
@@ -205,12 +204,18 @@ def _refresh_rotation(document: StoreDocument) -> StoreDocument:
 
 
 def get_store() -> AnnouncementStore:
-    global _store
-    if _store is None:
-        _store = AnnouncementStore(ANNOUNCEMENTS_PATH)
-    return _store
+    from app.runtime import get_runtime
+
+    runtime = get_runtime()
+    store = runtime.store
+    if isinstance(store, AnnouncementStore):
+        return store
+    created = AnnouncementStore(ANNOUNCEMENTS_PATH)
+    runtime.store = created
+    return created
 
 
 def set_store(store: AnnouncementStore | None) -> None:
-    global _store
-    _store = store
+    from app.runtime import get_runtime
+
+    get_runtime().store = store

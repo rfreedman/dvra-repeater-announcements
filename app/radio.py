@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Iterable
 from datetime import datetime
-from typing import Protocol, runtime_checkable
+from typing import Protocol, cast, runtime_checkable
 
 from app.audio import PcmChunk
 from app.config import DRA_COS_LINE, DRA_USB_CHANNEL, PTT_LEAD_SECONDS, radio_backend
@@ -281,19 +281,22 @@ def create_radio_from_config() -> Radio:
     )
 
 
-_radio: Radio | None = None
-
-
 def get_radio() -> Radio:
-    global _radio
-    if _radio is None:
-        _radio = create_radio_from_config()
-    return _radio
+    from app.runtime import get_runtime
+
+    runtime = get_runtime()
+    radio = runtime.radio
+    if radio is not None:
+        return cast(Radio, radio)
+    created = create_radio_from_config()
+    runtime.radio = created
+    return created
 
 
 def set_radio(radio: Radio | None) -> None:
-    global _radio
-    _radio = radio
+    from app.runtime import get_runtime
+
+    get_runtime().radio = radio
 
 
 def radio_mode_label(radio: Radio) -> str:

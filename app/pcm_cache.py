@@ -18,7 +18,6 @@ from app.spoken_length import apply_played_length, pcm_duration_seconds
 log = logging.getLogger("app.pcm_cache")
 _locks_guard = threading.Lock()
 _locks: dict[str, threading.Lock] = {}
-_cache: PcmCache | None = None
 
 
 def _lock_for(announcement_id: str) -> threading.Lock:
@@ -133,15 +132,21 @@ class PcmCache:
 
 
 def get_pcm_cache() -> PcmCache:
-    global _cache
-    if _cache is None:
-        _cache = PcmCache(PCM_CACHE_DIR)
-    return _cache
+    from app.runtime import get_runtime
+
+    runtime = get_runtime()
+    cache = runtime.pcm_cache
+    if isinstance(cache, PcmCache):
+        return cache
+    created = PcmCache(PCM_CACHE_DIR)
+    runtime.pcm_cache = created
+    return created
 
 
 def set_pcm_cache(cache: PcmCache | None) -> None:
-    global _cache
-    _cache = cache
+    from app.runtime import get_runtime
+
+    get_runtime().pcm_cache = cache
 
 
 def _fingerprint_for(announcement: TtsAnnouncement, voice_id: str, voice_mtime_ns: int | None) -> str:

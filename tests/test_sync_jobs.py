@@ -11,8 +11,8 @@ import pytest
 from apscheduler.schedulers.background import BackgroundScheduler
 
 import app.scheduler as scheduler_mod
-import app.scheduler_instance as scheduler_instance
 import app.scheduler_jobs as scheduler_jobs
+from app.scheduler_instance import get_scheduler, set_scheduler
 from app.models import BaselineSchedule, TtsAnnouncement, parse_schedule
 
 from app.store import AnnouncementStore
@@ -48,9 +48,11 @@ def paused(monkeypatch: pytest.MonkeyPatch, store: AnnouncementStore) -> Iterato
     _ = store
     sched = BackgroundScheduler(timezone=TZ)
     sched.start(paused=True)
-    monkeypatch.setattr(scheduler_instance, "_scheduler", sched)
+    previous = get_scheduler()
+    set_scheduler(sched)
     monkeypatch.setattr(scheduler_jobs, "datetime", _FrozenDatetime)
     yield sched
+    set_scheduler(previous)
     sched.shutdown(wait=False)
 
 

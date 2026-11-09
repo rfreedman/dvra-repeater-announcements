@@ -43,6 +43,7 @@ Add a one-line lesson here only when a fix reveals a pattern that would be easy 
 - Stub mode never goes busy and transmits instantly; verify trigger/queue/playing UI on the NUC with `TTS_RADIO_BACKEND=dra`.
 - One source of defaults: env/config → `/api/voices` → UI. Don't hard-code defaults in `static/app.js`.
 - Slot math uses `Settings.timezone` only; `Schedule.timezone` is legacy.
+- Process services (radio, stores, scheduler, registry, PCM cache, fire runners, SSE publishers) live on `app.runtime.AppRuntime`. Getters and setters delegate there. Do not add another module-level singleton. SSE publishers are wired from the server lifespan, not at import.
 
 ## Models
 - A Pydantic `model_validator(mode="after")` must `return self`. Assign parent fields (`priority`, `offset_minutes`) from a method on the class that declares them; a subclass assignment is `reportUnannotatedClassAttribute`.

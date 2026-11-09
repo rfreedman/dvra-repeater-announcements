@@ -1,13 +1,14 @@
-"""The APScheduler singleton and the job-id vocabulary built on top of it.
+"""Job-id vocabulary and the scheduler slot on the process runtime.
 
 Split out of ``app.scheduler`` so modules that only need to look at jobs
 (manual trigger state, Newsline polling) do not have to import the scheduler
-itself, which imports them back.
+itself, which imports them back. The scheduler object lives on ``AppRuntime``.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
+from typing import cast
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -20,38 +21,51 @@ SLOT_MISFIRE_GRACE_SECONDS = 30
 DEFER_MISFIRE_GRACE_SECONDS = 120
 MANUAL_KEY_PREFIX = "manual:"
 
-_scheduler: BackgroundScheduler | None = None
-_manual_trigger_runner: ManualDeferFn | None = None
-_scheduled_fire_runner: ScheduledDeferFn | None = None
-
-
 def get_scheduler() -> BackgroundScheduler | None:
-    return _scheduler
+    from app.runtime import get_runtime
+
+    scheduler = get_runtime().scheduler
+    if isinstance(scheduler, BackgroundScheduler):
+        return scheduler
+    return None
 
 
 def set_scheduler(scheduler: BackgroundScheduler | None) -> None:
-    global _scheduler
-    _scheduler = scheduler
+    from app.runtime import get_runtime
+
+    get_runtime().scheduler = scheduler
 
 
 def register_manual_trigger_runner(runner: ManualDeferFn) -> None:
     """``app.scheduler`` publishes its manual-trigger job here so retries can re-add it."""
-    global _manual_trigger_runner
-    _manual_trigger_runner = runner
+    from app.runtime import get_runtime
+
+    get_runtime().manual_trigger_runner = runner
 
 
 def get_manual_trigger_runner() -> ManualDeferFn | None:
-    return _manual_trigger_runner
+    from app.runtime import get_runtime
+
+    runner = get_runtime().manual_trigger_runner
+    if runner is None:
+        return None
+    return cast(ManualDeferFn, runner)
 
 
 def register_scheduled_fire_runner(runner: ScheduledDeferFn) -> None:
     """``app.scheduler`` publishes slot fires so ``sync_jobs`` need not import fire code."""
-    global _scheduled_fire_runner
-    _scheduled_fire_runner = runner
+    from app.runtime import get_runtime
+
+    get_runtime().scheduled_fire_runner = runner
 
 
 def get_scheduled_fire_runner() -> ScheduledDeferFn | None:
-    return _scheduled_fire_runner
+    from app.runtime import get_runtime
+
+    runner = get_runtime().scheduled_fire_runner
+    if runner is None:
+        return None
+    return cast(ScheduledDeferFn, runner)
 
 
 def slot_job_id(slot_key: str) -> str:
