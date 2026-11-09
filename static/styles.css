@@ -904,7 +904,7 @@ button.small {
 }
 
 .panel {
-  margin: 28px 0;
+  margin: 4rem 0;
 }
 
 .clock-fold {
@@ -951,6 +951,11 @@ button.small {
 
 .clock-fold .subhead {
   margin: 0;
+}
+
+.clock-fold > .toolbar > .toolbar-actions:only-child,
+.clock-fold > .toolbar > .primary:only-child {
+  margin-left: auto;
 }
 
 .toolbar-actions {
@@ -1078,6 +1083,13 @@ button.small {
 
 .clock-cell.source-none {
   opacity: 0.55;
+}
+
+.clock-cell.clock-upcoming {
+  opacity: 1;
+  outline: 2px solid var(--copper);
+  outline-offset: -2px;
+  background: rgba(224, 155, 109, 0.16);
 }
 
 .help {

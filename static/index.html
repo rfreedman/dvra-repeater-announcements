@@ -287,28 +287,31 @@
         </section>
 
         <section class="panel">
-          <div class="toolbar">
-            <h2 class="subhead">Schedules</h2>
-            <div class="toolbar-actions">
-              <label class="inline-check">
-                <input id="baseline-randomize" type="checkbox" />
-                Shuffle baseline order each cycle
-              </label>
-              <div class="dropdown">
-                <button type="button" class="primary" id="new-schedule">New schedule</button>
-                <div id="template-menu" class="menu hidden">
-                  <button type="button" data-template="baseline">Baseline</button>
-                  <button type="button" data-template="weekly">Weekly</button>
-                  <button type="button" data-template="monthly">Monthly</button>
-                  <button type="button" data-template="range">Event countdown</button>
-                  <button type="button" data-template="monthly_range">Monthly countdown</button>
-                  <button type="button" data-template="silence">Silence</button>
-                  <button type="button" data-template="emergency">Emergency</button>
+          <details class="clock-fold" open>
+            <summary>
+              <h2 class="subhead">Schedules</h2>
+            </summary>
+            <div class="toolbar">
+              <div class="toolbar-actions">
+                <label class="inline-check">
+                  <input id="baseline-randomize" type="checkbox" />
+                  Shuffle baseline order each cycle
+                </label>
+                <div class="dropdown">
+                  <button type="button" class="primary" id="new-schedule">New schedule</button>
+                  <div id="template-menu" class="menu hidden">
+                    <button type="button" data-template="baseline">Baseline</button>
+                    <button type="button" data-template="weekly">Weekly</button>
+                    <button type="button" data-template="monthly">Monthly</button>
+                    <button type="button" data-template="range">Event countdown</button>
+                    <button type="button" data-template="monthly_range">Monthly countdown</button>
+                    <button type="button" data-template="silence">Silence</button>
+                    <button type="button" data-template="emergency">Emergency</button>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-          <div class="table-wrap">
+            <div class="table-wrap">
             <table class="schedules" id="schedule-table">
               <thead>
                 <tr>
@@ -324,14 +327,18 @@
             </table>
             <p id="schedule-empty" class="empty hidden">No schedules yet. Create an announcement, then a baseline schedule.</p>
           </div>
+          </details>
         </section>
 
         <section class="panel">
-          <div class="toolbar">
-            <h2 class="subhead">Announcement library</h2>
-            <button type="button" class="primary" id="new-announcement">New announcement</button>
-          </div>
-          <div class="table-wrap">
+          <details class="clock-fold" open>
+            <summary>
+              <h2 class="subhead">Announcement library</h2>
+            </summary>
+            <div class="toolbar">
+              <button type="button" class="primary" id="new-announcement">New announcement</button>
+            </div>
+            <div class="table-wrap">
             <table class="schedules" id="library-table">
               <thead>
                 <tr>
@@ -345,6 +352,7 @@
             </table>
             <p id="library-empty" class="empty hidden">No announcements yet. Write the text first, then attach schedules to it.</p>
           </div>
+          </details>
         </section>
       </section>
 

@@ -136,6 +136,26 @@ def test_newsline_check_button_disables_while_processing_or_playing() -> None:
     assert "if (button?.disabled) return;" in click.split("});", 1)[0]
 
 
+def test_today_clock_highlights_the_next_transmission_slot() -> None:
+    source = APP_JS.read_text(encoding="utf-8")
+    css = (APP_JS.parent / "styles.css").read_text(encoding="utf-8")
+    marker = source.split("function markUpcomingClockCell()", 1)[1].split("function nextRunSortKey", 1)[0]
+    assert "stationDateStamp" in marker
+    assert "settings.timezone" in source.split("function stationDateStamp", 1)[1].split(
+        "function markUpcomingClockCell", 1
+    )[0]
+    assert 'upcoming?.status !== "waiting"' in marker
+    assert "fireDay !== preview" in marker
+    assert 'aria-current", "true"' in marker
+    assert "cell.dataset.slot = row.slot" in source.split("function renderClock", 1)[1].split(
+        "function stationDateStamp", 1
+    )[0]
+    tick = source.split("function tickUpcoming()", 1)[1].split("function shortCalendarLabel", 1)[0]
+    assert tick.index("markUpcomingClockCell()") < tick.index("if (homeSseConnected) return;")
+    assert ".clock-cell.clock-upcoming" in css
+    assert "outline: 2px solid var(--copper)" in css
+
+
 def test_running_now_shows_elapsed_clock() -> None:
     source = APP_JS.read_text(encoding="utf-8")
     assert "function elapsedSecondsSince(iso)" in source

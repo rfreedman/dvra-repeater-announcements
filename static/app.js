@@ -62,6 +62,7 @@ const PTT_TONE_SECONDS = 0.2;
  * @property {number|null} [story_index]
  * @property {number|null} [story_total]
  * @property {string} [at]
+ * @property {string} [slot]
  * @property {string} [piece_label]
  * @property {string} [note]
  * @property {string} [phase]
@@ -992,6 +993,7 @@ function syncDeleteButtons() {
 
 function tickUpcoming() {
   renderUpcoming();
+  markUpcomingClockCell();
   if (homeSseConnected) return;
   // When SSE is down (cache, proxy, reconnect), fall back to fast poll during active radio work.
   if (!upcoming && pendingManualTriggers.length === 0 && !triggerNowBusy) return;
@@ -1284,11 +1286,53 @@ function renderClock(clock) {
       cell.append(note);
       cell.classList.add("has-warning");
     }
+    if (row.slot) cell.dataset.slot = row.slot;
+    if (row.slot_at) cell.dataset.slotAt = row.slot_at;
     if (row.schedule_id) {
       cell.addEventListener("click", () => goToHash(`#/schedules/${row.schedule_id}`));
     }
     grid.append(cell);
   }
+  markUpcomingClockCell();
+}
+
+/** Calendar date of an instant in the station timezone (YYYY-MM-DD). */
+function stationDateStamp(instant) {
+  const tz = settings.timezone;
+  if (!tz || !(instant instanceof Date) || Number.isNaN(instant.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(instant);
+  const pick = (type) => parts.find((part) => part.type === type)?.value || "";
+  const year = pick("year");
+  const month = pick("month");
+  const day = pick("day");
+  if (!year || !month || !day) return "";
+  return `${year}-${month}-${day}`;
+}
+
+/** Mark the next transmission's slot when the preview date is today. */
+function markUpcomingClockCell() {
+  const grid = document.getElementById("clock-grid");
+  if (!grid) return;
+  for (const cell of grid.querySelectorAll(".clock-upcoming")) {
+    cell.classList.remove("clock-upcoming");
+    cell.removeAttribute("aria-current");
+  }
+  const preview = document.getElementById("clock-date")?.value || "";
+  const today = stationDateStamp(new Date(Date.now() + clockSkewMs));
+  if (!preview || !today || preview !== today) return;
+  if (upcoming?.status !== "waiting" || !upcoming.slot || !upcoming.at) return;
+  const fireDay = stationDateStamp(new Date(upcoming.at));
+  if (fireDay !== preview) return;
+  const slot = upcoming.slot;
+  const cell = [...grid.querySelectorAll(".clock-cell")].find((item) => item.dataset.slot === slot);
+  if (!cell) return;
+  cell.classList.add("clock-upcoming");
+  cell.setAttribute("aria-current", "true");
 }
 
 function nextRunSortKey(value) {
