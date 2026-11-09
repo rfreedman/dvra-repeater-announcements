@@ -110,7 +110,7 @@ def read_memory_percent() -> float | None:
     return max(0.0, min(100.0, value))
 
 
-def _thermal_state_from_ns(value: int) -> str | None:
+def thermal_state_from_ns(value: int) -> str | None:
     mapping = {
         _NS_THERMAL_NOMINAL: "nominal",
         _NS_THERMAL_FAIR: "fair",
@@ -133,7 +133,7 @@ def read_thermal_state() -> str | None:
         process_info_class = cast(object, getattr(foundation, "NSProcessInfo"))
         process_info = cast(Callable[[], object], getattr(process_info_class, "processInfo"))
         thermal_state = cast(Callable[[], int], getattr(process_info(), "thermalState"))
-        return _thermal_state_from_ns(thermal_state())
+        return thermal_state_from_ns(thermal_state())
     except (AttributeError, TypeError, ValueError, OSError):
         return None
 

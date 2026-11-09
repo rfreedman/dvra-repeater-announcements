@@ -1,9 +1,15 @@
 from __future__ import annotations
 
-from app.dra_portaudio import auto_select_dra_outputs, resolve_dra_audio_indices
+import pytest
+from app.dra_portaudio import (
+    DraOutputDevice,
+    PortAudioDeviceInfo,
+    auto_select_dra_outputs,
+    resolve_dra_audio_indices,
+)
 
 
-def _dev(name: str, *, out: int = 2, inp: int = 0) -> dict:
+def _dev(name: str, *, out: int = 2, inp: int = 0) -> PortAudioDeviceInfo:
     return {
         "name": name,
         "max_output_channels": out,
@@ -11,9 +17,9 @@ def _dev(name: str, *, out: int = 2, inp: int = 0) -> dict:
     }
 
 
-def test_auto_select_prefers_alsa_hw_on_linux_by_default(monkeypatch):
+def test_auto_select_prefers_alsa_hw_on_linux_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("app.dra_portaudio.sys.platform", "linux")
-    devices = [
+    devices: list[DraOutputDevice] = [
         (4, _dev("USB PnP Sound Device: Audio (hw:1,0)")),
         (16, _dev("alsa_output.usb-C-Media_Electronics_Inc._USB_PnP_Sound_Device-00.analog-stereo")),
     ]
@@ -21,10 +27,10 @@ def test_auto_select_prefers_alsa_hw_on_linux_by_default(monkeypatch):
     assert [i for i, _ in selected] == [4]
 
 
-def test_auto_select_prefers_pipewire_when_env_off(monkeypatch):
+def test_auto_select_prefers_pipewire_when_env_off(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TTS_DRA_PREFER_ALSA_HW", "0")
     monkeypatch.setattr("app.dra_portaudio.sys.platform", "linux")
-    devices = [
+    devices: list[DraOutputDevice] = [
         (4, _dev("USB PnP Sound Device: Audio (hw:1,0)")),
         (16, _dev("alsa_output.usb-C-Media_Electronics_Inc._USB_PnP_Sound_Device-00.analog-stereo")),
     ]
@@ -32,9 +38,9 @@ def test_auto_select_prefers_pipewire_when_env_off(monkeypatch):
     assert [i for i, _ in selected] == [16]
 
 
-def test_auto_select_keeps_two_hw_for_two_dras_on_linux(monkeypatch):
+def test_auto_select_keeps_two_hw_for_two_dras_on_linux(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("app.dra_portaudio.sys.platform", "linux")
-    devices = [
+    devices: list[DraOutputDevice] = [
         (4, _dev("USB PnP Sound Device: Audio (hw:1,0)")),
         (6, _dev("USB PnP Sound Device: Audio (hw:2,0)")),
         (16, _dev("alsa_output.usb-C-Media_Electronics_Inc._USB_PnP_Sound_Device-00.analog-stereo")),
@@ -43,12 +49,12 @@ def test_auto_select_keeps_two_hw_for_two_dras_on_linux(monkeypatch):
     assert [i for i, _ in auto_select_dra_outputs(devices)] == [4, 6]
 
 
-def test_auto_select_mac_fallback_when_no_hw_names():
-    devices = [(2, _dev("USB PnP Sound Device"))]
+def test_auto_select_mac_fallback_when_no_hw_names() -> None:
+    devices: list[DraOutputDevice] = [(2, _dev("USB PnP Sound Device"))]
     assert auto_select_dra_outputs(devices) == devices
 
 
-def test_resolve_uses_auto_select_when_specs_omitted(monkeypatch):
+def test_resolve_uses_auto_select_when_specs_omitted(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("app.dra_portaudio.sys.platform", "linux")
     fake = [
         (4, _dev("USB PnP Sound Device: Audio (hw:1,0)")),
@@ -58,7 +64,7 @@ def test_resolve_uses_auto_select_when_specs_omitted(monkeypatch):
     assert resolve_dra_audio_indices(device_specs=None) == [4]
 
 
-def test_resolve_honors_explicit_specs(monkeypatch):
+def test_resolve_honors_explicit_specs(monkeypatch: pytest.MonkeyPatch) -> None:
     fake = [
         (4, _dev("USB PnP Sound Device: Audio (hw:1,0)")),
         (16, _dev("alsa_output.usb-C-Media_Electronics_Inc._USB_PnP_Sound_Device-00.analog-stereo")),

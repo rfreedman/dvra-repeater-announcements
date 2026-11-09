@@ -8,8 +8,8 @@ from typing import Protocol, runtime_checkable
 
 from app.dra_alsa_unmute import (
     alsa_card_from_portaudio_device as alsa_card_from_portaudio_device,
-    alsa_cards_for_dra_outputs,
-    alsa_watch,
+    alsa_cards_for_dra_outputs as alsa_cards_for_dra_outputs,
+    alsa_watch as alsa_watch,
     cm119_alsa_card_signature,
     ensure_cm119_speakers_unmuted as ensure_cm119_speakers_unmuted,
     sync_cm119_speaker_unmute_for_indices as sync_cm119_speaker_unmute_for_indices,

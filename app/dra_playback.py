@@ -103,7 +103,7 @@ def _mono_f32_to_interleaved_s16(mono_f32: np.ndarray, channel: str) -> bytes:
 _APLAY_ABORT_POLL_SECONDS = 0.05
 
 
-def _play_s16_stereo_via_aplay(
+def play_s16_stereo_via_aplay(
     pcm: bytes,
     *,
     sample_rate: int,
@@ -207,7 +207,7 @@ def _play_s16_stereo_via_aplay_first_working(
     errors: list[str] = []
     for alsa_device in alsa_devices:
         try:
-            _play_s16_stereo_via_aplay(
+            play_s16_stereo_via_aplay(
                 pcm,
                 sample_rate=sample_rate,
                 alsa_device=alsa_device,

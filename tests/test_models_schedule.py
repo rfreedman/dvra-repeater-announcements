@@ -11,18 +11,18 @@ from app.models import (
 )
 
 
-def test_normalize_entity_name_strips_and_requires():
+def test_normalize_entity_name_strips_and_requires() -> None:
     assert normalize_entity_name("  Net  ") == "Net"
     with pytest.raises(ValueError, match="Name is required"):
-        normalize_entity_name("   ")
+        _ = normalize_entity_name("   ")
 
 
-def test_announcement_name_uses_shared_normalizer():
+def test_announcement_name_uses_shared_normalizer() -> None:
     with pytest.raises(ValidationError):
-        TtsAnnouncement(name="  ", text="Hello.")
+        _ = TtsAnnouncement(name="  ", text="Hello.")
 
 
-def test_emergency_schedule_priority_always_default():
+def test_emergency_schedule_priority_always_default() -> None:
     row = validate_schedule(
         {
             "name": "Skywarn",
@@ -34,7 +34,7 @@ def test_emergency_schedule_priority_always_default():
     assert row.priority == DEFAULT_PRIORITY["emergency"]
 
 
-def test_old_flat_baseline_json_loads_and_saves_lean():
+def test_old_flat_baseline_json_loads_and_saves_lean() -> None:
     row = validate_schedule(
         {
             "name": "Baseline ID",

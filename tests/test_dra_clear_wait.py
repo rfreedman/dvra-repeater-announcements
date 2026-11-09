@@ -1,19 +1,32 @@
 from __future__ import annotations
 
-import time
 from datetime import datetime, timedelta
+from typing import cast
 from zoneinfo import ZoneInfo
 
+from app.cm119 import Cm119HidAdapter, HidModule
 from app.dra_radio import DraRadio
 
 TZ = ZoneInfo("America/New_York")
 
 
 class _Adapter:
-    def __init__(self, busy_values: list[bool | None]):
+    _values: list[bool | None]
+
+    def __init__(self, busy_values: list[bool | None]) -> None:
         self._values = list(busy_values)
 
-    def read_cos_busy(self, *_args, **_kwargs):
+    def read_cos_busy(
+        self,
+        _hid: HidModule,
+        *,
+        line: str,
+        active_low: bool,
+        persistent_dev: object | None = None,
+    ) -> bool | None:
+        _ = line
+        _ = active_low
+        _ = persistent_dev
         if not self._values:
             return False
         return self._values.pop(0)
@@ -21,7 +34,7 @@ class _Adapter:
 
 def _radio_with_busy_sequence(values: list[bool | None]) -> DraRadio:
     return DraRadio(
-        hid_adapters=[_Adapter(values)],  # type: ignore[list-item]
+        hid_adapters=cast(list[Cm119HidAdapter], [_Adapter(values)]),
         audio_indices=[0],
         usb_channel="left",
         cos_line="vol_dn",
@@ -29,12 +42,12 @@ def _radio_with_busy_sequence(values: list[bool | None]) -> DraRadio:
     )
 
 
-def test_wait_for_clear_resets_when_busy_returns():
+def test_wait_for_clear_resets_when_busy_returns() -> None:
     t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=TZ)
     clock = {"now": t0}
     sleeps: list[float] = []
 
-    def now():
+    def now() -> datetime:
         return clock["now"]
 
     def sleep(seconds: float) -> None:
@@ -54,12 +67,12 @@ def test_wait_for_clear_resets_when_busy_returns():
     assert sleeps  # polled at least once
 
 
-def test_clear_satisfied_when_busy_sample_but_idle_credit():
+def test_clear_satisfied_when_busy_sample_but_idle_credit() -> None:
     t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=TZ)
     clock = {"now": t0}
     sleeps: list[float] = []
 
-    def now():
+    def now() -> datetime:
         return clock["now"]
 
     def sleep(seconds: float) -> None:
@@ -67,9 +80,7 @@ def test_clear_satisfied_when_busy_sample_but_idle_credit():
         clock["now"] = clock["now"] + timedelta(seconds=seconds)
 
     radio = _radio_with_busy_sequence([True])
-    with radio._lock:
-        radio._idle_since_mono = time.monotonic() - 12.0
-        radio._last_cos_busy = False
+    radio.set_idle_credit(12.0)
     ok = radio.wait_for_transmit_clear(
         clear_seconds=10.0,
         poll_seconds=1.0,
@@ -80,30 +91,32 @@ def test_clear_satisfied_when_busy_sample_but_idle_credit():
     assert ok is True
 
 
-def test_clear_satisfied_when_idle_before_fire():
+def test_clear_satisfied_when_idle_before_fire() -> None:
     t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=TZ)
     sleeps: list[float] = []
     radio = _radio_with_busy_sequence([False])
-    with radio._lock:
-        radio._idle_since_mono = time.monotonic() - 15.0
-        radio._last_cos_busy = False
+    radio.set_idle_credit(15.0)
+
+    def now() -> datetime:
+        return t0
+
     ok = radio.wait_for_transmit_clear(
         clear_seconds=10.0,
         poll_seconds=1.0,
         deadline=t0 + timedelta(seconds=30),
-        now=lambda: t0,
+        now=now,
         sleep_fn=sleeps.append,
     )
     assert ok is True
     assert sleeps == []
 
 
-def test_partial_idle_credit_shortens_wait():
+def test_partial_idle_credit_shortens_wait() -> None:
     t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=TZ)
     clock = {"now": t0}
     sleeps: list[float] = []
 
-    def now():
+    def now() -> datetime:
         return clock["now"]
 
     def sleep(seconds: float) -> None:
@@ -111,9 +124,7 @@ def test_partial_idle_credit_shortens_wait():
         clock["now"] = clock["now"] + timedelta(seconds=seconds)
 
     radio = _radio_with_busy_sequence([False, False, False])
-    with radio._lock:
-        radio._idle_since_mono = time.monotonic() - 7.0
-        radio._last_cos_busy = False
+    radio.set_idle_credit(7.0)
     ok = radio.wait_for_transmit_clear(
         clear_seconds=10.0,
         poll_seconds=1.0,
@@ -125,15 +136,19 @@ def test_partial_idle_credit_shortens_wait():
     assert sum(sleeps) < 10.0
 
 
-def test_fail_fast_on_busy_during_clear():
+def test_fail_fast_on_busy_during_clear() -> None:
     t0 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=TZ)
     sleeps: list[float] = []
     radio = _radio_with_busy_sequence([False, True])
+
+    def now() -> datetime:
+        return t0
+
     ok = radio.wait_for_transmit_clear(
         clear_seconds=10.0,
         poll_seconds=1.0,
         deadline=t0 + timedelta(seconds=300),
-        now=lambda: t0,
+        now=now,
         sleep_fn=sleeps.append,
         fail_fast_on_busy=True,
     )

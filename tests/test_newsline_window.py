@@ -15,7 +15,7 @@ def _at(day: int, hour: int, minute: int = 0) -> datetime:
     return datetime(2026, 10, day, hour, minute, tzinfo=ZONE)
 
 
-def test_window_is_open_from_thursday_start_through_friday_stop():
+def test_window_is_open_from_thursday_start_through_friday_stop() -> None:
     assert window_for(_at(22, 11, 59), "12:00", "18:00") is None
     opened = window_for(_at(22, 12, 0), "12:00", "18:00")
     assert opened is not None
@@ -26,8 +26,10 @@ def test_window_is_open_from_thursday_start_through_friday_stop():
     assert window_for(_at(25, 12, 0), "12:00", "18:00") is None
 
 
-def test_anchors_are_hourly_from_the_thursday_start():
-    start, stop = window_for(_at(22, 12, 30), "12:00", "18:00")
+def test_anchors_are_hourly_from_the_thursday_start() -> None:
+    window = window_for(_at(22, 12, 30), "12:00", "18:00")
+    assert window is not None
+    start, stop = window
     found = anchors(start, stop)
     assert found[0] == _at(22, 12, 0)
     assert found[1] == _at(22, 13, 0)
@@ -36,8 +38,10 @@ def test_anchors_are_hourly_from_the_thursday_start():
     assert next_anchor_after(stop, start, stop) is None
 
 
-def test_success_inside_the_window_stops_the_checks():
-    start, stop = window_for(_at(22, 15, 0), "12:00", "18:00")
+def test_success_inside_the_window_stops_the_checks() -> None:
+    window = window_for(_at(22, 15, 0), "12:00", "18:00")
+    assert window is not None
+    start, stop = window
     assert success_in_window(_at(22, 13, 0), split_ok=True, start=start, stop=stop)
     assert not success_in_window(_at(15, 13, 0), split_ok=True, start=start, stop=stop)
     assert not success_in_window(_at(22, 13, 0), split_ok=False, start=start, stop=stop)

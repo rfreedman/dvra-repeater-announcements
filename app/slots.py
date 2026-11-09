@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from app.models import DAY_NAMES, SLOT_MINUTES, format_hhmm, parse_hhmm
+from app.models import DAY_NAMES, SLOT_MINUTES as SLOT_MINUTES, format_hhmm, parse_hhmm
 
 
 @dataclass(frozen=True)

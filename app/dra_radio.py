@@ -805,6 +805,25 @@ class DraRadio:
                 raise TransmitAbortError("DRA USB playback aborted") from exc
             raise
 
+    def set_idle_credit(self, idle_seconds: float) -> None:
+        """Pretend COS has been idle for ``idle_seconds`` (tests)."""
+        with self._lock:
+            self._last_cos_busy = False
+            self._idle_since_mono = time.monotonic() - idle_seconds
+
+    def hid_adapter_path(self, index: int = 0) -> bytes:
+        return self._hid_adapters[index].path
+
+    def mark_usb_hid_absent(self) -> None:
+        self._usb_hid_absent = True
+
+    def mark_ptt_keyed(self, keyed: bool) -> None:
+        with self._lock:
+            self._ptt_keyed = keyed
+
+    def enumerate_hid_entries(self) -> list[HidDeviceEntry]:
+        return self._enumerate_hid_entries()
+
 
 def as_dra_radio(radio: object) -> DraRadio | None:
     """Narrow to ``DraRadio`` when the backend is concrete DRA."""
@@ -814,6 +833,8 @@ def as_dra_radio(radio: object) -> DraRadio | None:
 # Back-compat alias for call sites / tests still importing the old name.
 def dra_radio_from(radio: object) -> DraRadio | None:
     return as_dra_radio(radio)
+
+
 
 
 

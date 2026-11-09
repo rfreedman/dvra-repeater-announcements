@@ -4,32 +4,35 @@ import pytest
 from pydantic import ValidationError
 
 from app.config import MAX_TEXT_CHARS
+from fastapi.testclient import TestClient
+
 from app.models import StoreDocument, TtsAnnouncement
+from app.store import AnnouncementStore
 
 
-def test_announcement_rejects_speed_out_of_bounds():
+def test_announcement_rejects_speed_out_of_bounds() -> None:
     with pytest.raises(ValidationError):
-        TtsAnnouncement(name="Test", text="Hello.", speed=0.1)
+        _ = TtsAnnouncement(name="Test", text="Hello.", speed=0.1)
     with pytest.raises(ValidationError):
-        TtsAnnouncement(name="Test", text="Hello.", speed=3.0)
+        _ = TtsAnnouncement(name="Test", text="Hello.", speed=3.0)
 
 
-def test_announcement_rejects_busy_retry_out_of_bounds():
+def test_announcement_rejects_busy_retry_out_of_bounds() -> None:
     with pytest.raises(ValidationError):
-        TtsAnnouncement(name="Test", text="Hello.", busy_retry_seconds=200)
+        _ = TtsAnnouncement(name="Test", text="Hello.", busy_retry_seconds=200)
 
 
-def test_announcement_rejects_empty_text_after_strip():
+def test_announcement_rejects_empty_text_after_strip() -> None:
     with pytest.raises(ValidationError):
-        TtsAnnouncement(name="Test", text="   ")
+        _ = TtsAnnouncement(name="Test", text="   ")
 
 
-def test_announcement_rejects_text_over_max_length():
+def test_announcement_rejects_text_over_max_length() -> None:
     with pytest.raises(ValidationError):
-        TtsAnnouncement(name="Test", text="x" * (MAX_TEXT_CHARS + 1))
+        _ = TtsAnnouncement(name="Test", text="x" * (MAX_TEXT_CHARS + 1))
 
 
-def test_store_document_rejects_invalid_announcement_on_load(store):
+def test_store_document_rejects_invalid_announcement_on_load(store: AnnouncementStore) -> None:
     payload = {
         "version": 2,
         "announcements": [
@@ -44,12 +47,12 @@ def test_store_document_rejects_invalid_announcement_on_load(store):
     }
     import json
 
-    store.path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+    _ = store.path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
     with pytest.raises(ValidationError):
-        store.list_announcements()
+        _ = store.list_announcements()
 
 
-def test_api_rejects_invalid_announcement_speed(client):
+def test_api_rejects_invalid_announcement_speed(client: TestClient) -> None:
     res = client.post(
         "/api/announcements",
         json={"name": "Test", "text": "Hello.", "speed": 0.1},
@@ -57,7 +60,7 @@ def test_api_rejects_invalid_announcement_speed(client):
     assert res.status_code == 422
 
 
-def test_api_rejects_whitespace_only_text(client):
+def test_api_rejects_whitespace_only_text(client: TestClient) -> None:
     res = client.post(
         "/api/announcements",
         json={"name": "Test", "text": "   "},
@@ -65,7 +68,7 @@ def test_api_rejects_whitespace_only_text(client):
     assert res.status_code == 422
 
 
-def test_api_update_rejects_invalid_busy_give_up(client, store):
+def test_api_update_rejects_invalid_busy_give_up(client: TestClient, store: AnnouncementStore) -> None:
     ann = store.save_announcement(TtsAnnouncement(name="Test", text="Hello."))
     res = client.put(
         f"/api/announcements/{ann.id}",
@@ -78,7 +81,7 @@ def test_api_update_rejects_invalid_busy_give_up(client, store):
     assert res.status_code == 422
 
 
-def test_valid_announcement_round_trips_through_store(store):
+def test_valid_announcement_round_trips_through_store(store: AnnouncementStore) -> None:
     ann = TtsAnnouncement(
         name="Test",
         text="  On the air.  ",
@@ -86,19 +89,23 @@ def test_valid_announcement_round_trips_through_store(store):
         sentence_pause=0.5,
     )
     stored = store.save_announcement(ann)
+    assert isinstance(stored, TtsAnnouncement)
     assert stored.text == "On the air."
     loaded = store.get(stored.id)
     assert loaded is not None
+    assert isinstance(loaded, TtsAnnouncement)
     assert loaded.kind == "tts"
     assert loaded.speed == 1.5
     doc = StoreDocument.model_validate(
         {"version": 2, "announcements": [stored.model_dump(mode="json")], "schedules": []}
     )
-    assert doc.announcements[0].kind == "tts"
-    assert doc.announcements[0].text == "On the air."
+    first = doc.announcements[0]
+    assert isinstance(first, TtsAnnouncement)
+    assert first.kind == "tts"
+    assert first.text == "On the air."
 
 
-def test_old_flat_newsline_json_loads_and_saves_lean():
+def test_old_flat_newsline_json_loads_and_saves_lean() -> None:
     from app.models import validate_announcement
 
     row = validate_announcement(

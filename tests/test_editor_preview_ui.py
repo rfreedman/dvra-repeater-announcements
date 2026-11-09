@@ -5,7 +5,7 @@ from pathlib import Path
 APP_JS = Path(__file__).resolve().parents[1] / "static" / "app.js"
 
 
-def test_form_locks_while_playing_and_stop_stays_on_playback_buttons():
+def test_form_locks_while_playing_and_stop_stays_on_playback_buttons() -> None:
     source = APP_JS.read_text(encoding="utf-8")
     assert "readOnly || editorPlaying" in source
     assert "save.disabled = lockAnnouncement" in source
@@ -13,7 +13,7 @@ def test_form_locks_while_playing_and_stop_stays_on_playback_buttons():
     assert "stopNews.disabled = !playing" in source
 
 
-def test_playback_stops_when_leaving_the_announcement_editor():
+def test_playback_stops_when_leaving_the_announcement_editor() -> None:
     source = APP_JS.read_text(encoding="utf-8")
     helper = source.split("function stopEditorPlayback()", 1)[1].split("function stop()", 1)[0]
     assert 'startsWith("ann") && nextKey !== editorKey' in source
@@ -22,7 +22,7 @@ def test_playback_stops_when_leaving_the_announcement_editor():
     assert "showKnownPlayLength()" in helper
 
 
-def test_newsline_preview_uses_a_lower_tone_for_ptt_release():
+def test_newsline_preview_uses_a_lower_tone_for_ptt_release() -> None:
     source = APP_JS.read_text(encoding="utf-8")
     engage = _const_number(source, "PTT_ENGAGE_HZ")
     release = _const_number(source, "PTT_RELEASE_HZ")
@@ -33,7 +33,7 @@ def test_newsline_preview_uses_a_lower_tone_for_ptt_release():
     assert 'X-Preview-Framing") !== "name32+length32"' in source
 
 
-def test_next_run_shows_paused_while_newsline_waits_for_clear_channel():
+def test_next_run_shows_paused_while_newsline_waits_for_clear_channel() -> None:
     source = APP_JS.read_text(encoding="utf-8")
     assert 'runPhase === "channel_busy"' in source
     assert 'runPhase === "clear_window"' in source
@@ -42,7 +42,7 @@ def test_next_run_shows_paused_while_newsline_waits_for_clear_channel():
     assert "Waiting to continue Newsline" in source
 
 
-def test_next_run_shows_newsline_piece_progress():
+def test_next_run_shows_newsline_piece_progress() -> None:
     source = APP_JS.read_text(encoding="utf-8")
     assert "function newslineProgressNote(row)" in source
     assert "upcoming.piece_label" in source
@@ -50,7 +50,7 @@ def test_next_run_shows_newsline_piece_progress():
     assert "news item ${row.story_index} of ${row.story_total}" in source
 
 
-def test_next_run_names_the_schedule_when_it_differs_from_the_announcement():
+def test_next_run_names_the_schedule_when_it_differs_from_the_announcement() -> None:
     source = APP_JS.read_text(encoding="utf-8")
     html = (APP_JS.parent / "index.html").read_text(encoding="utf-8")
     css = (APP_JS.parent / "styles.css").read_text(encoding="utf-8")
@@ -76,7 +76,7 @@ def test_next_run_names_the_schedule_when_it_differs_from_the_announcement():
     assert "Pick an announcement." in source
 
 
-def test_new_forms_leave_name_days_and_slots_empty():
+def test_new_forms_leave_name_days_and_slots_empty() -> None:
     source = APP_JS.read_text(encoding="utf-8")
     html = (APP_JS.parent / "index.html").read_text(encoding="utf-8")
     assert 'id="name" type="text" maxlength="120" />' in html
@@ -105,7 +105,7 @@ def test_new_forms_leave_name_days_and_slots_empty():
     assert "announcements[0]" not in select_fn
 
 
-def test_newsline_home_status_shows_processing_step_and_elapsed():
+def test_newsline_home_status_shows_processing_step_and_elapsed() -> None:
     source = APP_JS.read_text(encoding="utf-8")
     assert "function newslineElapsedSuffix(seconds)" in source
     assert "newsline.step" in source
@@ -113,7 +113,7 @@ def test_newsline_home_status_shows_processing_step_and_elapsed():
     assert "`${head}${step}${elapsed}`" in source
 
 
-def test_newsline_check_button_disables_while_processing_or_playing():
+def test_newsline_check_button_disables_while_processing_or_playing() -> None:
     source = APP_JS.read_text(encoding="utf-8")
     assert "function syncNewslineCheckButton()" in source
     assert "Unavailable while Newsline is on the air" in source
@@ -123,13 +123,13 @@ def test_newsline_check_button_disables_while_processing_or_playing():
     assert "if (button?.disabled) return;" in click.split("});", 1)[0]
 
 
-def test_running_now_shows_elapsed_clock():
+def test_running_now_shows_elapsed_clock() -> None:
     source = APP_JS.read_text(encoding="utf-8")
     assert "function elapsedSecondsSince(iso)" in source
     assert 'played == null ? "Now" : `${formatSegmentElapsed(played)}`' in source
 
 
-def test_newsline_status_shows_segment_name_and_elapsed_clock():
+def test_newsline_status_shows_segment_name_and_elapsed_clock() -> None:
     source = APP_JS.read_text(encoding="utf-8")
     assert "function streamingPieceStatus(name, elapsedSeconds)" in source
     assert "Streaming… ${segmentDisplayName(name)} ${formatSegmentElapsed(elapsedSeconds)}" in source
@@ -138,7 +138,7 @@ def test_newsline_status_shows_segment_name_and_elapsed_clock():
     assert 'replace(/\\.mp3$/i, "")' in source
 
 
-def test_speak_status_shows_elapsed_and_total():
+def test_speak_status_shows_elapsed_and_total() -> None:
     source = APP_JS.read_text(encoding="utf-8")
     assert "function playingStatus(elapsedSeconds, totalSeconds)" in source
     assert (
@@ -150,7 +150,7 @@ def test_speak_status_shows_elapsed_and_total():
     assert "knownTotal = Number.isFinite(totalSeconds) && totalSeconds > 0 ? totalSeconds : 0" in source
 
 
-def test_saved_announcement_shows_idle_length():
+def test_saved_announcement_shows_idle_length() -> None:
     source = APP_JS.read_text(encoding="utf-8")
     assert "function idlePlayStatus(seconds)" in source
     assert "Length ${formatSegmentElapsed(seconds)}" in source

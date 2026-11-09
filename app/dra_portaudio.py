@@ -119,7 +119,7 @@ def _is_pipewire_usb_sink_name(name: str) -> bool:
     return "alsa_output.usb" in lowered and is_dra_audio_name(name)
 
 
-def _prefer_cm119_hw_devices(
+def prefer_cm119_hw_devices(
     hw_dra: list[DraOutputDevice],
 ) -> list[DraOutputDevice]:
     """Drop non-CM119 ``(hw:…)`` entries when /proc lists CM119 cards (avoids stale indices)."""
@@ -157,10 +157,10 @@ def auto_select_dra_outputs(
     ]
     hw = [(index, dev) for index, dev in all_dra if _is_alsa_hw_portaudio_name(dev["name"])]
     if pw_usb and not dra_prefer_alsa_hw():
-        if not hw or len(pw_usb) >= len(_prefer_cm119_hw_devices(hw)):
+        if not hw or len(pw_usb) >= len(prefer_cm119_hw_devices(hw)):
             return pw_usb
     if hw:
-        return _prefer_cm119_hw_devices(hw)
+        return prefer_cm119_hw_devices(hw)
     return all_dra
 
 

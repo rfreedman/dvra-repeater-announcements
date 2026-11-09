@@ -80,6 +80,9 @@ async def _complete_startup(started: float, stats_stop: asyncio.Event) -> asynci
     return asyncio.create_task(stats_broadcast_loop(stats_stop))
 
 
+complete_startup = _complete_startup
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     import app.sse_hub as sse_hub
@@ -217,6 +220,9 @@ async def _system_stats_event_stream(request: Request) -> AsyncIterator[str]:
             yield format_sse(payload.event, payload.data)
     finally:
         unsubscribe_stats(queue)
+
+
+system_stats_event_stream = _system_stats_event_stream
 
 
 @app.get("/api/events/stats")

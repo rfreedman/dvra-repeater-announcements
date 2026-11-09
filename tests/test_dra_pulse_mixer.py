@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
+import subprocess
 
-def test_pulse_sink_unmute_calls_pactl(monkeypatch):
+import pytest
+def test_pulse_sink_unmute_calls_pactl(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("app.dra_pulse_mixer.sys.platform", "linux")
     calls: list[list[str]] = []
 
-    def fake_pactl(*args: str):
+    def fake_pactl(*args: str) -> subprocess.CompletedProcess[str]:
         calls.append(list(args))
-        class R:
-            returncode = 0
-
-        return R()
+        return subprocess.CompletedProcess(["pactl", *args], 0)
 
     monkeypatch.setattr("app.dra_pulse_mixer._pactl", fake_pactl)
     from app.dra_pulse_mixer import sync_pulse_sink_unmute_for_portaudio_name

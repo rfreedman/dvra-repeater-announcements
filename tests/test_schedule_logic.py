@@ -3,17 +3,18 @@ from __future__ import annotations
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
+import pytest
 from app.models import (
     Announcement,
-    BaselineSchedule,
-    NewslineAnnouncement,
     Schedule,
     Settings,
     StoreDocument,
-    TtsAnnouncement,
+    parse_announcement,
+    parse_schedule,
     validate_schedule,
 )
 from app.schedule_logic import (
+    ResolvedSlot,
     find_conflicts,
     next_rotation,
     overlay_matches,
@@ -22,25 +23,35 @@ from app.schedule_logic import (
     schedule_warning,
     summarize,
 )
+from app.newsline.state import NewsState
 from app.slots import Slot, slot_from_parts, zone_for
 
 TZ = ZoneInfo("America/New_York")
 ZONE = zone_for("America/New_York")
 
 
-def _ann(name: str = "Station ID", text: str = "This is w2-zee-q.", **kwargs) -> Announcement:
+def _ann(name: str = "Station ID", text: str = "This is w2-zee-q.", **kwargs: object) -> Announcement:
     kind = kwargs.pop("kind", "tts")
+    data: dict[str, object] = {"name": name, "kind": kind, **kwargs}
     if kind == "newsline":
-        return NewslineAnnouncement(name=name, **kwargs)
-    return TtsAnnouncement(name=name, text=text, **kwargs)
+        return parse_announcement(data)
+    data["text"] = text
+    return parse_announcement(data)
 
 
-def _baseline(announcement_id: str, name: str = "Baseline ID", **kwargs) -> Schedule:
-    return BaselineSchedule(name=name, announcement_id=announcement_id, **kwargs)
+def _baseline(announcement_id: str, name: str = "Baseline ID", **kwargs: object) -> Schedule:
+    return parse_schedule(
+        {
+            "name": name,
+            "kind": "baseline",
+            "announcement_id": announcement_id,
+            **kwargs,
+        }
+    )
 
 
-def _weekly(**kwargs) -> Schedule:
-    data = {
+def _weekly(**kwargs: object) -> Schedule:
+    data: dict[str, object] = {
         "name": "Weekly",
         "kind": "weekly",
         "days": ["sun"],
@@ -65,18 +76,24 @@ def _slot(day: date, stamp: str) -> Slot:
     return found
 
 
-def test_one_baseline_fills_every_slot():
+def _required_announcement(resolved: ResolvedSlot) -> Announcement:
+    announcement = resolved.announcement
+    assert announcement is not None
+    return announcement
+
+
+def test_one_baseline_fills_every_slot() -> None:
     ann = _ann(id="a1")
     base = _baseline("a1", id="s1")
     document = _doc(ann, schedules=[base])
     noon = _slot(date(2026, 9, 1), "12:00")
     half = _slot(date(2026, 9, 1), "12:30")
-    assert resolve_slot(document, noon).announcement.id == "a1"
+    assert _required_announcement(resolve_slot(document, noon)).id == "a1"
     assert resolve_slot(document, half).fire_at == half.center
     assert resolve_slot(document, noon).source == "baseline"
 
 
-def test_two_baselines_rotate_without_repeat():
+def test_two_baselines_rotate_without_repeat() -> None:
     a = _ann(id="a1", name="ID")
     b = _ann(id="a2", name="Club")
     document = _doc(
@@ -86,11 +103,11 @@ def test_two_baselines_rotate_without_repeat():
     )
     after = datetime(2026, 9, 1, 11, 59, tzinfo=TZ)
     until = datetime(2026, 9, 1, 14, 0, tzinfo=TZ)
-    names = [item.announcement.name for item in resolve_window(document, after, until)]
+    names = [_required_announcement(item).name for item in resolve_window(document, after, until)]
     assert names[:4] == ["ID", "Club", "ID", "Club"]
 
 
-def test_disabled_baseline_is_skipped():
+def test_disabled_baseline_is_skipped() -> None:
     a = _ann(id="a1", name="ID")
     b = _ann(id="a2", name="Club")
     document = _doc(
@@ -102,10 +119,10 @@ def test_disabled_baseline_is_skipped():
         ],
     )
     slot = _slot(date(2026, 9, 1), "12:00")
-    assert resolve_slot(document, slot).announcement.name == "Club"
+    assert _required_announcement(resolve_slot(document, slot)).name == "Club"
 
 
-def test_weekly_net_shifts_minus_five_and_skips_slot_center():
+def test_weekly_net_shifts_minus_five_and_skips_slot_center() -> None:
     ann = _ann(id="a1")
     net = _ann(id="a2", name="Tech Net")
     document = _doc(
@@ -120,14 +137,14 @@ def test_weekly_net_shifts_minus_five_and_skips_slot_center():
     slot = _slot(sunday, "21:00")
     resolved = resolve_slot(document, slot)
     assert resolved.source == "overlay"
-    assert resolved.announcement.name == "Tech Net"
+    assert _required_announcement(resolved).name == "Tech Net"
     assert resolved.fire_at == datetime(2026, 9, 6, 20, 55, tzinfo=TZ)
     earlier = resolve_slot(document, _slot(sunday, "20:30"))
     assert earlier.source == "baseline"
     assert earlier.fire_at == datetime(2026, 9, 6, 20, 30, tzinfo=TZ)
 
 
-def test_monthly_first_wednesday_skips_august():
+def test_monthly_first_wednesday_skips_august() -> None:
     net = _ann(id="a2", name="PepperNet")
     document = _doc(
         _ann(id="a1"),
@@ -157,7 +174,7 @@ def test_monthly_first_wednesday_skips_august():
     assert resolve_slot(document, first_wed_aug).source == "baseline"
 
 
-def test_range_fills_until_event_slot_not_after():
+def test_range_fills_until_event_slot_not_after() -> None:
     promo = _ann(id="a2", name="Meeting promo")
     overlay = validate_schedule(
         {
@@ -171,8 +188,8 @@ def test_range_fills_until_event_slot_not_after():
         }
     )
     document = _doc(_ann(id="a1"), promo, schedules=[_baseline("a1", id="s1"), overlay])
-    assert resolve_slot(document, _slot(date(2026, 9, 1), "00:00")).announcement.name == "Meeting promo"
-    assert resolve_slot(document, _slot(date(2026, 9, 2), "18:30")).announcement.name == "Meeting promo"
+    assert _required_announcement(resolve_slot(document, _slot(date(2026, 9, 1), "00:00"))).name == "Meeting promo"
+    assert _required_announcement(resolve_slot(document, _slot(date(2026, 9, 2), "18:30"))).name == "Meeting promo"
     event = resolve_slot(document, _slot(date(2026, 9, 2), "19:00"))
     after = resolve_slot(document, _slot(date(2026, 9, 2), "19:30"))
     next_day = resolve_slot(document, _slot(date(2026, 9, 3), "00:00"))
@@ -181,7 +198,7 @@ def test_range_fills_until_event_slot_not_after():
     assert next_day.source == "baseline"
 
 
-def test_monthly_range_starts_n_days_before_each_month():
+def test_monthly_range_starts_n_days_before_each_month() -> None:
     promo = _ann(id="a2", name="Meeting promo")
     overlay = validate_schedule(
         {
@@ -197,15 +214,15 @@ def test_monthly_range_starts_n_days_before_each_month():
     )
     document = _doc(_ann(id="a1"), promo, schedules=[_baseline("a1", id="s1"), overlay])
     # First Wednesday of September 2026 is the 2nd; 7 days before is August 26.
-    assert resolve_slot(document, _slot(date(2026, 8, 26), "00:00")).announcement.name == "Meeting promo"
+    assert _required_announcement(resolve_slot(document, _slot(date(2026, 8, 26), "00:00"))).name == "Meeting promo"
     assert resolve_slot(document, _slot(date(2026, 8, 25), "23:30")).source == "baseline"
-    assert resolve_slot(document, _slot(date(2026, 9, 2), "18:30")).announcement.name == "Meeting promo"
+    assert _required_announcement(resolve_slot(document, _slot(date(2026, 9, 2), "18:30"))).name == "Meeting promo"
     assert resolve_slot(document, _slot(date(2026, 9, 2), "19:00")).source == "baseline"
     assert resolve_slot(document, _slot(date(2026, 9, 2), "19:30")).source == "baseline"
     assert "7 days before" in summarize(overlay)
 
 
-def test_monthly_range_skip_month_leaves_baseline():
+def test_monthly_range_skip_month_leaves_baseline() -> None:
     overlay = validate_schedule(
         {
             "name": "Monthly countdown",
@@ -224,7 +241,7 @@ def test_monthly_range_skip_month_leaves_baseline():
     assert resolve_slot(document, _slot(date(2026, 8, 5), "18:30")).source == "baseline"
 
 
-def test_weekly_beats_range_on_the_net_slot():
+def test_weekly_beats_range_on_the_net_slot() -> None:
     document = _doc(
         _ann(id="a1"),
         _ann(id="a2", name="Promo"),
@@ -247,11 +264,11 @@ def test_weekly_beats_range_on_the_net_slot():
     )
     sunday_net = resolve_slot(document, _slot(date(2026, 9, 6), "21:00"))
     sunday_other = resolve_slot(document, _slot(date(2026, 9, 6), "20:00"))
-    assert sunday_net.announcement.name == "Tech Net"
-    assert sunday_other.announcement.name == "Promo"
+    assert _required_announcement(sunday_net).name == "Tech Net"
+    assert _required_announcement(sunday_other).name == "Promo"
 
 
-def test_equal_priority_is_a_conflict():
+def test_equal_priority_is_a_conflict() -> None:
     left = _weekly(id="n1", announcement_id="a2", name="Net A")
     right = _weekly(id="n2", announcement_id="a3", name="Net B")
     document = _doc(
@@ -265,7 +282,7 @@ def test_equal_priority_is_a_conflict():
     assert hits[0]["slot"] == "21:00"
 
 
-def test_silence_occupies_slot_without_announcement():
+def test_silence_occupies_slot_without_announcement() -> None:
     silence = _weekly(id="quiet", announcement_id=None, name="Net in progress", slots=["21:30"])
     document = _doc(_ann(id="a1"), schedules=[_baseline("a1", id="s1"), silence])
     resolved = resolve_slot(document, _slot(date(2026, 9, 6), "21:30"))
@@ -274,7 +291,7 @@ def test_silence_occupies_slot_without_announcement():
     assert "silence" in summarize(silence)
 
 
-def test_emergency_wins_every_slot_until_cleared():
+def test_emergency_wins_every_slot_until_cleared() -> None:
     emergency = validate_schedule(
         {
             "id": "e1",
@@ -291,11 +308,11 @@ def test_emergency_wins_every_slot_until_cleared():
     net_slot = resolve_slot(document, _slot(date(2026, 9, 6), "21:00"))
     random_slot = resolve_slot(document, _slot(date(2026, 9, 1), "03:30"))
     assert net_slot.source == "emergency"
-    assert net_slot.announcement.name == "Skywarn"
+    assert _required_announcement(net_slot).name == "Skywarn"
     assert random_slot.source == "emergency"
 
 
-def test_rotation_does_not_advance_twice_for_the_same_slot():
+def test_rotation_does_not_advance_twice_for_the_same_slot() -> None:
     document = _doc(
         _ann(id="a1"),
         _ann(id="a2", name="Club"),
@@ -309,10 +326,14 @@ def test_rotation_does_not_advance_twice_for_the_same_slot():
     assert (order2, index2) == (order, index)
 
 
-def test_weekly_newsline_overlay_plays_the_newsline_item(monkeypatch):
+def test_weekly_newsline_overlay_plays_the_newsline_item(monkeypatch: pytest.MonkeyPatch) -> None:
+    def available(state: NewsState | None = None) -> None:
+        _ = state
+        return None
+
     monkeypatch.setattr(
         "app.newsline.playlist.newsline_unavailable_reason",
-        lambda state=None: None,
+        available,
     )
     station = _ann(id="sid", name="Station ID")
     news = _ann(
@@ -341,15 +362,20 @@ def test_weekly_newsline_overlay_plays_the_newsline_item(monkeypatch):
     )
     resolved = resolve_slot(document, _slot(date(2026, 10, 26), "17:30"))
     assert resolved.source == "overlay"
-    assert resolved.announcement.id == "news"
-    assert resolved.announcement.name == "News"
+    assert _required_announcement(resolved).id == "news"
+    assert _required_announcement(resolved).name == "News"
+    assert resolved.schedule is not None
     assert resolved.schedule.name == "Newsline Test"
 
 
-def test_unavailable_newsline_overlay_plays_the_baseline_instead(monkeypatch):
+def test_unavailable_newsline_overlay_plays_the_baseline_instead(monkeypatch: pytest.MonkeyPatch) -> None:
+    def unavailable(state: NewsState | None = None) -> str:
+        _ = state
+        return "Newsline is not available"
+
     monkeypatch.setattr(
         "app.newsline.playlist.newsline_unavailable_reason",
-        lambda state=None: "Newsline is not available",
+        unavailable,
     )
     station = _ann(id="sid", name="Station ID")
     news = _ann(
@@ -378,7 +404,7 @@ def test_unavailable_newsline_overlay_plays_the_baseline_instead(monkeypatch):
     )
     resolved = resolve_slot(document, _slot(date(2026, 10, 26), "17:30"))
     assert resolved.announcement is not None
-    assert resolved.announcement.id == "tech"
+    assert _required_announcement(resolved).id == "tech"
     assert resolved.skipped_detail is not None
     assert "Newsline is not available" in resolved.skipped_detail
     assert "Tech Net Pre-Announcement will play instead" in resolved.skipped_detail
@@ -387,7 +413,7 @@ def test_unavailable_newsline_overlay_plays_the_baseline_instead(monkeypatch):
     assert "Newsline is not available" in warning
 
 
-def test_offset_example_is_fifteen_twenty_five_not_fifteen_ten():
+def test_offset_example_is_fifteen_twenty_five_not_fifteen_ten() -> None:
     overlay = validate_schedule(
         {
             "name": "Shifted",
@@ -406,18 +432,18 @@ def test_offset_example_is_fifteen_twenty_five_not_fifteen_ten():
     assert neighbor.fire_at == datetime(2026, 9, 1, 15, 0, tzinfo=TZ)
 
 
-def test_baseline_summary():
+def test_baseline_summary() -> None:
     assert summarize(_baseline("a1")) == "Baseline — every hour and half-hour"
 
 
-def test_weekly_summary_mentions_early():
+def test_weekly_summary_mentions_early() -> None:
     text = summarize(_weekly())
     assert "21:00" in text
     assert "Sundays" in text
     assert "5 minutes early" in text
 
 
-def test_weekly_summary_collapses_contiguous_slots_and_days():
+def test_weekly_summary_collapses_contiguous_slots_and_days() -> None:
     overlay = _weekly(
         announcement_id="a2",
         days=["mon", "tue", "wed"],
@@ -427,7 +453,7 @@ def test_weekly_summary_collapses_contiguous_slots_and_days():
     assert summarize(overlay) == "the 20:00–21:00 slots on Monday–Wednesday"
 
 
-def test_weekly_summary_every_day_and_split_slot_ranges():
+def test_weekly_summary_every_day_and_split_slot_ranges() -> None:
     overlay = _weekly(
         announcement_id="a2",
         days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
@@ -437,12 +463,12 @@ def test_weekly_summary_every_day_and_split_slot_ranges():
     assert summarize(overlay) == "the 08:00–08:30 slots and the 21:00 slot every day"
 
 
-def test_weekly_summary_wraps_weekend_into_a_day_range():
+def test_weekly_summary_wraps_weekend_into_a_day_range() -> None:
     overlay = _weekly(announcement_id="a2", days=["sat", "sun", "mon"], slots=["09:00"], offset_minutes=0)
     assert summarize(overlay) == "the 09:00 slot on Saturday–Monday"
 
 
-def test_slot_phrase_wraps_midnight():
+def test_slot_phrase_wraps_midnight() -> None:
     overlay = _weekly(
         announcement_id="a2",
         days=["fri"],

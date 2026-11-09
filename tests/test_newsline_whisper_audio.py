@@ -3,14 +3,20 @@
 from __future__ import annotations
 
 import wave
+from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
+from numpy.typing import NDArray
 
-from app.newsline.engine.transcribe import _words_from_model, pcm_float32_from_wav
+from app.newsline.engine.transcribe import pcm_float32_from_wav, words_from_model
+
+if TYPE_CHECKING:
+    from faster_whisper import WhisperModel
 
 
-def _write_mono16_wav(path, *, samples: bytes, rate: int = 16000) -> None:
+def _write_mono16_wav(path: Path, *, samples: bytes, rate: int = 16000) -> None:
     with wave.open(str(path), "wb") as w:
         w.setnchannels(1)
         w.setsampwidth(2)
@@ -18,7 +24,7 @@ def _write_mono16_wav(path, *, samples: bytes, rate: int = 16000) -> None:
         w.writeframes(samples)
 
 
-def test_pcm_float32_from_wav_scales_int16(tmp_path):
+def test_pcm_float32_from_wav_scales_int16(tmp_path: Path) -> None:
     wav = tmp_path / "tone.wav"
     _write_mono16_wav(wav, samples=np.array([0, 16384, -32768], dtype="<i2").tobytes())
     pcm = pcm_float32_from_wav(wav)
@@ -26,28 +32,31 @@ def test_pcm_float32_from_wav_scales_int16(tmp_path):
     assert pcm.tolist() == [0.0, 0.5, -1.0]
 
 
-def test_words_from_model_passes_ndarray_not_path(tmp_path):
+def test_words_from_model_passes_ndarray_not_path(tmp_path: Path) -> None:
     wav = tmp_path / "clip.wav"
     _write_mono16_wav(wav, samples=b"\x00\x00" * 160)
 
     class FakeWord:
-        word = "hello"
-        start = 0.0
-        end = 0.1
+        word: str = "hello"
+        start: float = 0.0
+        end: float = 0.1
 
     class FakeSeg:
-        words = [FakeWord()]
-        text = "hello"
-        start = 0.0
-        end = 0.1
+        words: list[FakeWord] = [FakeWord()]
+        text: str = "hello"
+        start: float = 0.0
+        end: float = 0.1
 
     received: dict[str, object] = {}
 
-    def transcribe(audio, **_kwargs):
+    def transcribe(
+        audio: NDArray[np.float32], **_kwargs: object
+    ) -> tuple[list[FakeSeg], None]:
         received["audio"] = audio
         return [FakeSeg()], None
 
-    words = _words_from_model(SimpleNamespace(transcribe=transcribe), wav)
+    model = cast("WhisperModel", cast(object, SimpleNamespace(transcribe=transcribe)))
+    words = words_from_model(model, wav)
     audio = received["audio"]
     assert isinstance(audio, np.ndarray)
     assert audio.dtype == np.float32

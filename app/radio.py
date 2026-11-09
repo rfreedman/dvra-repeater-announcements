@@ -14,7 +14,10 @@ from typing import Protocol, runtime_checkable
 from app.audio import PcmChunk
 from app.config import DRA_COS_LINE, DRA_USB_CHANNEL, PTT_LEAD_SECONDS, radio_backend
 from app.playback import play_chunks
-from app.radio_errors import ChannelBusyError, TransmitAbortError
+from app.radio_errors import (
+    ChannelBusyError as ChannelBusyError,
+    TransmitAbortError as TransmitAbortError,
+)
 
 log = logging.getLogger("app.radio")
 
@@ -173,6 +176,9 @@ class StubRadio:
         self.ptt = False
         self.events = []
         self.busy_sequence = None
+        self._busy_index = 0
+
+    def restart_busy_sequence(self) -> None:
         self._busy_index = 0
 
     def channel_busy(self) -> bool:

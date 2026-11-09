@@ -10,7 +10,8 @@ from unittest.mock import patch
 
 from app.newsline.engine.models import Boundary, Segment, SegmentKind
 from app.newsline.engine.split import (
-    _remove_unplanned_mp3s,
+    ExportSlot,
+    remove_unplanned_mp3s,
     plan_export_slots,
     slice_audio,
 )
@@ -105,10 +106,10 @@ class RemoveUnplannedMp3sTest(unittest.TestCase):
             keep = out / "2540_01_intro.mp3"
             stale = out / "2540_07_old_story.mp3"
             notes = out / "run_summary.txt"
-            keep.write_bytes(b"keep")
-            stale.write_bytes(b"stale")
-            notes.write_text("keep me", encoding="utf-8")
-            removed = _remove_unplanned_mp3s(out, {keep})
+            _ = keep.write_bytes(b"keep")
+            _ = stale.write_bytes(b"stale")
+            _ = notes.write_text("keep me", encoding="utf-8")
+            removed = remove_unplanned_mp3s(out, {keep})
             self.assertEqual(removed, 1)
             self.assertTrue(keep.is_file())
             self.assertFalse(stale.exists())
@@ -116,7 +117,7 @@ class RemoveUnplannedMp3sTest(unittest.TestCase):
 
 
 class SliceAudioCleanupTest(unittest.TestCase):
-    def _slots(self, output_dir: Path) -> list:
+    def _slots(self, output_dir: Path) -> list[ExportSlot]:
         segments, boundaries = _episode()
         return plan_export_slots(
             output_dir, 2540, boundaries, segments, repeater_timeout=0
@@ -130,9 +131,9 @@ class SliceAudioCleanupTest(unittest.TestCase):
             previous = b"previous"
             for slot in slots:
                 if not slot.is_station_id:
-                    slot.path.write_bytes(previous)
+                    _ = slot.path.write_bytes(previous)
             stale = out / "2540_99_old_plan.mp3"
-            stale.write_bytes(b"stale")
+            _ = stale.write_bytes(b"stale")
             rewritten = next(
                 slot
                 for slot in slots
@@ -148,13 +149,13 @@ class SliceAudioCleanupTest(unittest.TestCase):
                 reencode: bool,
             ) -> None:
                 del audio_path, start, end, reencode
-                out_path.write_bytes(b"rewritten")
+                _ = out_path.write_bytes(b"rewritten")
 
             with patch(
                 "app.newsline.engine.split._ffmpeg_slice",
                 side_effect=_fake_ffmpeg,
             ) as ffmpeg:
-                slice_audio(
+                _ = slice_audio(
                     Path("audio/Report2540.mp3"),
                     boundaries,
                     out,
@@ -180,11 +181,11 @@ class SliceAudioCleanupTest(unittest.TestCase):
             slots = self._slots(out)
             previous = b"previous"
             for slot in slots:
-                slot.path.write_bytes(previous)
+                _ = slot.path.write_bytes(previous)
             stale = out / "2540_99_old_plan.mp3"
-            stale.write_bytes(b"stale")
+            _ = stale.write_bytes(b"stale")
             notes = out / "run_summary.txt"
-            notes.write_text("keep me", encoding="utf-8")
+            _ = notes.write_text("keep me", encoding="utf-8")
 
             def _fail(
                 audio_path: Path,
@@ -204,7 +205,7 @@ class SliceAudioCleanupTest(unittest.TestCase):
                 ),
                 self.assertRaises(RuntimeError),
             ):
-                slice_audio(
+                _ = slice_audio(
                     Path("audio/Report2540.mp3"),
                     boundaries,
                     out,
@@ -223,4 +224,4 @@ class SliceAudioCleanupTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    _ = unittest.main()

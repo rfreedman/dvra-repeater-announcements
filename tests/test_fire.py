@@ -1,111 +1,26 @@
 from __future__ import annotations
 
 import logging
-import threading
-from datetime import datetime, timedelta
-from typing import Literal
-from zoneinfo import ZoneInfo
+from collections.abc import Iterable, Iterator
+from datetime import timedelta
+
+import pytest
 
 from app.audio import PcmChunk
-from app.fire import FireContext, FireDeps, LoadedFire, handle_fire
-from app.models import parse_announcement as Announcement, Schedule, parse_schedule
+from app.fire import handle_fire
+from app.models import Announcement, parse_schedule
 from app.radio import StubRadio, transmit
-
-TZ = ZoneInfo("America/New_York")
-NOW = datetime(2026, 8, 27, 12, 0, tzinfo=TZ)
+from tests.fire_helpers import NOW, make_announcement, make_ctx, make_deps
 
 
-def _announcement(**kwargs) -> Announcement:
-    data = {
-        "id": "ann1",
-        "name": "ID",
-        "text": "This is a test.",
-        "busy_retry_seconds": 5,
-        "busy_give_up_seconds": 45,
-    }
-    data.update(kwargs)
-    return Announcement(**data)
-
-
-def _schedule(**kwargs) -> Schedule:
-    return parse_schedule(
-        {
-            "id": "sched1",
-            "name": "Baseline ID",
-            "kind": "baseline",
-            "announcement_id": "ann1",
-            **kwargs,
-        }
-    )
-
-
-def _deps(announcement: Announcement, radio: StubRadio, schedule: Schedule | None = None, **overrides) -> tuple:
-    played: list[str] = []
-    slept: list[float] = []
-    deferred: list[tuple] = []
-    last_runs: list[tuple] = []
-    consumed: list[tuple] = []
-    lock = threading.Lock()
-    row = schedule or _schedule()
-
-    def play(_chunks) -> None:
-        played.append("play")
-
-    def sleep(seconds: float) -> None:
-        slept.append(seconds)
-
-    def defer(when: datetime, ctx: FireContext) -> None:
-        deferred.append((when, ctx))
-
-    def load():
-        return LoadedFire(announcement=announcement, schedule=row, silence=row.is_silence)
-
-    def synthesize(_item):
-        return [PcmChunk(pcm_int16=b"\x00\x00", sample_rate=22050)]
-
-    deps = FireDeps(
-        now=NOW,
-        radio=radio,
-        play_fn=play,
-        sleep_fn=sleep,
-        schedule_defer=defer,
-        playback_lock=lock,
-        synthesize=synthesize,
-        mark_last_run=lambda a, s, t: last_runs.append((a, s, t)),
-        consume_baseline=lambda sid, key: consumed.append((sid, key)),
-        load=load,
-        ptt_lead_seconds=0.4,
-    )
-    extras = {
-        "played": played,
-        "slept": slept,
-        "deferred": deferred,
-        "last_runs": last_runs,
-        "consumed": consumed,
-        "lock": lock,
-    }
-    for key, value in overrides.items():
-        setattr(deps, key, value)
-    return deps, extras
-
-
-def _ctx(*, trigger: Literal["scheduled", "manual"] = "scheduled") -> FireContext:
-    return FireContext(
-        announcement_id="ann1",
-        schedule_id="sched1",
-        slot_key="2026-08-27T12:00",
-        fired_at=NOW,
-        deadline=NOW + timedelta(seconds=45),
-        trigger=trigger,
-    )
-
-
-def test_clear_channel_keys_ptt_waits_lead_plays_and_unkeys(caplog):
+def test_clear_channel_keys_ptt_waits_lead_plays_and_unkeys(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     radio = StubRadio()
-    announcement = _announcement()
-    deps, extras = _deps(announcement, radio)
+    announcement = make_announcement()
+    deps, extras = make_deps(announcement, radio)
     with caplog.at_level(logging.INFO, logger="app.fire"):
-        assert handle_fire(_ctx(), deps) == "transmitted"
+        assert handle_fire(make_ctx(), deps) == "transmitted"
     assert extras["slept"] == [0.4]
     assert extras["played"] == ["play"]
     assert extras["last_runs"]
@@ -124,12 +39,12 @@ def test_clear_channel_keys_ptt_waits_lead_plays_and_unkeys(caplog):
     )
 
 
-def test_manual_trigger_logged_as_manual(caplog):
+def test_manual_trigger_logged_as_manual(caplog: pytest.LogCaptureFixture) -> None:
     radio = StubRadio()
-    announcement = _announcement()
-    deps, _extras = _deps(announcement, radio)
+    announcement = make_announcement()
+    deps, _extras = make_deps(announcement, radio)
     with caplog.at_level(logging.INFO, logger="app.fire"):
-        assert handle_fire(_ctx(trigger="manual"), deps) == "transmitted"
+        assert handle_fire(make_ctx(trigger="manual"), deps) == "transmitted"
     assert (
         "Fire started; trigger=manual; schedule=Baseline ID; announcement=ID"
         in caplog.text
@@ -140,25 +55,40 @@ def test_manual_trigger_logged_as_manual(caplog):
     )
 
 
-def test_set_running_hooks_around_playback():
+def test_set_running_hooks_around_playback() -> None:
     radio = StubRadio()
-    announcement = _announcement()
-    deps, extras = _deps(announcement, radio)
+    announcement = make_announcement()
+    deps, extras = make_deps(announcement, radio)
     seen: list[str] = []
-    deps.set_running = lambda _item, _sid: seen.append("start")
+
+    def set_running(
+        announcement: Announcement,
+        schedule_id: str,
+        *,
+        piece_label: str | None = None,
+        story_index: int | None = None,
+        story_total: int | None = None,
+    ) -> None:
+        _ = (announcement, schedule_id, piece_label, story_index, story_total)
+        seen.append("start")
+
+    deps.set_running = set_running
     deps.clear_running = lambda: seen.append("end")
-    assert handle_fire(_ctx(), deps) == "transmitted"
+    assert handle_fire(make_ctx(), deps) == "transmitted"
     assert seen == ["start", "end"]
+    assert extras["played"] == ["play"]
 
 
-def test_fire_renders_pcm_before_keying_ptt():
+def test_fire_renders_pcm_before_keying_ptt() -> None:
     radio = StubRadio()
-    announcement = _announcement()
-    deps, extras = _deps(announcement, radio)
+    announcement = make_announcement()
+    deps, extras = make_deps(announcement, radio)
     events: list[str] = []
+    played = extras["played"]
+    assert isinstance(played, list)
 
-    def synthesize(_item):
-        def gen():
+    def synthesize(_item: Announcement) -> Iterator[PcmChunk]:
+        def gen() -> Iterator[PcmChunk]:
             events.append("synth")
             yield PcmChunk(pcm_int16=b"\x00\x00", sample_rate=22050)
             events.append("pause")
@@ -168,56 +98,68 @@ def test_fire_renders_pcm_before_keying_ptt():
 
         return gen()
 
-    def play(chunks) -> None:
+    def play(chunks: Iterable[PcmChunk]) -> None:
         events.append("play")
-        extras["played"].append("play")
+        played.append("play")
         assert list(chunks)
 
     deps.synthesize = synthesize
     deps.play_fn = play
-    assert handle_fire(_ctx(), deps) == "transmitted"
+    assert handle_fire(make_ctx(), deps) == "transmitted"
     assert events == ["synth", "pause", "synth2", "play"]
     ptt_on = next(i for i, event in enumerate(radio.events) if event == ("ptt", True))
     assert events.index("synth2") < events.index("play")
     assert radio.events[ptt_on:][0] == ("ptt", True)
 
 
-def test_manual_fire_does_not_update_last_run_or_rotation():
+def test_manual_fire_does_not_update_last_run_or_rotation() -> None:
     radio = StubRadio()
-    announcement = _announcement()
-    deps, extras = _deps(announcement, radio)
+    announcement = make_announcement()
+    deps, extras = make_deps(announcement, radio)
     deps.update_schedule = False
-    assert handle_fire(_ctx(), deps) == "transmitted"
+    assert handle_fire(make_ctx(), deps) == "transmitted"
     assert extras["played"] == ["play"]
     assert extras["last_runs"] == []
     assert extras["consumed"] == []
     assert ("ptt", True) in radio.events
 
 
-def test_set_running_not_called_when_busy():
+def test_set_running_not_called_when_busy() -> None:
     radio = StubRadio()
     radio.busy = True
-    announcement = _announcement()
-    deps, extras = _deps(announcement, radio)
+    announcement = make_announcement()
+    deps, extras = make_deps(announcement, radio)
     seen: list[str] = []
-    deps.set_running = lambda _item, _sid: seen.append("start")
+
+    def set_running(
+        announcement: Announcement,
+        schedule_id: str,
+        *,
+        piece_label: str | None = None,
+        story_index: int | None = None,
+        story_total: int | None = None,
+    ) -> None:
+        _ = (announcement, schedule_id, piece_label, story_index, story_total)
+        seen.append("start")
+
+    deps.set_running = set_running
     deps.clear_running = lambda: seen.append("end")
-    assert handle_fire(_ctx(), deps) == "deferred"
+    assert handle_fire(make_ctx(), deps) == "deferred"
     assert seen == []
     assert extras["consumed"] == []
 
 
-def test_play_error_still_unkeys_ptt():
+def test_play_error_still_unkeys_ptt() -> None:
     radio = StubRadio()
-    announcement = _announcement()
-    deps, extras = _deps(announcement, radio)
+    announcement = make_announcement()
+    deps, extras = make_deps(announcement, radio)
 
-    def boom(_chunks) -> None:
+    def boom(_chunks: Iterable[PcmChunk]) -> None:
         raise RuntimeError("speaker failed")
 
     deps.play_fn = boom
     try:
-        handle_fire(_ctx(), deps)
+        _ = handle_fire(make_ctx(), deps)
     except RuntimeError:
         pass
     assert ("ptt", True) in radio.events
@@ -227,9 +169,9 @@ def test_play_error_still_unkeys_ptt():
     assert extras["consumed"] == []
 
 
-def test_silence_does_not_key_or_play(caplog):
+def test_silence_does_not_key_or_play(caplog: pytest.LogCaptureFixture) -> None:
     radio = StubRadio()
-    announcement = _announcement()
+    announcement = make_announcement()
     schedule = parse_schedule(
         {
             "id": "quiet",
@@ -240,9 +182,9 @@ def test_silence_does_not_key_or_play(caplog):
             "announcement_id": None,
         }
     )
-    deps, extras = _deps(announcement, radio, schedule=schedule)
+    deps, extras = make_deps(announcement, radio, schedule=schedule)
     with caplog.at_level(logging.INFO, logger="app.fire"):
-        assert handle_fire(_ctx(), deps) == "silence"
+        assert handle_fire(make_ctx(), deps) == "silence"
     assert extras["played"] == []
     assert extras["last_runs"]
     assert extras["consumed"] == []
@@ -250,9 +192,9 @@ def test_silence_does_not_key_or_play(caplog):
     assert "silence occupies slot" in caplog.text
 
 
-def test_overlay_transmit_does_not_consume_baseline():
+def test_overlay_transmit_does_not_consume_baseline() -> None:
     radio = StubRadio()
-    announcement = _announcement(name="Tech Net")
+    announcement = make_announcement(name="Tech Net")
     schedule = parse_schedule(
         {
             "id": "net",
@@ -264,24 +206,28 @@ def test_overlay_transmit_does_not_consume_baseline():
             "announcement_id": "net1",
         }
     )
-    deps, extras = _deps(announcement, radio, schedule=schedule)
-    assert handle_fire(_ctx(), deps) == "transmitted"
+    deps, extras = make_deps(announcement, radio, schedule=schedule)
+    assert handle_fire(make_ctx(), deps) == "transmitted"
     assert extras["consumed"] == []
 
 
-def test_busy_then_clear_defers_without_writing_last_run(caplog):
+def test_busy_then_clear_defers_without_writing_last_run(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     radio = StubRadio()
     radio.busy = True
-    announcement = _announcement()
-    deps, extras = _deps(announcement, radio)
+    announcement = make_announcement()
+    deps, extras = make_deps(announcement, radio)
     with caplog.at_level(logging.INFO, logger="app.fire"):
-        assert handle_fire(_ctx(), deps) == "deferred"
+        assert handle_fire(make_ctx(), deps) == "deferred"
     assert extras["deferred"]
     assert extras["played"] == []
     assert extras["last_runs"] == []
     assert extras["consumed"] == []
     assert not any(event[0] == "ptt" for event in radio.events)
-    retry_at, ctx = extras["deferred"][0]
+    deferred = extras["deferred"]
+    assert isinstance(deferred, list)
+    retry_at, ctx = deferred[0]
     assert ctx.fired_at == NOW
     assert retry_at == NOW + timedelta(seconds=5)
     assert (
@@ -290,12 +236,12 @@ def test_busy_then_clear_defers_without_writing_last_run(caplog):
     )
 
 
-def test_busy_past_deadline_drops_without_ptt(caplog):
+def test_busy_past_deadline_drops_without_ptt(caplog: pytest.LogCaptureFixture) -> None:
     radio = StubRadio()
     radio.busy = True
-    announcement = _announcement()
-    deps, extras = _deps(announcement, radio)
-    ctx = _ctx()
+    announcement = make_announcement()
+    deps, extras = make_deps(announcement, radio)
+    ctx = make_ctx()
     ctx.deadline = NOW
     deps.now = NOW + timedelta(seconds=1)
     with caplog.at_level(logging.INFO, logger="app.fire"):
@@ -305,11 +251,11 @@ def test_busy_past_deadline_drops_without_ptt(caplog):
     assert not any(event[0] == "ptt" for event in radio.events)
     assert (
         "Fire dropped; trigger=scheduled; schedule=Baseline ID; announcement=ID; "
-        "channel still busy" in caplog.text
-    )
+        "channel still busy"
+    ) in caplog.text
 
 
-def test_transmit_uses_injected_lead_not_announcement():
+def test_transmit_uses_injected_lead_not_announcement() -> None:
     radio = StubRadio()
     radio.busy = False
     slept: list[float] = []

@@ -1,16 +1,24 @@
 """Manual trigger give-up exposes a dismissible UI notice."""
 from __future__ import annotations
 
+import pytest
+from fastapi.testclient import TestClient
+
+from app.fire_types import FireContext, FireDeps, FireOutcome
 from app.manual_trigger_state import (
     clear_manual_trigger_drop_notice,
     peek_manual_trigger_drop_notice,
     record_manual_trigger_drop,
 )
+from app.radio import StubRadio
 from app.scheduler import run_manual_trigger
-from tests.test_api import _seed_baseline
+from app.store import AnnouncementStore
+from app.users import User
+from tests.test_api import seed_baseline
+from tests.jsonutil import json_dict
 
 
-def test_usb_loss_drop_notice_detail():
+def test_usb_loss_drop_notice_detail() -> None:
     clear_manual_trigger_drop_notice()
     record_manual_trigger_drop(
         "sched-usb",
@@ -23,14 +31,18 @@ def test_usb_loss_drop_notice_detail():
     clear_manual_trigger_drop_notice()
 
 
-def test_manual_trigger_usb_drop_maps_notice(monkeypatch, radio, store):
-    from app.fire import FireOutcome
+def test_manual_trigger_usb_drop_maps_notice(monkeypatch: pytest.MonkeyPatch, radio: StubRadio, store: AnnouncementStore) -> None:
+    _ = radio
 
-    _announcement, schedule = _seed_baseline(store)
+    _announcement, schedule = seed_baseline(store)
     clear_manual_trigger_drop_notice()
+
+    def drop_for_usb(_ctx: FireContext, _deps: FireDeps) -> FireOutcome:
+        return FireOutcome.DROPPED_USB
+
     monkeypatch.setattr(
         "app.scheduler_fire.handle_fire",
-        lambda *_a, **_k: FireOutcome.DROPPED_USB,
+        drop_for_usb,
     )
     result = run_manual_trigger(schedule.id)
     assert result == "dropped"
@@ -41,7 +53,7 @@ def test_manual_trigger_usb_drop_maps_notice(monkeypatch, radio, store):
     clear_manual_trigger_drop_notice()
 
 
-def test_record_and_peek_manual_drop_notice():
+def test_record_and_peek_manual_drop_notice() -> None:
     clear_manual_trigger_drop_notice()
     assert peek_manual_trigger_drop_notice() is None
     record_manual_trigger_drop(
@@ -58,9 +70,12 @@ def test_record_and_peek_manual_drop_notice():
     assert peek_manual_trigger_drop_notice() is None
 
 
-def test_run_manual_trigger_drop_records_notice(radio, store, monkeypatch):
-    monkeypatch.setattr("app.scheduler_fire.time.sleep", lambda _seconds: None)
-    _announcement, schedule = _seed_baseline(store)
+def test_run_manual_trigger_drop_records_notice(radio: StubRadio, store: AnnouncementStore, monkeypatch: pytest.MonkeyPatch) -> None:
+    def no_sleep(_seconds: float) -> None:
+        return
+
+    monkeypatch.setattr("app.scheduler_fire.time.sleep", no_sleep)
+    _announcement, schedule = seed_baseline(store)
     radio.busy = True
     clear_manual_trigger_drop_notice()
     from datetime import datetime, timedelta
@@ -82,17 +97,20 @@ def test_run_manual_trigger_drop_records_notice(radio, store, monkeypatch):
     clear_manual_trigger_drop_notice()
 
 
-def test_api_includes_drop_notice_and_dismiss(client, store, admin_user):
+def test_api_includes_drop_notice_and_dismiss(client: TestClient, store: AnnouncementStore, admin_user: User) -> None:
+    _ = store
+    _ = admin_user
     record_manual_trigger_drop(
         "x",
         announcement_name="Test ID",
         reason="give_up",
     )
-    payload = client.get("/api/schedules").json()
-    assert payload["manual_trigger_drop_notice"] is not None
-    assert payload["manual_trigger_drop_notice"]["announcement_name"] == "Test ID"
+    payload = json_dict(client.get("/api/schedules"))
+    notice = payload["manual_trigger_drop_notice"]
+    assert isinstance(notice, dict)
+    assert notice["announcement_name"] == "Test ID"
     res = client.post("/api/manual-trigger-drop/dismiss")
     assert res.status_code == 200
-    payload = client.get("/api/schedules").json()
+    payload = json_dict(client.get("/api/schedules"))
     assert payload["manual_trigger_drop_notice"] is None
     clear_manual_trigger_drop_notice()

@@ -282,7 +282,7 @@ def _ffmpeg_slice(
     _ = subprocess.run(cmd, check=True)
 
 
-def _remove_unplanned_mp3s(output_dir: Path, planned: set[Path]) -> int:
+def remove_unplanned_mp3s(output_dir: Path, planned: set[Path]) -> int:
     """Delete MP3s in ``output_dir`` that are not part of the current slot plan."""
     planned_resolved = {path.resolve() for path in planned}
     removed = 0
@@ -384,7 +384,7 @@ def slice_audio(
 
     # Only after a complete full export, so a failed ffmpeg run keeps the previous set.
     if only_segment_indices is None:
-        removed = _remove_unplanned_mp3s(output_dir, {slot.path for slot in slots})
+        removed = remove_unplanned_mp3s(output_dir, {slot.path for slot in slots})
         if removed:
             log(f"  removed {removed} MP3(s) not in the current export plan")
 

@@ -5,25 +5,20 @@ from __future__ import annotations
 from app.dra_portaudio import refresh_portaudio_device_list
 
 
-def test_refresh_portaudio_noop_off_linux(monkeypatch):
+import pytest
+def test_refresh_portaudio_noop_off_linux(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[str] = []
     monkeypatch.setattr("app.dra_portaudio.sys.platform", "darwin")
 
-    class FakeSd:
-        @staticmethod
-        def _terminate() -> None:
-            calls.append("term")
+    def terminate() -> None:
+        calls.append("term")
 
-        @staticmethod
-        def _initialize() -> None:
-            calls.append("init")
-
-    monkeypatch.setattr("sounddevice._terminate", FakeSd._terminate, raising=False)
+    monkeypatch.setattr("sounddevice._terminate", terminate, raising=False)
     refresh_portaudio_device_list()
     assert calls == []
 
 
-def test_refresh_portaudio_reinits_on_linux(monkeypatch):
+def test_refresh_portaudio_reinits_on_linux(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[str] = []
     monkeypatch.setattr("app.dra_portaudio.sys.platform", "linux")
 

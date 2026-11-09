@@ -7,35 +7,42 @@ import time
 
 from fastapi.testclient import TestClient
 
+from app.registry import EngineRegistry
 from app.server import app
+from tests.jsonutil import json_dict
 
 
-def test_ready_endpoint_when_sync_startup(client):
+import pytest
+def test_ready_endpoint_when_sync_startup(client: TestClient) -> None:
     res = client.get("/api/ready")
     assert res.status_code == 200
-    assert res.json() == {"ready": True}
+    assert json_dict(res) == {"ready": True}
 
 
-def test_api_returns_503_until_background_startup(monkeypatch):
+def test_api_returns_503_until_background_startup(monkeypatch: pytest.MonkeyPatch) -> None:
     gate = threading.Event()
 
-    def slow_preload(self):
-        gate.wait(timeout=10)
+    def slow_preload(self: EngineRegistry) -> list[str]:
+        _ = self
+        _ = gate.wait(timeout=10)
         return []
 
+    def async_startup() -> bool:
+        return False
+
     monkeypatch.setattr("app.registry.EngineRegistry.preload", slow_preload)
-    monkeypatch.setattr("app.server._sync_startup_for_tests", lambda: False)
+    monkeypatch.setattr("app.server._sync_startup_for_tests", async_startup)
 
     with TestClient(app) as test_client:
         assert test_client.get("/").status_code == 200
-        assert test_client.get("/api/ready").json() == {"ready": False}
+        assert json_dict(test_client.get("/api/ready")) == {"ready": False}
         blocked = test_client.get("/api/auth/status")
         assert blocked.status_code == 503
-        assert blocked.json()["detail"] == "starting"
+        assert json_dict(blocked)["detail"] == "starting"
         gate.set()
         deadline = time.monotonic() + 15
         while time.monotonic() < deadline:
-            if test_client.get("/api/ready").json().get("ready"):
+            if json_dict(test_client.get("/api/ready")).get("ready"):
                 break
             time.sleep(0.05)
         else:

@@ -36,6 +36,9 @@ def _close_sse_before_uvicorn_waits() -> None:
     shutdown_sse_streams()
 
 
+close_sse_before_uvicorn_waits = _close_sse_before_uvicorn_waits
+
+
 def install_uvicorn_sse_shutdown_hook() -> None:
     global _patched
     if _patched:

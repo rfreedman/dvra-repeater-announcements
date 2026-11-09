@@ -1,54 +1,96 @@
 from __future__ import annotations
 
-import json
+import tomllib
 from datetime import date, datetime
+from typing import cast
 
 import pytest
+from fastapi.testclient import TestClient
 
 from app.audio import PcmChunk
-from app.models import BaselineSchedule, TtsAnnouncement, validate_schedule
+from app.models import (
+    Announcement,
+    BaselineSchedule,
+    TtsAnnouncement,
+    validate_schedule,
+)
 from app.radio import StubRadio, set_radio
-from app.store import DataFileError
+from app.store import AnnouncementStore, DataFileError
+from tests.jsonutil import json_dict
 
 
-def _seed_baseline(store, name="Station ID"):
+def _dict(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise AssertionError("expected JSON object")
+    return cast(dict[str, object], value)
+
+
+def _dict_list(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        raise AssertionError("expected a list of JSON objects")
+    items = cast(list[object], value)
+    if not all(isinstance(item, dict) for item in items):
+        raise AssertionError("expected a list of JSON objects")
+    return cast(list[dict[str, object]], items)
+
+
+def _toml(text: str) -> dict[str, object]:
+    body: object = tomllib.loads(text)
+    return _dict(body)
+
+
+def seed_baseline(
+    store: AnnouncementStore, name: str = "Station ID"
+) -> tuple[TtsAnnouncement, BaselineSchedule]:
     announcement = store.save_announcement(TtsAnnouncement(name=name, text="This is the ID."))
+    assert isinstance(announcement, TtsAnnouncement)
     schedule = store.save_schedule(
         BaselineSchedule(name="Baseline ID", announcement_id=announcement.id)
     )
+    assert isinstance(schedule, BaselineSchedule)
     return announcement, schedule
 
 
-def test_unversioned_json_is_refused_not_overwritten(store):
+def test_unversioned_json_is_refused_not_overwritten(store: AnnouncementStore) -> None:
     legacy = '{"announcements": [{"id": "old", "name": "Legacy", "text": "gone", "schedules": []}]}\n'
-    store.path.write_text(legacy, encoding="utf-8")
+    _ = store.path.write_text(legacy, encoding="utf-8")
     with pytest.raises(DataFileError):
-        store.list_announcements()
+        _ = store.list_announcements()
     with pytest.raises(DataFileError):
-        store.save_announcement(TtsAnnouncement(name="New", text="Hello"))
+        _ = store.save_announcement(TtsAnnouncement(name="New", text="Hello"))
     assert store.path.read_text(encoding="utf-8") == legacy
 
 
-def test_empty_json_file_is_an_empty_store(store):
-    store.path.write_text("{}\n", encoding="utf-8")
+def test_empty_json_file_is_an_empty_store(store: AnnouncementStore) -> None:
+    _ = store.path.write_text("{}\n", encoding="utf-8")
     assert store.list_announcements() == []
 
 
-def test_empty_store_lists_nothing(client, store):
-    payload = client.get("/api/schedules").json()
+def test_empty_store_lists_nothing(client: TestClient, store: AnnouncementStore) -> None:
+    _ = store
+    payload = json_dict(client.get("/api/schedules"))
     assert payload["schedules"] == []
     assert payload["upcoming"] is None
     assert payload["clock"]
-    assert any("baseline" in item.lower() for item in payload["warnings"])
+    warnings = payload["warnings"]
+    assert isinstance(warnings, list)
+    warning_values = cast(list[object], warnings)
+    assert any(
+        isinstance(item, str) and "baseline" in item.lower()
+        for item in warning_values
+    )
 
-def test_create_announcement_and_baseline(client, store):
+def test_create_announcement_and_baseline(client: TestClient, store: AnnouncementStore) -> None:
+    _ = store
     created = client.post(
         "/api/announcements",
         json={"name": "Station ID", "text": "This is w2-zee-q."},
     )
     assert created.status_code == 200
-    announcement_id = created.json()["id"]
-    assert "schedules" not in created.json()
+    created_body = json_dict(created)
+    announcement_id = created_body["id"]
+    assert isinstance(announcement_id, str)
+    assert "schedules" not in created_body
     scheduled = client.post(
         "/api/schedules",
         json={
@@ -58,14 +100,17 @@ def test_create_announcement_and_baseline(client, store):
         },
     )
     assert scheduled.status_code == 200
-    listed = client.get("/api/schedules").json()
-    assert listed["schedules"][0]["kind"] == "baseline"
-    assert listed["upcoming"]["announcement_name"] == "Station ID"
-    assert listed["clock"][0]["source"] == "baseline"
+    listed = json_dict(client.get("/api/schedules"))
+    schedules = _dict_list(listed["schedules"])
+    upcoming = _dict(listed["upcoming"])
+    clock = _dict_list(listed["clock"])
+    assert schedules[0]["kind"] == "baseline"
+    assert upcoming["announcement_name"] == "Station ID"
+    assert clock[0]["source"] == "baseline"
 
 
-def test_same_text_can_be_baseline_and_overlay(client, store):
-    announcement, _baseline = _seed_baseline(store)
+def test_same_text_can_be_baseline_and_overlay(client: TestClient, store: AnnouncementStore) -> None:
+    announcement, _baseline = seed_baseline(store)
     overlay = client.post(
         "/api/schedules",
         json={
@@ -78,13 +123,13 @@ def test_same_text_can_be_baseline_and_overlay(client, store):
         },
     )
     assert overlay.status_code == 200
-    listed = client.get("/api/schedules").json()["schedules"]
+    listed = _dict_list(json_dict(client.get("/api/schedules"))["schedules"])
     assert len(listed) == 2
     assert {row["kind"] for row in listed} == {"baseline", "weekly"}
 
 
-def test_home_when_column_collapses_contiguous_slots_and_days(client, store):
-    announcement, _baseline = _seed_baseline(store)
+def test_home_when_column_collapses_contiguous_slots_and_days(client: TestClient, store: AnnouncementStore) -> None:
+    announcement, _baseline = seed_baseline(store)
     created = client.post(
         "/api/schedules",
         json={
@@ -96,13 +141,13 @@ def test_home_when_column_collapses_contiguous_slots_and_days(client, store):
         },
     )
     assert created.status_code == 200
-    rows = client.get("/api/schedules").json()["schedules"]
+    rows = _dict_list(json_dict(client.get("/api/schedules"))["schedules"])
     drive = next(row for row in rows if row["name"] == "Drive time")
     assert drive["summary"] == "the 07:00–08:00 slots and the 17:00 slot on Monday–Friday"
 
 
-def test_home_when_column_says_every_day(client, store):
-    announcement, _baseline = _seed_baseline(store)
+def test_home_when_column_says_every_day(client: TestClient, store: AnnouncementStore) -> None:
+    announcement, _baseline = seed_baseline(store)
     created = client.post(
         "/api/schedules",
         json={
@@ -115,13 +160,13 @@ def test_home_when_column_says_every_day(client, store):
         },
     )
     assert created.status_code == 200
-    rows = client.get("/api/schedules").json()["schedules"]
+    rows = _dict_list(json_dict(client.get("/api/schedules"))["schedules"])
     daily = next(row for row in rows if row["name"] == "Daily ID extra")
     assert daily["summary"] == "the 12:00 slot every day"
 
 
-def test_duplicate_baseline_announcement_is_conflict(client, store):
-    announcement, _baseline = _seed_baseline(store)
+def test_duplicate_baseline_announcement_is_conflict(client: TestClient, store: AnnouncementStore) -> None:
+    announcement, _baseline = seed_baseline(store)
     res = client.post(
         "/api/schedules",
         json={
@@ -131,11 +176,11 @@ def test_duplicate_baseline_announcement_is_conflict(client, store):
         },
     )
     assert res.status_code == 409
-    assert "already in the baseline pool" in res.json()["detail"]
+    assert "already in the baseline pool" in str(json_dict(res)["detail"])
 
 
-def test_equal_priority_overlays_conflict(client, store):
-    announcement, _baseline = _seed_baseline(store)
+def test_equal_priority_overlays_conflict(client: TestClient, store: AnnouncementStore) -> None:
+    announcement, _baseline = seed_baseline(store)
     extra = store.save_announcement(TtsAnnouncement(name="Other", text="Other text."))
     first = client.post(
         "/api/schedules",
@@ -159,11 +204,11 @@ def test_equal_priority_overlays_conflict(client, store):
         },
     )
     assert second.status_code == 409
-    assert "Conflicts with Net A" in second.json()["detail"]
+    assert "Conflicts with Net A" in str(json_dict(second)["detail"])
 
 
-def test_cannot_delete_announcement_in_use(client, store):
-    announcement, _baseline = _seed_baseline(store)
+def test_cannot_delete_announcement_in_use(client: TestClient, store: AnnouncementStore) -> None:
+    announcement, _baseline = seed_baseline(store)
     res = client.delete(f"/api/announcements/{announcement.id}")
     assert res.status_code == 409
     deleted = client.delete(f"/api/schedules/{_baseline.id}")
@@ -172,8 +217,8 @@ def test_cannot_delete_announcement_in_use(client, store):
     assert gone.status_code == 200
 
 
-def test_offset_outside_window_rejected(client, store):
-    announcement, _baseline = _seed_baseline(store)
+def test_offset_outside_window_rejected(client: TestClient, store: AnnouncementStore) -> None:
+    announcement, _baseline = seed_baseline(store)
     res = client.post(
         "/api/schedules",
         json={
@@ -186,16 +231,26 @@ def test_offset_outside_window_rejected(client, store):
         },
     )
     assert res.status_code == 400
-    assert "±10" in res.json()["detail"]
+    assert "±10" in str(json_dict(res)["detail"])
 
 
-def test_speak_does_not_key_ptt(client, store, monkeypatch):
+def test_speak_does_not_key_ptt(client: TestClient, store: AnnouncementStore, monkeypatch: pytest.MonkeyPatch) -> None:
+    _ = store
     radio = StubRadio()
     set_radio(radio)
 
     pcm = b"\x00\x00" * 2205  # 0.1s at 22050 Hz
 
-    def fake_synthesize(text, voice=None, speed=1.0, sentence_pause=0.25):
+    def fake_synthesize(
+        text: str,
+        voice: str | None = None,
+        speed: float = 1.0,
+        sentence_pause: float = 0.25,
+    ) -> tuple[str, int, list[PcmChunk]]:
+        _ = text
+        _ = voice
+        _ = speed
+        _ = sentence_pause
         return "en_US-ryan-medium", 22050, [PcmChunk(pcm_int16=pcm, sample_rate=22050)]
 
     monkeypatch.setattr("app.routes.speak.registry.synthesize", fake_synthesize)
@@ -207,26 +262,27 @@ def test_speak_does_not_key_ptt(client, store, monkeypatch):
     set_radio(None)
 
 
-def test_upcoming_is_running_when_a_fire_is_in_progress(client, store, monkeypatch):
-    _seed_baseline(store)
-    monkeypatch.setattr(
-        "app.home_live.get_running",
-        lambda: {
+def test_upcoming_is_running_when_a_fire_is_in_progress(client: TestClient, store: AnnouncementStore, monkeypatch: pytest.MonkeyPatch) -> None:
+    _ = seed_baseline(store)
+    def fake_running() -> dict[str, object]:
+        return {
             "announcement_id": "ann-live",
             "announcement_name": "On-the-hour",
             "schedule_id": "sched-live",
             "started_at": "2026-08-28T12:00:00-04:00",
-        },
-    )
-    payload = client.get("/api/schedules").json()
-    assert payload["upcoming"]["status"] == "running"
-    assert payload["upcoming"]["announcement_name"] == "On-the-hour"
-    assert payload["upcoming"]["at"] == "2026-08-28T12:00:00-04:00"
+        }
+
+    monkeypatch.setattr("app.home_live.get_running", fake_running)
+    payload = json_dict(client.get("/api/schedules"))
+    upcoming = _dict(payload["upcoming"])
+    assert upcoming["status"] == "running"
+    assert upcoming["announcement_name"] == "On-the-hour"
+    assert upcoming["at"] == "2026-08-28T12:00:00-04:00"
 
 
-def test_weekly_overlay_shows_on_sunday_clock(client, store):
-    announcement, _baseline = _seed_baseline(store)
-    store.save_schedule(
+def test_weekly_overlay_shows_on_sunday_clock(client: TestClient, store: AnnouncementStore) -> None:
+    announcement, _baseline = seed_baseline(store)
+    _ = store.save_schedule(
         validate_schedule(
             {
                 "name": "Tech Net",
@@ -238,57 +294,73 @@ def test_weekly_overlay_shows_on_sunday_clock(client, store):
             }
         )
     )
-    payload = client.get("/api/schedules", params={"clock_date": "2026-09-06"}).json()
-    slot = next(row for row in payload["clock"] if row["slot"] == "21:00")
-    neighbor = next(row for row in payload["clock"] if row["slot"] == "20:30")
+    payload = json_dict(
+        client.get("/api/schedules", params={"clock_date": "2026-09-06"})
+    )
+    clock = _dict_list(payload["clock"])
+    slot = next(row for row in clock if row["slot"] == "21:00")
+    neighbor = next(row for row in clock if row["slot"] == "20:30")
     assert slot["source"] == "overlay"
     assert slot["label"] == "Station ID"
-    assert "20:55" in slot["fire_at"]
+    fire_at = slot["fire_at"]
+    assert isinstance(fire_at, str)
+    assert "20:55" in fire_at
     assert neighbor["source"] == "baseline"
 
 
-def test_clock_date_query(client, store):
-    _seed_baseline(store)
-    payload = client.get("/api/schedules", params={"clock_date": "2026-09-06"}).json()
+def test_clock_date_query(client: TestClient, store: AnnouncementStore) -> None:
+    _ = seed_baseline(store)
+    payload = json_dict(
+        client.get("/api/schedules", params={"clock_date": "2026-09-06"})
+    )
+    clock = _dict_list(payload["clock"])
     assert payload["clock_date"] == "2026-09-06"
-    assert payload["clock"][0]["slot"] == "00:00"
-    assert datetime.fromisoformat(payload["clock"][0]["slot_at"]).date() == date(2026, 9, 6)
+    assert clock[0]["slot"] == "00:00"
+    slot_at = clock[0]["slot_at"]
+    assert isinstance(slot_at, str)
+    assert datetime.fromisoformat(slot_at).date() == date(2026, 9, 6)
 
 
-def test_trigger_now_disabled_hides_endpoint(client, store, monkeypatch):
+def test_trigger_now_disabled_hides_endpoint(client: TestClient, store: AnnouncementStore, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("app.config.TRIGGER_NOW", False)
-    _announcement, schedule = _seed_baseline(store)
-    payload = client.get("/api/schedules").json()
+    _announcement, schedule = seed_baseline(store)
+    payload = json_dict(client.get("/api/schedules"))
     assert payload["trigger_now_enabled"] is False
     res = client.post(f"/api/schedules/{schedule.id}/trigger")
     assert res.status_code == 404
 
 
-def test_trigger_now_plays_without_changing_last_or_next(client, store, radio, monkeypatch):
+def test_trigger_now_plays_without_changing_last_or_next(client: TestClient, store: AnnouncementStore, radio: StubRadio, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("app.config.TRIGGER_NOW", True)
-    monkeypatch.setattr("app.scheduler_fire.time.sleep", lambda _seconds: None)
-    monkeypatch.setattr(
-        "app.scheduler_fire.chunks_for_announcement",
-        lambda _item: [PcmChunk(pcm_int16=b"\x00\x00", sample_rate=22050)],
-    )
-    monkeypatch.setattr("app.scheduler_fire.play_chunks", lambda _chunks: None)
-    _announcement, schedule = _seed_baseline(store)
-    before = client.get("/api/schedules").json()
+    def fake_sleep(_seconds: float) -> None:
+        return None
+
+    def fake_chunks(_item: Announcement) -> list[PcmChunk]:
+        return [PcmChunk(pcm_int16=b"\x00\x00", sample_rate=22050)]
+
+    def fake_play(_chunks: object) -> None:
+        return None
+
+    monkeypatch.setattr("app.scheduler_fire.time.sleep", fake_sleep)
+    monkeypatch.setattr("app.scheduler_fire.chunks_for_announcement", fake_chunks)
+    monkeypatch.setattr("app.scheduler_fire.play_chunks", fake_play)
+    _announcement, schedule = seed_baseline(store)
+    before = json_dict(client.get("/api/schedules"))
     assert before["trigger_now_enabled"] is True
-    row = before["schedules"][0]
+    row = _dict_list(before["schedules"])[0]
     assert row["last_run_at"] is None
     next_at = row["next_run_at"]
     res = client.post(f"/api/schedules/{schedule.id}/trigger")
     assert res.status_code == 200
-    assert res.json()["result"] == "transmitted"
-    after = client.get("/api/schedules").json()["schedules"][0]
+    assert json_dict(res)["result"] == "transmitted"
+    after = _dict_list(json_dict(client.get("/api/schedules"))["schedules"])[0]
     assert after["last_run_at"] is None
     assert after["next_run_at"] == next_at
     assert ("ptt", True) in radio.events
     assert ("ptt", False) in radio.events
 
 
-def test_index_shows_branding_before_login(client):
+def test_index_shows_branding_before_login(client: TestClient) -> None:
     import html
 
     from app import __version__
@@ -306,24 +378,30 @@ def test_index_shows_branding_before_login(client):
     assert "{{STATION_NAME}}" not in page
 
 
-def test_installed_version_matches_pyproject():
+def test_installed_version_matches_pyproject() -> None:
     """Fails when the venv is stale after a version bump; run `uv sync`."""
-    tomllib = pytest.importorskip("tomllib")
     from app import __version__
     from app.config import ROOT_DIR
 
-    pyproject = tomllib.loads((ROOT_DIR / "pyproject.toml").read_text(encoding="utf-8"))
-    assert __version__ == pyproject["project"]["version"]
+    pyproject = _toml(
+        (ROOT_DIR / "pyproject.toml").read_text(encoding="utf-8")
+    )
+    assert __version__ == _dict(pyproject["project"])["version"]
 
 
-def test_newsline_packages_are_declared_for_deploy():
+def test_newsline_packages_are_declared_for_deploy() -> None:
     """`uv sync --frozen` on the NUC only installs what pyproject.toml lists."""
-    tomllib = pytest.importorskip("tomllib")
     from app.config import ROOT_DIR
 
-    deps = "\n".join(
-        tomllib.loads((ROOT_DIR / "pyproject.toml").read_text(encoding="utf-8"))["project"]["dependencies"]
+    pyproject = _toml(
+        (ROOT_DIR / "pyproject.toml").read_text(encoding="utf-8")
     )
+    dependencies = _dict(pyproject["project"])["dependencies"]
+    if not isinstance(dependencies, list):
+        raise AssertionError("dependencies must be a list")
+    dependency_values = cast(list[object], dependencies)
+    assert all(isinstance(dependency, str) for dependency in dependency_values)
+    deps = "\n".join(cast(list[str], dependency_values))
     for name in ("feedparser", "requests", "rapidfuzz", "faster-whisper", "stable-ts", "av", "torch", "torchaudio"):
         assert name in deps, f"{name} must be a project dependency so deploy installs it"
     assert "av>=19" in deps
@@ -333,19 +411,21 @@ def test_newsline_packages_are_declared_for_deploy():
     assert "nvidia-cudnn" not in lock
 
 
-def test_voices_payload_includes_busy_caps(client):
+def test_voices_payload_includes_busy_caps(client: TestClient) -> None:
     from app.config import MAX_BUSY_GIVE_UP_SECONDS, PTT_LEAD_SECONDS
 
-    payload = client.get("/api/voices").json()
+    payload = json_dict(client.get("/api/voices"))
     assert payload["max_busy_give_up_seconds"] == MAX_BUSY_GIVE_UP_SECONDS
     assert payload["ptt_lead_seconds"] == PTT_LEAD_SECONDS
 
 
-def test_meta_returns_calendar_labels_and_default_priorities(client):
+def test_meta_returns_calendar_labels_and_default_priorities(client: TestClient) -> None:
     from app.models import DAY_LABELS, DAY_NAMES, DEFAULT_PRIORITY, MONTH_LABELS
 
-    payload = client.get("/api/meta").json()
-    assert payload["days"] == [{"id": day, "label": DAY_LABELS[day]} for day in DAY_NAMES]
+    payload = json_dict(client.get("/api/meta"))
+    assert payload["days"] == [
+        {"id": day, "label": DAY_LABELS[day]} for day in DAY_NAMES
+    ]
     assert payload["months"] == [
         {"id": month, "label": MONTH_LABELS[month]} for month in range(1, 13)
     ]

@@ -13,7 +13,7 @@ from app.manual_trigger_state import (
 from app.scheduler import SCHEDULER_MIN_WAKE_SECONDS
 
 
-def test_defer_timing_constants_unchanged():
+def test_defer_timing_constants_unchanged() -> None:
     assert DEFER_CLEAR_NONBLOCKING_MAX_SECONDS == 0.5
     assert DEFER_RETRY_WHEN_CLEAR_MET_CAP_SECONDS == 1.0
     assert SCHEDULER_MIN_WAKE_SECONDS == 0.5

@@ -79,7 +79,7 @@ class TtsAnnouncement(AnnouncementCommon):
 
     @model_validator(mode="after")
     def kind_fields(self) -> TtsAnnouncement:
-        self.text = normalize_announcement_text(self.text)  # pyright: ignore[reportUnannotatedClassAttribute]
+        self.text = normalize_announcement_text(self.text)
         return self
 
 

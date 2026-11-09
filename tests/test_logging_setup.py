@@ -4,6 +4,7 @@ import logging
 import logging.config
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
+from typing import cast
 
 from app.logging_setup import (
     ACCESS_LOG_FILENAME,
@@ -13,17 +14,18 @@ from app.logging_setup import (
 )
 
 _LOGGER_NAMES = ("", "uvicorn", "uvicorn.error", "uvicorn.access", "app.fire")
+_LoggerState = tuple[int, list[logging.Handler], bool]
 
 
-def _snapshot() -> dict[str, tuple]:
-    out = {}
+def _snapshot() -> dict[str, _LoggerState]:
+    out: dict[str, _LoggerState] = {}
     for name in _LOGGER_NAMES:
         logger = logging.getLogger(name)
         out[name] = (logger.level, list(logger.handlers), logger.propagate)
     return out
 
 
-def _restore(state: dict[str, tuple]) -> None:
+def _restore(state: dict[str, _LoggerState]) -> None:
     seen: set[int] = set()
     for name, (level, handlers, propagate) in state.items():
         logger = logging.getLogger(name)
@@ -52,7 +54,7 @@ def _access_record(method: str, path: str) -> logging.LogRecord:
     return record
 
 
-def test_access_noise_filter_matrix():
+def test_access_noise_filter_matrix() -> None:
     filt = AccessNoiseFilter()
     assert filt.filter(_access_record("GET", "/api/schedules")) is False
     assert filt.filter(_access_record("GET", "/api/schedules?clock_date=2026-11-08")) is False
@@ -71,17 +73,21 @@ def test_access_noise_filter_matrix():
     assert filt.filter(_access_record("POST", "/api/speak")) is True
 
 
-def test_serve_log_config_splits_app_and_access(tmp_path: Path):
+def test_serve_log_config_splits_app_and_access(tmp_path: Path) -> None:
     config = serve_log_config(tmp_path)
-    assert config["handlers"]["file"]["when"] == "midnight"
-    assert config["handlers"]["file"]["backupCount"] == 30
-    assert config["handlers"]["access_file"]["when"] == "midnight"
-    assert config["handlers"]["access_file"]["backupCount"] == 30
-    assert config["loggers"]["uvicorn.access"]["handlers"] == ["access_file"]
-    assert config["loggers"]["apscheduler"]["level"] == "WARNING"
-    assert "access" not in config["handlers"]
-    assert "file" in config["loggers"]["uvicorn"]["handlers"]
-    assert "file" in config["root"]["handlers"]
+    handlers = cast(dict[str, dict[str, object]], config["handlers"])
+    loggers = cast(dict[str, dict[str, object]], config["loggers"])
+    root = cast(dict[str, object], config["root"])
+    formatters = cast(dict[str, dict[str, object]], config["formatters"])
+    assert handlers["file"]["when"] == "midnight"
+    assert handlers["file"]["backupCount"] == 30
+    assert handlers["access_file"]["when"] == "midnight"
+    assert handlers["access_file"]["backupCount"] == 30
+    assert loggers["uvicorn.access"]["handlers"] == ["access_file"]
+    assert loggers["apscheduler"]["level"] == "WARNING"
+    assert "access" not in handlers
+    assert "file" in cast(list[str], loggers["uvicorn"]["handlers"])
+    assert "file" in cast(list[str], root["handlers"])
 
     previous = _snapshot()
     logging.config.dictConfig(config)
@@ -116,7 +122,7 @@ def test_serve_log_config_splits_app_and_access(tmp_path: Path):
         assert "/api/schedules" not in access_text
         assert "Fire transmitted" not in access_text
         assert "\x1b" not in access_text
-        assert config["formatters"]["access_file"]["use_colors"] is False
+        assert formatters["access_file"]["use_colors"] is False
         rotating = [h for h in logging.getLogger().handlers if isinstance(h, TimedRotatingFileHandler)]
         assert rotating
         assert rotating[0].backupCount == 30

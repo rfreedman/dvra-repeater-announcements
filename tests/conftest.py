@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
 
 # Must be set before any app module is imported (app.config reads them at import).
 _ = os.environ.setdefault("TTS_SESSION_SECRET", "test-session-secret-for-pytest")
@@ -8,16 +13,13 @@ _ = os.environ.setdefault("STATION_CALL", "N0TST")
 _ = os.environ.setdefault("STATION_NAME", "Test Radio Club")
 os.environ["TTS_SKIP_DOTENV"] = "1"
 
-from pathlib import Path
-
-import pytest
-from fastapi.testclient import TestClient
-
 from app.auth import hash_password
+from app.models import Announcement, TtsAnnouncement
 from app.radio import StubRadio, set_radio
 from app.server import app
+from app.spoken_length import apply_played_length
 from app.store import AnnouncementStore, set_store
-from app.users import UserStore, set_user_store
+from app.users import User, UserStore, set_user_store
 
 ADMIN_USERNAME = "admin"
 ADMIN_PASSWORD = "test-password"
@@ -40,7 +42,9 @@ def _fake_portaudio_device_dict(index: int) -> dict[str, object]:
     }
 
 
-def _fake_sounddevice_query_devices(device=None, kind=None):
+def _fake_sounddevice_query_devices(
+    device: int | str | None = None, kind: str | None = None
+) -> object:
     import sounddevice as sd
 
     if kind not in ("input", "output", None):
@@ -55,7 +59,7 @@ def _fake_sounddevice_query_devices(device=None, kind=None):
 
 
 @pytest.fixture(autouse=True)
-def headless_portaudio_on_ci(monkeypatch):
+def headless_portaudio_on_ci(monkeypatch: pytest.MonkeyPatch) -> None:
     """Headless GitHub runners expose PortAudio without usable device indices."""
     if not os.environ.get("GITHUB_ACTIONS"):
         return
@@ -63,43 +67,67 @@ def headless_portaudio_on_ci(monkeypatch):
 
 
 @pytest.fixture
-def stub_dra_playback_dependencies(monkeypatch):
+def stub_dra_playback_dependencies(monkeypatch: pytest.MonkeyPatch) -> None:
     """Standard mocks for ``play_pcm_chunks_to_dra_devices`` on Linux/CI."""
+
+    def _unmute_indices(_indices: object) -> None:
+        return None
+
+    def _unmute_pulse(_index: object) -> None:
+        return None
+
+    def _samplerate(_index: object) -> int:
+        return 44100
+
+    def _use_aplay() -> bool:
+        return False
+
     monkeypatch.setattr(
         "app.dra_alsa_unmute.sync_cm119_speaker_unmute_for_indices",
-        lambda _indices: None,
+        _unmute_indices,
     )
     monkeypatch.setattr(
         "app.dra_pulse_mixer.sync_pulse_sink_unmute_for_portaudio_name",
-        lambda _index: None,
+        _unmute_pulse,
     )
-    monkeypatch.setattr("app.dra_playback.dra_device_samplerate", lambda _i: 44100)
-    monkeypatch.setattr("app.dra_playback._linux_use_aplay", lambda: False)
+    monkeypatch.setattr("app.dra_playback.dra_device_samplerate", _samplerate)
+    monkeypatch.setattr("app.dra_playback._linux_use_aplay", _use_aplay)
 
 
 @pytest.fixture(autouse=True)
-def fire_wall_clock_for_tests(monkeypatch):
+def fire_wall_clock_for_tests(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep give-up / defer logic aligned with frozen ``deps.now`` in unit tests."""
     import app.fire as fire_mod
+    from app.fire_types import FireDeps
 
-    monkeypatch.setattr(fire_mod, "_wall_now", lambda deps: deps.now)
+    def _wall_now(deps: FireDeps) -> object:
+        return deps.now
+
+    monkeypatch.setattr(fire_mod, "_wall_now", _wall_now)
 
 
 @pytest.fixture(autouse=True)
-def no_voice_preload(monkeypatch):
-    monkeypatch.setattr("app.registry.EngineRegistry.preload", lambda self: [])
+def no_voice_preload(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _preload(self: object) -> list[str]:
+        _ = self
+        return []
+
+    monkeypatch.setattr("app.registry.EngineRegistry.preload", _preload)
 
 
 @pytest.fixture(autouse=True)
-def keep_test_radio(monkeypatch):
+def keep_test_radio(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Server startup must not replace the radio a test registered (``radio`` fixture)."""
-    monkeypatch.setattr("app.server.init_radio_at_startup", lambda: None)
+    def _skip_radio_init() -> None:
+        return None
+
+    monkeypatch.setattr("app.server.init_radio_at_startup", _skip_radio_init)
     yield
     set_radio(None)
 
 
 @pytest.fixture(autouse=True)
-def reset_login_limiter():
+def reset_login_limiter() -> Iterator[None]:
     from app.auth import login_limiter
 
     login_limiter.reset()
@@ -108,34 +136,47 @@ def reset_login_limiter():
 
 
 @pytest.fixture(autouse=True)
-def no_newsline_poll(monkeypatch):
+def no_newsline_poll(monkeypatch: pytest.MonkeyPatch) -> None:
     """Scheduler startup and settings saves must not fetch the Newsline feed."""
-    monkeypatch.setattr("app.newsline.poll.install_news_poll", lambda: None)
-    monkeypatch.setattr("app.newsline.poll.arm_next_poll", lambda **_kwargs: None)
+    def _no_poll() -> None:
+        return None
+
+    def _no_arm(**_kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr("app.newsline.poll.install_news_poll", _no_poll)
+    monkeypatch.setattr("app.newsline.poll.arm_next_poll", _no_arm)
 
 
-def _short_measure(announcement, timeout):
-    from app.spoken_length import apply_played_length
-
+def _short_measure(announcement: Announcement, timeout: int) -> Announcement:
     if announcement.kind != "tts":
         return announcement
+    assert isinstance(announcement, TtsAnnouncement)
     return apply_played_length(announcement, 1.0, timeout)
 
 
 @pytest.fixture(autouse=True)
-def no_pcm_warm(monkeypatch, tmp_path):
+def no_pcm_warm(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[None]:
     from app.pcm_cache import PcmCache, set_pcm_cache
 
     set_pcm_cache(PcmCache(tmp_path / "pcm-cache"))
-    monkeypatch.setattr("app.routes.announcements.warm_announcement", lambda announcement: None)
+    def _skip_warm(announcement: Announcement) -> None:
+        _ = announcement
+        return None
+
+    def _skip_warm_all(announcements: object = None) -> None:
+        _ = announcements
+        return None
+
+    monkeypatch.setattr("app.routes.announcements.warm_announcement", _skip_warm)
     monkeypatch.setattr("app.routes.announcements.measure_announcement", _short_measure)
-    monkeypatch.setattr("app.server.warm_all", lambda announcements=None: None)
+    monkeypatch.setattr("app.server.warm_all", _skip_warm_all)
     yield
     set_pcm_cache(None)
 
 
 @pytest.fixture
-def store(tmp_path: Path):
+def store(tmp_path: Path) -> Iterator[AnnouncementStore]:
     path = tmp_path / "announcements.json"
     item = AnnouncementStore(path)
     set_store(item)
@@ -144,7 +185,7 @@ def store(tmp_path: Path):
 
 
 @pytest.fixture
-def users(tmp_path: Path):
+def users(tmp_path: Path) -> Iterator[UserStore]:
     path = tmp_path / "users.json"
     item = UserStore(path)
     set_user_store(item)
@@ -153,7 +194,7 @@ def users(tmp_path: Path):
 
 
 @pytest.fixture
-def admin_user(users: UserStore):
+def admin_user(users: UserStore) -> User:
     return users.create(
         username=ADMIN_USERNAME,
         password_hash=hash_password(ADMIN_PASSWORD),
@@ -162,7 +203,7 @@ def admin_user(users: UserStore):
 
 
 @pytest.fixture
-def readonly_user(users: UserStore):
+def readonly_user(users: UserStore) -> User:
     return users.create(
         username="viewer",
         password_hash=hash_password(ADMIN_PASSWORD),
@@ -171,7 +212,9 @@ def readonly_user(users: UserStore):
 
 
 @pytest.fixture
-def client(store, admin_user):
+def client(store: AnnouncementStore, admin_user: User) -> Iterator[TestClient]:
+    _ = store
+    _ = admin_user
     with TestClient(app) as test_client:
         res = test_client.post(
             "/api/auth/login",
@@ -182,7 +225,12 @@ def client(store, admin_user):
 
 
 @pytest.fixture
-def readonly_client(store, admin_user, readonly_user):
+def readonly_client(
+    store: AnnouncementStore, admin_user: User, readonly_user: User
+) -> Iterator[TestClient]:
+    _ = store
+    _ = admin_user
+    _ = readonly_user
     with TestClient(app) as test_client:
         res = test_client.post(
             "/api/auth/login",
@@ -193,7 +241,7 @@ def readonly_client(store, admin_user, readonly_user):
 
 
 @pytest.fixture
-def radio():
+def radio() -> Iterator[StubRadio]:
     item = StubRadio()
     set_radio(item)
     yield item

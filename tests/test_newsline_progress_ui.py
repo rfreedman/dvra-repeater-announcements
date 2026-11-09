@@ -11,7 +11,7 @@ from app.newsline.engine.progress import (
 )
 
 
-def test_ui_progress_tracks_step_and_elapsed():
+def test_ui_progress_tracks_step_and_elapsed() -> None:
     end_ui_progress()
     begin_ui_progress("Checking the Newsline feed")
     snap = ui_snapshot()
@@ -27,12 +27,12 @@ def test_ui_progress_tracks_step_and_elapsed():
     assert snap["elapsed_seconds"] is None
 
 
-def test_phase_timer_sets_the_ui_step():
+def test_phase_timer_sets_the_ui_step() -> None:
     end_ui_progress()
     begin_ui_progress("Processing")
     timer = PhaseTimer("Forced-aligning script to Report2557.mp3")
     try:
         assert ui_snapshot()["step"] == "Forced-aligning script to Report2557.mp3"
     finally:
-        timer.done()
+        _ = timer.done()
         end_ui_progress()

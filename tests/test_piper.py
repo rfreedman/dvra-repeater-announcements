@@ -1,13 +1,23 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from piper import SynthesisConfig
 
-from app.tts.piper import featured_voices, PiperEngine, load_featured_voices, set_featured_voices
+from app.models import Announcement
+from app.registry import EngineRegistry
+from app.tts.piper import (
+    PiperEngine,
+    PiperVoiceMeta,
+    featured_voices,
+    load_featured_voices,
+    set_featured_voices,
+)
 
 
 @dataclass
@@ -19,20 +29,26 @@ class _FakeChunk:
 
 
 class _FakeVoice:
+    path: Path
+    config: SimpleNamespace
+
     def __init__(self, path: Path) -> None:
         self.path = path
         self.config = SimpleNamespace(sample_rate=22050)
         self.synthesize_calls: list[str] = []
 
-    def synthesize(self, text: str, syn_config=None):
+    def synthesize(
+        self, text: str, syn_config: SynthesisConfig | None = None
+    ) -> Iterator[_FakeChunk]:
+        _ = syn_config
         self.synthesize_calls.append(text)
         yield _FakeChunk()
 
 
 @pytest.fixture
-def featured(tmp_path: Path):
+def featured(tmp_path: Path) -> Iterator[tuple[PiperVoiceMeta, ...]]:
     path = tmp_path / "piper-voices.json"
-    path.write_text(
+    _ = path.write_text(
         json.dumps(
             {
                 "voices": [
@@ -75,7 +91,12 @@ def featured(tmp_path: Path):
     set_featured_voices(previous)
 
 
-def _stub_piper(monkeypatch, voices_dir: Path, fail_ids: set[str] | None = None):
+def _stub_piper(
+    monkeypatch: pytest.MonkeyPatch,
+    voices_dir: Path,
+    fail_ids: set[str] | None = None,
+) -> tuple[list[str], list[str]]:
+    _ = voices_dir
     loads: list[str] = []
     downloads: list[str] = []
     fail_ids = fail_ids or set()
@@ -83,9 +104,9 @@ def _stub_piper(monkeypatch, voices_dir: Path, fail_ids: set[str] | None = None)
     def fake_download(voice_id: str, target_dir: Path) -> None:
         downloads.append(voice_id)
         Path(target_dir).mkdir(parents=True, exist_ok=True)
-        (Path(target_dir) / f"{voice_id}.onnx").write_bytes(b"onnx")
+        _ = (Path(target_dir) / f"{voice_id}.onnx").write_bytes(b"onnx")
 
-    def fake_load(path):
+    def fake_load(path: str | Path) -> _FakeVoice:
         voice_id = Path(path).stem
         if voice_id in fail_ids:
             raise RuntimeError(f"boom {voice_id}")
@@ -97,15 +118,15 @@ def _stub_piper(monkeypatch, voices_dir: Path, fail_ids: set[str] | None = None)
     return loads, downloads
 
 
-def test_load_featured_voices_from_repo_file():
+def test_load_featured_voices_from_repo_file() -> None:
     assert len(featured_voices) >= 1
     assert featured_voices[0].id
     assert featured_voices[0].alias
 
 
-def test_load_featured_voices_rejects_duplicates(tmp_path: Path):
+def test_load_featured_voices_rejects_duplicates(tmp_path: Path) -> None:
     path = tmp_path / "bad.json"
-    path.write_text(
+    _ = path.write_text(
         json.dumps(
             {
                 "voices": [
@@ -133,18 +154,21 @@ def test_load_featured_voices_rejects_duplicates(tmp_path: Path):
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="duplicate voice id"):
-        load_featured_voices(path)
+        _ = load_featured_voices(path)
 
 
-def test_load_featured_voices_missing_file(tmp_path: Path):
+def test_load_featured_voices_missing_file(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="not found"):
-        load_featured_voices(tmp_path / "missing.json")
+        _ = load_featured_voices(tmp_path / "missing.json")
 
 
-def test_preload_loads_featured_and_local_voices_including_high(featured, tmp_path: Path, monkeypatch):
-    monkeypatch.setattr("app.tts.piper.piper_quality_allowed", lambda _voice_id: True)
-    (tmp_path / "custom-local.onnx").write_bytes(b"onnx")
-    (tmp_path / "en_US-lessac-high.onnx").write_bytes(b"onnx")
+def test_preload_loads_featured_and_local_voices_including_high(featured: tuple[PiperVoiceMeta, ...], tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def quality_allowed(_voice_id: str) -> bool:
+        return True
+
+    monkeypatch.setattr("app.tts.piper.piper_quality_allowed", quality_allowed)
+    _ = (tmp_path / "custom-local.onnx").write_bytes(b"onnx")
+    _ = (tmp_path / "en_US-lessac-high.onnx").write_bytes(b"onnx")
     loads, downloads = _stub_piper(monkeypatch, tmp_path)
     engine = PiperEngine(voices_dir=tmp_path)
 
@@ -159,24 +183,27 @@ def test_preload_loads_featured_and_local_voices_including_high(featured, tmp_pa
     assert listed["en_US-lessac-high"].quality == "high"
     assert listed["custom-local"].quality == "custom"
 
-    engine.prepare("en_US-lessac-medium")
-    engine.prepare("amy")
-    engine.prepare("custom-local")
-    engine.prepare("en_US-lessac-high")
+    _ = engine.prepare("en_US-lessac-medium")
+    _ = engine.prepare("amy")
+    _ = engine.prepare("custom-local")
+    _ = engine.prepare("en_US-lessac-high")
     assert loads.count("en_US-lessac-medium") == 1
     assert loads.count("en_US-amy-medium") == 1
     assert loads.count("custom-local") == 1
     assert loads.count("en_US-lessac-high") == 1
-    assert engine._models["en_US-lessac-medium"] is engine._load("en_US-lessac-medium")
+    assert engine.cached_voice("en_US-lessac-medium") is engine.load_voice("en_US-lessac-medium")
 
 
-def test_medium_qualities_excludes_high_from_list_and_preload(featured, tmp_path: Path, monkeypatch):
+def test_medium_qualities_excludes_high_from_list_and_preload(featured: tuple[PiperVoiceMeta, ...], tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def quality_allowed(voice_id: str) -> bool:
+        return voice_id.endswith("-medium")
+
     monkeypatch.setattr(
         "app.tts.piper.piper_quality_allowed",
-        lambda voice_id: voice_id.endswith("-medium"),
+        quality_allowed,
     )
-    (tmp_path / "custom-local.onnx").write_bytes(b"onnx")
-    (tmp_path / "en_US-lessac-high.onnx").write_bytes(b"onnx")
+    _ = (tmp_path / "custom-local.onnx").write_bytes(b"onnx")
+    _ = (tmp_path / "en_US-lessac-high.onnx").write_bytes(b"onnx")
     loads, _downloads = _stub_piper(monkeypatch, tmp_path)
     engine = PiperEngine(voices_dir=tmp_path)
 
@@ -193,8 +220,11 @@ def test_medium_qualities_excludes_high_from_list_and_preload(featured, tmp_path
     assert "en_US-lessac-medium" in listed_ids
 
 
-def test_preload_continues_when_one_voice_fails(featured, tmp_path: Path, monkeypatch):
-    monkeypatch.setattr("app.tts.piper.piper_quality_allowed", lambda _voice_id: True)
+def test_preload_continues_when_one_voice_fails(featured: tuple[PiperVoiceMeta, ...], tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def quality_allowed(_voice_id: str) -> bool:
+        return True
+
+    monkeypatch.setattr("app.tts.piper.piper_quality_allowed", quality_allowed)
     loads, _downloads = _stub_piper(monkeypatch, tmp_path, fail_ids={"en_US-amy-medium"})
     engine = PiperEngine(voices_dir=tmp_path)
 
@@ -206,9 +236,9 @@ def test_preload_continues_when_one_voice_fails(featured, tmp_path: Path, monkey
     assert "en_US-ryan-medium" in loads
 
 
-def test_load_featured_voices_rejects_config_url_without_onnx_url(tmp_path: Path):
+def test_load_featured_voices_rejects_config_url_without_onnx_url(tmp_path: Path) -> None:
     path = tmp_path / "bad.json"
-    path.write_text(
+    _ = path.write_text(
         json.dumps(
             {
                 "voices": [
@@ -228,12 +258,12 @@ def test_load_featured_voices_rejects_config_url_without_onnx_url(tmp_path: Path
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="config_url requires onnx_url"):
-        load_featured_voices(path)
+        _ = load_featured_voices(path)
 
 
-def test_load_featured_voices_rejects_bad_url(tmp_path: Path):
+def test_load_featured_voices_rejects_bad_url(tmp_path: Path) -> None:
     path = tmp_path / "bad.json"
-    path.write_text(
+    _ = path.write_text(
         json.dumps(
             {
                 "voices": [
@@ -253,12 +283,12 @@ def test_load_featured_voices_rejects_bad_url(tmp_path: Path):
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="http\\(s\\) URL"):
-        load_featured_voices(path)
+        _ = load_featured_voices(path)
 
 
-def test_custom_url_download_when_missing(tmp_path: Path, monkeypatch):
+def test_custom_url_download_when_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = tmp_path / "voices.json"
-    path.write_text(
+    _ = path.write_text(
         json.dumps(
             {
                 "voices": [
@@ -286,14 +316,20 @@ def test_custom_url_download_when_missing(tmp_path: Path, monkeypatch):
 
         def fake_download(url: str, dest: Path) -> None:
             fetched.append((url, dest.name))
-            dest.write_bytes(b"onnx-bytes" if dest.name.endswith(".onnx") else b"{}")
+            _ = dest.write_bytes(b"onnx-bytes" if dest.name.endswith(".onnx") else b"{}")
+
+        def fake_load(path: str | Path) -> _FakeVoice:
+            return _FakeVoice(Path(path))
+
+        def quality_allowed(_voice_id: str) -> bool:
+            return True
 
         monkeypatch.setattr("app.tts.piper._download_url_to_file", fake_download)
-        monkeypatch.setattr("app.tts.piper.PiperVoice.load", lambda p: _FakeVoice(Path(p)))
-        monkeypatch.setattr("app.tts.piper.piper_quality_allowed", lambda _id: True)
+        monkeypatch.setattr("app.tts.piper.PiperVoice.load", fake_load)
+        monkeypatch.setattr("app.tts.piper.piper_quality_allowed", quality_allowed)
 
         engine = PiperEngine(voices_dir=tmp_path / "piper")
-        engine.prepare("norman")
+        _ = engine.prepare("norman")
         assert (tmp_path / "piper" / "norman.onnx").exists()
         assert {url for url, _name in fetched} == {
             "https://example.com/norman.onnx",
@@ -301,15 +337,15 @@ def test_custom_url_download_when_missing(tmp_path: Path, monkeypatch):
         }
         # Second prepare should not re-download
         fetched.clear()
-        engine.prepare("norman")
+        _ = engine.prepare("norman")
         assert fetched == []
     finally:
         set_featured_voices(previous)
 
 
-def test_non_pattern_id_without_url_fails(tmp_path: Path, monkeypatch):
+def test_non_pattern_id_without_url_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = tmp_path / "voices.json"
-    path.write_text(
+    _ = path.write_text(
         json.dumps(
             {
                 "voices": [
@@ -331,17 +367,20 @@ def test_non_pattern_id_without_url_fails(tmp_path: Path, monkeypatch):
     previous = featured_voices
     set_featured_voices(voices)
     try:
-        monkeypatch.setattr("app.tts.piper.PiperVoice.load", lambda p: _FakeVoice(Path(p)))
+        def fake_load(path: str | Path) -> _FakeVoice:
+            return _FakeVoice(Path(path))
+
+        monkeypatch.setattr("app.tts.piper.PiperVoice.load", fake_load)
         engine = PiperEngine(voices_dir=tmp_path / "piper")
         with pytest.raises(Exception, match="no download source"):
-            engine.prepare("norman")
+            _ = engine.prepare("norman")
     finally:
         set_featured_voices(previous)
 
 
-def test_hf_download_when_urls_omitted(tmp_path: Path, monkeypatch):
+def test_hf_download_when_urls_omitted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = tmp_path / "voices.json"
-    path.write_text(
+    _ = path.write_text(
         json.dumps(
             {
                 "voices": [
@@ -368,40 +407,63 @@ def test_hf_download_when_urls_omitted(tmp_path: Path, monkeypatch):
 
         def fake_url_download(url: str, dest: Path) -> None:
             custom_fetches.append(url)
-            dest.write_bytes(b"x")
+            _ = dest.write_bytes(b"x")
 
         def fake_hf(voice_id: str, target_dir: Path) -> None:
             hf_downloads.append(voice_id)
             Path(target_dir).mkdir(parents=True, exist_ok=True)
-            (Path(target_dir) / f"{voice_id}.onnx").write_bytes(b"onnx")
+            _ = (Path(target_dir) / f"{voice_id}.onnx").write_bytes(b"onnx")
+
+        def fake_load(path: str | Path) -> _FakeVoice:
+            return _FakeVoice(Path(path))
+
+        def quality_allowed(_voice_id: str) -> bool:
+            return True
 
         monkeypatch.setattr("app.tts.piper._download_url_to_file", fake_url_download)
         monkeypatch.setattr("app.tts.piper.download_voice", fake_hf)
-        monkeypatch.setattr("app.tts.piper.PiperVoice.load", lambda p: _FakeVoice(Path(p)))
-        monkeypatch.setattr("app.tts.piper.piper_quality_allowed", lambda _id: True)
+        monkeypatch.setattr("app.tts.piper.PiperVoice.load", fake_load)
+        monkeypatch.setattr("app.tts.piper.piper_quality_allowed", quality_allowed)
 
         engine = PiperEngine(voices_dir=tmp_path / "piper")
-        engine.prepare("en_US-lessac-medium")
+        _ = engine.prepare("en_US-lessac-medium")
         assert hf_downloads == ["en_US-lessac-medium"]
         assert custom_fetches == []
     finally:
         set_featured_voices(previous)
 
 
-def test_lifespan_preloads_before_scheduler(monkeypatch):
+def test_lifespan_preloads_before_scheduler(monkeypatch: pytest.MonkeyPatch) -> None:
     from fastapi.testclient import TestClient
 
     from app.server import app
 
     order: list[str] = []
+
+    def preload(_self: EngineRegistry) -> list[str]:
+        order.append("preload")
+        return []
+
+    def warm(_announcements: list[Announcement] | None = None) -> None:
+        order.append("warm")
+
+    def radio() -> None:
+        order.append("radio")
+
+    def start() -> None:
+        order.append("start")
+
+    def stop() -> None:
+        return
+
     monkeypatch.setattr(
         "app.registry.EngineRegistry.preload",
-        lambda self: order.append("preload") or [],
+        preload,
     )
-    monkeypatch.setattr("app.server.warm_all", lambda announcements=None: order.append("warm"))
-    monkeypatch.setattr("app.server.init_radio_at_startup", lambda: order.append("radio"))
-    monkeypatch.setattr("app.server.start_scheduler", lambda: order.append("start"))
-    monkeypatch.setattr("app.server.stop_scheduler", lambda: None)
+    monkeypatch.setattr("app.server.warm_all", warm)
+    monkeypatch.setattr("app.server.init_radio_at_startup", radio)
+    monkeypatch.setattr("app.server.start_scheduler", start)
+    monkeypatch.setattr("app.server.stop_scheduler", stop)
 
     with TestClient(app):
         pass

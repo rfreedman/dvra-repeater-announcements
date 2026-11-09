@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import asyncio
 
-from app.sse_hub import clear_shutdown_state, set_event_loop, shutdown_sse_streams, subscribe, unsubscribe
-from app.uvicorn_shutdown import _close_sse_before_uvicorn_waits, install_uvicorn_sse_shutdown_hook
+from app.sse_hub import clear_shutdown_state, set_event_loop, subscribe, unsubscribe
+from app.uvicorn_shutdown import close_sse_before_uvicorn_waits, install_uvicorn_sse_shutdown_hook
 
 
-def test_install_uvicorn_sse_shutdown_hook_is_idempotent():
+def test_install_uvicorn_sse_shutdown_hook_is_idempotent() -> None:
     install_uvicorn_sse_shutdown_hook()
     import uvicorn.server
 
@@ -17,7 +17,7 @@ def test_install_uvicorn_sse_shutdown_hook_is_idempotent():
     assert uvicorn.server.Server.shutdown is first
 
 
-def test_close_sse_before_uvicorn_waits_stops_stats_broadcast():
+def test_close_sse_before_uvicorn_waits_stops_stats_broadcast() -> None:
     stop = asyncio.Event()
     from app.uvicorn_shutdown import register_stats_broadcast_stop
 
@@ -29,7 +29,7 @@ def test_close_sse_before_uvicorn_waits_stops_stats_broadcast():
         clear_shutdown_state()
         queue = subscribe()
         try:
-            _close_sse_before_uvicorn_waits()
+            close_sse_before_uvicorn_waits()
             await asyncio.sleep(0)
             assert stop.is_set()
             payload = await asyncio.wait_for(queue.get(), timeout=2.0)

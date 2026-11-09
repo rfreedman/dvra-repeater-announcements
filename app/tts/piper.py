@@ -353,6 +353,18 @@ class PiperEngine(Engine):
             for _chunk in model.synthesize(".", syn_config=SynthesisConfig()):
                 pass
 
+    def voice_lock(self, voice_id: str) -> threading.Lock:
+        return self._lock_for(voice_id)
+
+    def load_voice(self, voice_id: str) -> PiperVoice:
+        return self._load(voice_id)
+
+    def cached_voice(self, voice_id: str) -> PiperVoice:
+        return self._models[voice_id]
+
+    def store_voice(self, voice_id: str, voice: PiperVoice) -> None:
+        self._models[voice_id] = voice
+
     def _lock_for(self, voice_id: str) -> threading.Lock:
         with self._global:
             if voice_id not in self._locks:

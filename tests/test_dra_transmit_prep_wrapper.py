@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from app.audio import PcmChunk
 from app.cm119 import Cm119HidAdapter
 from app.dra_radio import DraRadio
 from app.radio import transmit
 
 
-def test_transmit_prep_runs_with_on_ptt_keyed(monkeypatch):
+import pytest
+def test_transmit_prep_runs_with_on_ptt_keyed(monkeypatch: pytest.MonkeyPatch) -> None:
     radio = DraRadio(
         hid_adapters=[Cm119HidAdapter(b"path", "dra-hid-1")],
         audio_indices=[4],
@@ -19,20 +22,37 @@ def test_transmit_prep_runs_with_on_ptt_keyed(monkeypatch):
     prep_calls: list[object] = []
     keyed: list[bool] = []
 
+    def fake_prepare() -> None:
+        prep_calls.append(radio)
+
+    def fake_set_ptt(value: bool) -> None:
+        keyed.append(value)
+
+    def fake_play(chunks: Iterable[PcmChunk], lead_seconds: float = 0) -> None:
+        _ = chunks
+        _ = lead_seconds
+
+    def channel_clear(_radio: object, clear_seconds: float = 0) -> bool:
+        _ = clear_seconds
+        return False
+
+    def on_ptt_keyed() -> None:
+        keyed.append(True)
+
     monkeypatch.setattr(
         radio,
         "prepare_for_transmit",
-        lambda: prep_calls.append(radio),
+        fake_prepare,
     )
-    monkeypatch.setattr(radio, "set_ptt", lambda value: keyed.append(bool(value)))
+    monkeypatch.setattr(radio, "set_ptt", fake_set_ptt)
     monkeypatch.setattr(
         radio,
         "play_transmit_audio",
-        lambda chunks, lead_seconds=0: None,
+        fake_play,
     )
     monkeypatch.setattr(
         "app.radio.channel_blocks_transmit",
-        lambda _radio, clear_seconds=0: False,
+        channel_clear,
     )
 
     transmit(
@@ -40,7 +60,7 @@ def test_transmit_prep_runs_with_on_ptt_keyed(monkeypatch):
         radio=radio,
         clear_seconds=0,
         lead_seconds=0,
-        on_ptt_keyed=lambda: keyed.append(True),
+        on_ptt_keyed=on_ptt_keyed,
     )
 
     assert prep_calls == [radio]

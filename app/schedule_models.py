@@ -46,6 +46,12 @@ class ScheduleCommon(BaseModel):
     def name_present(cls, value: str) -> str:
         return normalize_entity_name(value)
 
+    def _use_default_priority(self, kind: ScheduleKind) -> None:
+        self.priority = DEFAULT_PRIORITY[kind]
+
+    def _clear_offset(self) -> None:
+        self.offset_minutes = 0
+
     @model_validator(mode="after")
     def timezone_and_last_run(self) -> ScheduleCommon:
         _ = ZoneInfo(self.timezone)
@@ -71,8 +77,8 @@ class BaselineSchedule(ScheduleCommon):
     def kind_fields(self) -> BaselineSchedule:
         if not self.announcement_id:
             raise ValueError("A baseline schedule needs an announcement")
-        self.offset_minutes = 0  # pyright: ignore[reportUnannotatedClassAttribute]
-        self.priority = DEFAULT_PRIORITY["baseline"]  # pyright: ignore[reportUnannotatedClassAttribute]
+        self._clear_offset()
+        self._use_default_priority("baseline")
         return self
 
 
@@ -84,9 +90,9 @@ class WeeklySchedule(ScheduleCommon):
     @model_validator(mode="after")
     def kind_fields(self) -> WeeklySchedule:
         if self.priority == 0:
-            self.priority = DEFAULT_PRIORITY["weekly"]  # pyright: ignore[reportUnannotatedClassAttribute]
-        self.days = normalize_days(list(self.days))  # pyright: ignore[reportUnannotatedClassAttribute]
-        self.slots = normalize_slots(self.slots, required=True)  # pyright: ignore[reportUnannotatedClassAttribute]
+            self._use_default_priority("weekly")
+        self.days = normalize_days(list(self.days))
+        self.slots = normalize_slots(self.slots, required=True)
         return self
 
 
@@ -99,15 +105,15 @@ class MonthlySchedule(ScheduleCommon):
 
     @model_validator(mode="after")
     def kind_fields(self) -> MonthlySchedule:
-        if self.priority == 0:
-            self.priority = DEFAULT_PRIORITY["monthly"]  # pyright: ignore[reportUnannotatedClassAttribute]
-        self.days = normalize_days(list(self.days))  # pyright: ignore[reportUnannotatedClassAttribute]
+        self.days = normalize_days(list(self.days))
         if len(self.days) != 1:
             raise ValueError("A monthly schedule needs exactly one weekday")
         if self.occurrence not in {1, 2, 3, 4}:
             raise ValueError("Monthly occurrence must be 1st, 2nd, 3rd, or 4th")
-        self.skip_months = normalize_skip_months(self.skip_months)  # pyright: ignore[reportUnannotatedClassAttribute]
-        self.slots = normalize_slots(self.slots, required=True)  # pyright: ignore[reportUnannotatedClassAttribute]
+        if self.priority == 0:
+            self._use_default_priority("monthly")
+        self.skip_months = normalize_skip_months(self.skip_months)
+        self.slots = normalize_slots(self.slots, required=True)
         return self
 
 
@@ -120,16 +126,16 @@ class RangeSchedule(ScheduleCommon):
 
     @model_validator(mode="after")
     def kind_fields(self) -> RangeSchedule:
-        if self.priority == 0:
-            self.priority = DEFAULT_PRIORITY["range"]  # pyright: ignore[reportUnannotatedClassAttribute]
         if self.start_date is None or self.event_date is None or not self.event_slot:
             raise ValueError("An event countdown needs a start date and an event slot")
         if not is_slot_stamp(self.event_slot):
             raise ValueError("Event slot must be on the hour or half-hour")
-        self.event_slot = format_hhmm(*parse_hhmm(self.event_slot))  # pyright: ignore[reportUnannotatedClassAttribute]
         if self.event_date < self.start_date:
             raise ValueError("Event date cannot be before the start date")
-        self.slots = normalize_slots(self.slots, required=False)  # pyright: ignore[reportUnannotatedClassAttribute]
+        if self.priority == 0:
+            self._use_default_priority("range")
+        self.event_slot = format_hhmm(*parse_hhmm(self.event_slot))
+        self.slots = normalize_slots(self.slots, required=False)
         return self
 
 
@@ -144,14 +150,11 @@ class MonthlyRangeSchedule(ScheduleCommon):
 
     @model_validator(mode="after")
     def kind_fields(self) -> MonthlyRangeSchedule:
-        if self.priority == 0:
-            self.priority = DEFAULT_PRIORITY["monthly_range"]  # pyright: ignore[reportUnannotatedClassAttribute]
-        self.days = normalize_days(list(self.days))  # pyright: ignore[reportUnannotatedClassAttribute]
+        self.days = normalize_days(list(self.days))
         if len(self.days) != 1:
             raise ValueError("A monthly schedule needs exactly one weekday")
         if self.occurrence not in {1, 2, 3, 4}:
             raise ValueError("Monthly occurrence must be 1st, 2nd, 3rd, or 4th")
-        self.skip_months = normalize_skip_months(self.skip_months)  # pyright: ignore[reportUnannotatedClassAttribute]
         if self.days_before is None:
             raise ValueError("A monthly countdown needs how many days before the event to start")
         if self.days_before < 0 or self.days_before > 90:
@@ -160,8 +163,11 @@ class MonthlyRangeSchedule(ScheduleCommon):
             raise ValueError("A monthly countdown needs an event slot")
         if not is_slot_stamp(self.event_slot):
             raise ValueError("Event slot must be on the hour or half-hour")
-        self.event_slot = format_hhmm(*parse_hhmm(self.event_slot))  # pyright: ignore[reportUnannotatedClassAttribute]
-        self.slots = normalize_slots(self.slots, required=False)  # pyright: ignore[reportUnannotatedClassAttribute]
+        if self.priority == 0:
+            self._use_default_priority("monthly_range")
+        self.skip_months = normalize_skip_months(self.skip_months)
+        self.event_slot = format_hhmm(*parse_hhmm(self.event_slot))
+        self.slots = normalize_slots(self.slots, required=False)
         return self
 
 
@@ -170,7 +176,7 @@ class EmergencySchedule(ScheduleCommon):
 
     @model_validator(mode="after")
     def kind_fields(self) -> EmergencySchedule:
-        self.priority = DEFAULT_PRIORITY["emergency"]  # pyright: ignore[reportUnannotatedClassAttribute]
+        self._use_default_priority("emergency")
         return self
 
 

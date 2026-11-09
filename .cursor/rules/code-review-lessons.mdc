@@ -44,6 +44,9 @@ Add a one-line lesson here only when a fix reveals a pattern that would be easy 
 - One source of defaults: env/config → `/api/voices` → UI. Don't hard-code defaults in `static/app.js`.
 - Slot math uses `Settings.timezone` only; `Schedule.timezone` is legacy.
 
+## Models
+- A Pydantic `model_validator(mode="after")` must `return self`. Assign parent fields (`priority`, `offset_minutes`) from a method on the class that declares them; a subclass assignment is `reportUnannotatedClassAttribute`.
+
 ## Tests
 - Run the full suite (`pytest`) before finishing; it must pass with and without a `.env`.
 - New behavior fix ⇒ a regression test that fails on the old code.

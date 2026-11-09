@@ -65,7 +65,7 @@ def pcm_float32_from_wav(wav_path: Path) -> np.ndarray:
     return np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
 
 
-def _words_from_model(
+def words_from_model(
     model: WhisperModel, wav_path: Path, *, time_offset: float = 0.0
 ) -> list[WordTiming]:
     from collections.abc import Callable, Iterable
@@ -169,7 +169,7 @@ def transcribe_slice_for_qa(
     if force_full or duration <= full_max_sec + 0.05:
         wav_path = _decode_to_wav(audio_path)
         try:
-            return _words_from_model(model, wav_path), False
+            return words_from_model(model, wav_path), False
         finally:
             wav_path.unlink(missing_ok=True)
 
@@ -180,7 +180,7 @@ def transcribe_slice_for_qa(
 
     head_wav = _decode_to_wav(audio_path, start=0.0, duration=head_dur)
     try:
-        words.extend(_words_from_model(model, head_wav, time_offset=0.0))
+        words.extend(words_from_model(model, head_wav, time_offset=0.0))
     finally:
         head_wav.unlink(missing_ok=True)
 
@@ -189,7 +189,7 @@ def transcribe_slice_for_qa(
             audio_path, start=tail_start, duration=duration - tail_start
         )
         try:
-            words.extend(_words_from_model(model, tail_wav, time_offset=tail_start))
+            words.extend(words_from_model(model, tail_wav, time_offset=tail_start))
         finally:
             tail_wav.unlink(missing_ok=True)
 

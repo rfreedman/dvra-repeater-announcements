@@ -2,21 +2,31 @@
 
 from __future__ import annotations
 
+import subprocess
+from collections.abc import Callable
+
 import numpy as np
 
 
-def test_play_mono_f32_uses_aplay_on_linux(monkeypatch):
+import pytest
+def test_play_mono_f32_uses_aplay_on_linux(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("app.dra_playback.sys.platform", "linux")
     monkeypatch.setenv("TTS_DRA_LINUX_PLAYBACK", "aplay")
     aplay_calls: list[tuple[str, int]] = []
 
+    def fake_unmute(_indices: list[int]) -> None:
+        pass
+
+    def fake_devices(_index: int) -> list[str]:
+        return ["hw:1,0", "plughw:1,0"]
+
     monkeypatch.setattr(
         "app.dra_alsa_unmute.sync_cm119_speaker_unmute_for_indices",
-        lambda _indices: None,
+        fake_unmute,
     )
     monkeypatch.setattr(
         "app.dra_playback._alsa_playback_devices_for_portaudio_index",
-        lambda _index: ["hw:1,0", "plughw:1,0"],
+        fake_devices,
     )
 
     def fake_first(
@@ -24,9 +34,11 @@ def test_play_mono_f32_uses_aplay_on_linux(monkeypatch):
         *,
         sample_rate: int,
         alsa_devices: list[str],
-        should_abort=None,
-        register_proc=None,
+        should_abort: Callable[[], bool] | None = None,
+        register_proc: Callable[[subprocess.Popen[bytes]], None] | None = None,
     ) -> str:
+        _ = should_abort
+        _ = register_proc
         aplay_calls.append((alsa_devices[0], sample_rate))
         assert pcm
         assert sample_rate == 44100

@@ -30,16 +30,16 @@ log = logging.getLogger("app.scheduler")
 
 SCHEDULER_MIN_WAKE_SECONDS = 0.5  # PromptBackgroundScheduler sleep floor (macOS App Nap)
 
-# Re-export fire API (including underscored helpers tests still import from here).
+# Public names for helpers tests and the façade call. Implementations stay private.
 get_running = _scheduler_fire.get_running
 run_manual_trigger = _scheduler_fire.run_manual_trigger
 run_scheduled_fire = _scheduler_fire.run_scheduled_fire
-_clear_running = _scheduler_fire._clear_running  # pyright: ignore[reportPrivateUsage]
-_finish_manual_trigger = _scheduler_fire._finish_manual_trigger  # pyright: ignore[reportPrivateUsage]
-_notify_home_live = _scheduler_fire._notify_home_live  # pyright: ignore[reportPrivateUsage]
-_playback_lock = _scheduler_fire._playback_lock  # pyright: ignore[reportPrivateUsage]
-_set_running = _scheduler_fire._set_running  # pyright: ignore[reportPrivateUsage]
-_set_running_wait = _scheduler_fire._set_running_wait  # pyright: ignore[reportPrivateUsage]
+clear_running = _scheduler_fire._clear_running  # pyright: ignore[reportPrivateUsage]
+finish_manual_trigger = _scheduler_fire._finish_manual_trigger  # pyright: ignore[reportPrivateUsage]
+notify_home_live = _scheduler_fire._notify_home_live  # pyright: ignore[reportPrivateUsage]
+playback_lock = _scheduler_fire._playback_lock  # pyright: ignore[reportPrivateUsage]
+set_running = _scheduler_fire._set_running  # pyright: ignore[reportPrivateUsage]
+set_running_wait = _scheduler_fire._set_running_wait  # pyright: ignore[reportPrivateUsage]
 
 
 class PromptBackgroundScheduler(BackgroundScheduler):
@@ -67,6 +67,10 @@ class PromptBackgroundScheduler(BackgroundScheduler):
             return self.max_wait_seconds
         return min(float(wait), self.max_wait_seconds)
 
+    def process_due_jobs(self) -> float | None:
+        """Run one scheduler pass. Tests use this instead of ``_process_jobs``."""
+        return self._process_jobs()
+
 
 def start_scheduler() -> None:
     if get_scheduler() is not None:
@@ -92,7 +96,7 @@ def stop_scheduler() -> None:
     stop_cos_tracking()
     scheduler.shutdown(wait=False)
     set_scheduler(None)
-    _clear_running()
+    clear_running()
     allow_idle_sleep()
     log.info("Scheduler stopped")
 

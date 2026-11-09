@@ -6,7 +6,7 @@ alwaysApply: false
 
 # Python typing (basedpyright)
 
-Annotations are enforced by **basedpyright** (`uv run basedpyright`), not by CPython. Config: `[tool.basedpyright]` in `pyproject.toml`. Known debt lives in `.basedpyright/baseline.json` — **do not** grow the baseline to silence new work; fix the types (or a scoped `# pyright: ignore[rule]` at an FFI edge).
+Annotations are enforced by **basedpyright** (`uv run basedpyright`), not by CPython. Config: `[tool.basedpyright]` in `pyproject.toml`. Warnings fail the check — fix the types (or a scoped `# pyright: ignore[rule]` at an FFI edge). Do not add a baseline file to silence them.
 
 Do **not** change inheritance patterns just for typing. Prefer `Protocol`, `TypedDict`, `Literal`, dataclasses, and Pydantic as used today (`app/radio.py`, `app/manual_trigger_types.py`, `app/models.py`).
 
@@ -32,7 +32,7 @@ Do **not** change inheritance patterns just for typing. Prefer `Protocol`, `Type
 
 - Untyped libs (`hid`, PortAudio device dicts, Cocoa): thin typed wrappers at the edge; keep `# type: ignore[import-untyped]` / `# pyright: ignore[...]` **coded and local**.
 - Test fakes should structurally satisfy Protocols, or use one `cast(...)` at construction — avoid scattered `# type: ignore[arg-type]`.
-- Scope: checker includes `app/` and `tests/`. Prefer fixing types over growing `.basedpyright/baseline.json`.
+- Scope: checker includes `app/` and `tests/`. Fix new diagnostics; do not reintroduce a baseline file.
 
 ## Domain unions
 

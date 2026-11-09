@@ -41,7 +41,7 @@ def _function_source(name: str) -> str:
     raise AssertionError(f"Could not find the end of {name}")
 
 
-def test_keepalive_frame_advances_before_the_reader_loops():
+def test_keepalive_frame_advances_before_the_reader_loops() -> None:
     function = _function_source("takeSseEvents")
     loop = function[function.index("while"):]
     advance = loop.index('splitAt = buffer.indexOf("\\n\\n")')

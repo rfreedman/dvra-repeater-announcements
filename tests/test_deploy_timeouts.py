@@ -13,8 +13,8 @@ STOP_REMOTE = ROOT / "scripts" / "stop-remote"
 
 def _run_deploy(**env: str) -> subprocess.CompletedProcess[str]:
     run_env = os.environ.copy()
-    run_env.pop("DEPLOY_STOP_TIMEOUT", None)
-    run_env.pop("DEPLOY_START_TIMEOUT", None)
+    _ = run_env.pop("DEPLOY_STOP_TIMEOUT", None)
+    _ = run_env.pop("DEPLOY_START_TIMEOUT", None)
     run_env.update(env)
     return subprocess.run(
         ["bash", str(DEPLOY)],
@@ -26,7 +26,7 @@ def _run_deploy(**env: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_deploy_rejects_non_positive_timeouts_before_git():
+def test_deploy_rejects_non_positive_timeouts_before_git() -> None:
     stop = _run_deploy(DEPLOY_STOP_TIMEOUT="0")
     assert stop.returncode == 1
     assert "Invalid DEPLOY_STOP_TIMEOUT=0" in stop.stderr
@@ -39,7 +39,7 @@ def test_deploy_rejects_non_positive_timeouts_before_git():
     assert "uncommitted" not in start.stderr
 
 
-def test_deploy_passes_timeouts_into_the_remote_script():
+def test_deploy_passes_timeouts_into_the_remote_script() -> None:
     text = DEPLOY.read_text(encoding="utf-8")
     assert '"$stop_timeout" "$start_timeout"' in text
     assert 'stop_timeout="$3"' in text
@@ -48,14 +48,14 @@ def test_deploy_passes_timeouts_into_the_remote_script():
     assert 'start_timeout="${DEPLOY_START_TIMEOUT:-180}"' in text
 
 
-def test_serve_sh_uses_frozen_sync_so_nuc_does_not_dirty_uv_lock():
+def test_serve_sh_uses_frozen_sync_so_nuc_does_not_dirty_uv_lock() -> None:
     serve = ROOT / "serve.sh"
     assert "uv sync --frozen" in serve.read_text(encoding="utf-8")
 
 
 def _run_stop_remote(**env: str) -> subprocess.CompletedProcess[str]:
     run_env = os.environ.copy()
-    run_env.pop("DEPLOY_STOP_TIMEOUT", None)
+    _ = run_env.pop("DEPLOY_STOP_TIMEOUT", None)
     run_env.update(env)
     return subprocess.run(
         ["bash", str(STOP_REMOTE)],
@@ -67,14 +67,14 @@ def _run_stop_remote(**env: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_stop_remote_rejects_invalid_deploy_stop_timeout():
+def test_stop_remote_rejects_invalid_deploy_stop_timeout() -> None:
     result = _run_stop_remote(DEPLOY_STOP_TIMEOUT="0")
     assert result.returncode == 1
     assert "Invalid DEPLOY_STOP_TIMEOUT=0" in result.stderr
     assert "Stopping app on" not in result.stdout
 
 
-def test_stop_remote_passes_stop_timeout_to_remote_script():
+def test_stop_remote_passes_stop_timeout_to_remote_script() -> None:
     text = STOP_REMOTE.read_text(encoding="utf-8")
     assert '"$REMOTE_PATH" "$stop_timeout"' in text
     assert 'stop_timeout="$2"' in text

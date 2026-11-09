@@ -10,7 +10,7 @@ from app.audio import (
 )
 
 
-def test_parse_script_splits_pause_tags():
+def test_parse_script_splits_pause_tags() -> None:
     segments = parse_script("Hello [pause:0.5] world [pause:0.1s] end")
     assert [type(item) for item in segments] == [
         SpeechSegment,
@@ -19,17 +19,21 @@ def test_parse_script_splits_pause_tags():
         PauseSegment,
         SpeechSegment,
     ]
-    assert segments[1].seconds == 0.5
-    assert segments[3].seconds == 0.1
+    first_pause = segments[1]
+    second_pause = segments[3]
+    assert isinstance(first_pause, PauseSegment)
+    assert isinstance(second_pause, PauseSegment)
+    assert first_pause.seconds == 0.5
+    assert second_pause.seconds == 0.1
 
 
-def test_silence_chunk_duration_matches_sample_rate():
+def test_silence_chunk_duration_matches_sample_rate() -> None:
     chunk = silence_chunk(0.5, sample_rate=22050)
     assert len(chunk.pcm_int16) == int(0.5 * 22050) * 2
     assert chunk.sample_rate == 22050
 
 
-def test_materialize_chunks_includes_silence_before_later_speech():
+def test_materialize_chunks_includes_silence_before_later_speech() -> None:
     events: list[str] = []
 
     def generate():

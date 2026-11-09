@@ -53,14 +53,12 @@ explicit = true
 torch = [{ index = "pytorch-cpu" }]
 torchaudio = [{ index = "pytorch-cpu" }]
 
-# Static typing (basedpyright). Existing debt is in .basedpyright/baseline.json;
-# new diagnostics outside the baseline fail CI. Prefer fixing types over growing the baseline.
+# Static typing (basedpyright). app/ and tests/ are both checked; warnings fail the run.
 [tool.basedpyright]
 include = ["app", "tests"]
 exclude = ["**/__pycache__"]
 pythonVersion = "3.12"
 typeCheckingMode = "recommended"
-baselineFile = ".basedpyright/baseline.json"
 venvPath = "."
 venv = ".venv"
 # Incomplete third-party stubs; wrap at boundaries instead of sprinkling Any.

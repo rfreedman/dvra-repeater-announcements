@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
 from app.sse_hub import (
     publish_stats_event,
     set_event_loop,
@@ -11,9 +12,10 @@ from app.sse_hub import (
     unsubscribe_stats,
 )
 from app.stats_sse import STATS_BROADCAST_INTERVAL_SECONDS
+from app.system_status import SystemStats
 
 
-def test_stats_sse_requires_auth():
+def test_stats_sse_requires_auth() -> None:
     from fastapi.testclient import TestClient
 
     from app.server import app
@@ -23,13 +25,13 @@ def test_stats_sse_requires_auth():
         assert res.status_code == 401
 
 
-def test_stats_hub_delivers_publish():
+def test_stats_hub_delivers_publish() -> None:
     async def run() -> None:
         loop = asyncio.get_running_loop()
         set_event_loop(loop)
         queue = subscribe_stats()
         try:
-            payload = {
+            payload: SystemStats = {
                 "celsius": 42.0,
                 "thermal_state": None,
                 "cpu_percent": 10.0,
@@ -38,6 +40,7 @@ def test_stats_hub_delivers_publish():
             publish_stats_event(payload)
             await asyncio.sleep(0)
             message = await asyncio.wait_for(queue.get(), timeout=2.0)
+            assert message is not None
             assert message.event == "stats"
             assert message.data == payload
         finally:
@@ -46,10 +49,10 @@ def test_stats_hub_delivers_publish():
     asyncio.run(run())
 
 
-def test_stats_sse_stream_yields_snapshot(monkeypatch):
+def test_stats_sse_stream_yields_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:
     from unittest.mock import AsyncMock, MagicMock
 
-    from app.server import _system_stats_event_stream
+    from app.server import system_stats_event_stream
     from app.sse_hub import format_sse
 
     sample = {
@@ -64,12 +67,12 @@ def test_stats_sse_stream_yields_snapshot(monkeypatch):
     request.is_disconnected = AsyncMock(return_value=True)
 
     async def run() -> None:
-        stream = _system_stats_event_stream(request)
+        stream = system_stats_event_stream(request)
         first = await anext(stream)
         assert first == format_sse("snapshot", sample)
 
     asyncio.run(run())
 
 
-def test_stats_broadcast_interval():
+def test_stats_broadcast_interval() -> None:
     assert STATS_BROADCAST_INTERVAL_SECONDS == 15.0

@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import feedparser
 
 from app.newsline.download import entry_download_urls, latest_report
 
 
 def _feed(items_xml: str) -> feedparser.FeedParserDict:
-    return feedparser.parse(
-        f"""<?xml version="1.0" encoding="UTF-8"?>
+    return cast(
+        feedparser.FeedParserDict,
+        feedparser.parse(
+            f"""<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:media="http://www.rssboard.org/media-rss">
   <channel>
     <title>Amateur Radio Newsline</title>
@@ -17,15 +21,18 @@ def _feed(items_xml: str) -> feedparser.FeedParserDict:
   </channel>
 </rss>
 """
+        ),
     )
 
 
-def _item(
-    *,
-    number: int,
-    description: str,
-    enclosure: str | None = None,
-) -> str:
+def _entries(feed: feedparser.FeedParserDict) -> list[object]:
+    entries = cast(object, feed.get("entries"))
+    if not isinstance(entries, list):
+        raise AssertionError("feed entries must be a list")
+    return cast(list[object], entries)
+
+
+def _item(*, number: int, description: str, enclosure: str | None = None) -> str:
     enclosure_xml = ""
     if enclosure is not None:
         enclosure_xml = (
@@ -40,7 +47,7 @@ def _item(
     """
 
 
-def test_latest_report_uses_script_and_enclosure_hrefs_unchanged():
+def test_latest_report_uses_script_and_enclosure_hrefs_unchanged() -> None:
     script = "https://arnewsline7.squarespace.com/s/NSLN2557.txt"
     audio = "https://www.arnewsline.org/s/Report2557.mp3"
     enclosure = "https://cdn.example.invalid/t/abc/Report2557.mp3"
@@ -61,7 +68,7 @@ def test_latest_report_uses_script_and_enclosure_hrefs_unchanged():
     assert report.script_url == script
 
 
-def test_audio_link_is_used_when_there_is_no_enclosure():
+def test_audio_link_is_used_when_there_is_no_enclosure() -> None:
     script = "https://www.arnewsline.org/s/nsln2556.txt"
     audio = "https://files.example.invalid/odd/path/show-2556.mp3"
     feed = _feed(
@@ -73,7 +80,7 @@ def test_audio_link_is_used_when_there_is_no_enclosure():
             ),
         )
     )
-    audio_url, script_url = entry_download_urls(feed.entries[0])
+    audio_url, script_url = entry_download_urls(_entries(feed)[0])
     assert audio_url == audio
     assert script_url == script
     report = latest_report(feed)
@@ -82,7 +89,7 @@ def test_audio_link_is_used_when_there_is_no_enclosure():
     assert report.script_url == script
 
 
-def test_latest_report_skips_an_entry_that_has_no_script_link():
+def test_latest_report_skips_an_entry_that_has_no_script_link() -> None:
     feed = _feed(
         _item(
             number=2557,
@@ -104,7 +111,7 @@ def test_latest_report_skips_an_entry_that_has_no_script_link():
     assert report.script_url == "https://example.invalid/nsln2556.txt"
 
 
-def test_latest_report_is_none_when_audio_and_script_are_missing():
+def test_latest_report_is_none_when_audio_and_script_are_missing() -> None:
     feed = _feed(
         _item(
             number=2557,
@@ -112,4 +119,4 @@ def test_latest_report_is_none_when_audio_and_script_are_missing():
         )
     )
     assert latest_report(feed) is None
-    assert entry_download_urls(feed.entries[0]) == (None, None)
+    assert entry_download_urls(_entries(feed)[0]) == (None, None)
