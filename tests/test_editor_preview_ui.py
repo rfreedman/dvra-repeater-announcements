@@ -43,6 +43,16 @@ def test_announcement_reset_undoes_edits_and_stays_disabled_when_clean() -> None
     assert "editorBaselinePlaySeconds = editorPlaySeconds" in clean
 
 
+def test_schedule_save_is_spaced_below_the_enabled_checkbox() -> None:
+    css = (APP_JS.parent / "styles.css").read_text(encoding="utf-8")
+    html = (APP_JS.parent / "index.html").read_text(encoding="utf-8")
+    schedule = html.split('id="view-schedule"', 1)[1].split('id="schedule-error"', 1)[0]
+    enabled = schedule.split('id="sched-enabled"', 1)[1]
+    assert enabled.index("Enabled") < enabled.index('id="save-schedule"')
+    rule = css.split("#view-schedule .actions", 1)[1].split("}", 1)[0]
+    assert "margin-top: 22px" in rule
+
+
 def test_save_stays_disabled_until_the_editor_differs_from_its_original() -> None:
     source = APP_JS.read_text(encoding="utf-8")
     snapshot = source.split("function formSnapshot()", 1)[1].split("function isEditorDirty()", 1)[0]

@@ -647,6 +647,10 @@ input[type="range"]:focus-visible {
   gap: 12px;
 }
 
+#view-schedule .actions {
+  margin-top: 22px;
+}
+
 .actions + .controls {
   margin-top: 32px;
 }
