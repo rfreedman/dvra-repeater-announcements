@@ -2,6 +2,8 @@
 
 A **DRA** (Digital Radio Adapter) is the USB box between the computer and one radio. This project uses the [Masters Communications **DRA-36M**](https://www.masterscommunications.com/products/radio-adapter/dra/dra36m.html). It plays the announcement into the radio and keys the transmitter. The setting `TTS_RADIO_BACKEND=dra` means the app is using those adapters.
 
+**Piper** is a text-to-speech (TTS) library. It turns announcement text into the speech the radio transmits.
+
 Use these **before** wiring the announcements app to CM119A HID/PortAudio. Run them on the **Linux host**. Radios have not been tried on macOS.
 
 Script path: [`scripts/dra36m_check.py`](../../scripts/dra36m_check.py) ([`scripts/README.md`](../../scripts/README.md)). Record results in [`bench-record.md`](bench-record.md).
@@ -225,7 +227,7 @@ python scripts/dra36m_check.py smoke -c left --seconds 4 --lead 0.6 --level 0.3
 
 ### `voice`
 
-PTT + lead silence + **Piper** TTS on air (22050 Hz stream rate, not 48 kHz device default).
+PTT + lead silence + **Piper** on air (22050 Hz stream rate, not 48 kHz device default).
 
 ```bash
 python scripts/dra36m_check.py voice -c left --lead 0.6 "This is a test."

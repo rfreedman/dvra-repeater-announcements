@@ -1,6 +1,6 @@
 # DVRA Repeater Announcements
 
-Station software for scheduled **Piper TTS** (and Amateur Radio Newsline) announcements on a repeater. A FastAPI web UI manages the library and schedules. A **DRA** (Digital Radio Adapter) is the USB box between the computer and one radio. This project uses the [Masters Communications **DRA-36M**](https://www.masterscommunications.com/products/radio-adapter/dra/dra36m.html). It plays the announcement into the radio and keys the transmitter. The setting `TTS_RADIO_BACKEND=dra` means the app is using those adapters. Audio is generated and played **in memory** — nothing is written as WAV/MP3 for on-air use.
+Station software for scheduled repeater announcements. **Piper** is a text-to-speech (TTS) library. It turns announcement text into the speech the radio transmits. The app also plays Amateur Radio Newsline audio. A FastAPI web UI manages the announcement library and schedules. A **DRA** (Digital Radio Adapter) is the USB box between the computer and one radio. This project uses the [Masters Communications **DRA-36M**](https://www.masterscommunications.com/products/radio-adapter/dra/dra36m.html). It plays the announcement into the radio and keys the transmitter. The setting `TTS_RADIO_BACKEND=dra` means the app is using those adapters. Audio is generated and played **in memory** — nothing is written as WAV/MP3 for on-air use.
 
 Development and testing **without radios** is done on macOS. That work was done on a MacBook Pro M3 running macOS Tahoe. Radios have not been tried on macOS; use `TTS_RADIO_BACKEND=stub` there.
 

@@ -62,4 +62,4 @@ Opening, station ID, and closing use the same length limit as every other spoken
 
 `ffmpeg` and `ffprobe` must be on `PATH`. If they are missing, the app logs a warning and keeps running; download, split, and Newsline playback cannot run until they are installed.
 
-The first successful split downloads the speech models it needs (`base.en` for alignment and `small.en` for a check of the exported audio). Later splits reuse those models. A split usually finishes in about a minute and a half and does not block a slot that is ready to fire.
+The first successful split downloads the speech models it needs (`base.en` for alignment and `small.en` for a check of the exported audio). Later splits reuse those models. A split usually finishes in several minutes and does not block a slot that is ready to fire. How those models place the story cuts is in [How Newsline splitting works](newsline-split.md).

@@ -12,7 +12,7 @@ Streams 16-bit little-endian mono PCM. Format headers:
 - `X-Sample-Rate` (usually 22050)
 - `X-Sample-Width` (`2`), `X-Channels` (`1`)
 
-Audio is produced one Piper sentence at a time and sent as it is ready.
+**Piper** is a text-to-speech (TTS) library. It turns announcement text into speech. Audio is produced one sentence at a time and sent as it is ready.
 
 `GET /api/voices` lists voices and the server defaults for new announcements (speed, sentence pause, busy retry / give-up). `POST /api/prepare` downloads/loads a model without speaking. Most `/api/*` routes require a login session cookie. Failed sign-ins for the same username from the same address return `429` after `TTS_LOGIN_MAX_FAILURES` attempts (default 5) within `TTS_LOGIN_WINDOW_SECONDS` (default 300) until the window passes; that limit is **in-memory** and clears on process restart (see [Process restart and in-memory state](#process-restart-and-in-memory-state)). Requests carrying an `X-Background-Poll` header (any value; only its presence is checked) are authenticated but do not reset the idle timer. User management is under `/api/users` (Admin only). Auth helpers: `/api/auth/status`, `/api/auth/setup`, `/api/auth/login`, `/api/auth/logout`, `/api/auth/me`.
 

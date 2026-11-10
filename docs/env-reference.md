@@ -1,5 +1,7 @@
 # Environment reference
 
+**Piper** is a text-to-speech (TTS) library. It turns announcement text into the speech the radio transmits.
+
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `TTS_DEFAULT_VOICE` | `en_US-ryan-medium` | Default Piper voice |

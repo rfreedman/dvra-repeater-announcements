@@ -2,6 +2,8 @@
 
 A **DRA** (Digital Radio Adapter) is the USB box between the computer and one radio. This project uses the [Masters Communications **DRA-36M**](https://www.masterscommunications.com/products/radio-adapter/dra/dra36m.html). It plays the announcement into the radio and keys the transmitter. The setting `TTS_RADIO_BACKEND=dra` means the app is using those adapters.
 
+**Piper** is a text-to-speech (TTS) library. It turns announcement text into the speech the radio transmits.
+
 Operational lessons from the **Ubuntu 26.04.1 LTS** machine used for radio development and testing with those adapters (2026-10). On that host (2026-10-24): **single-radio** `retest` with **IC-2720** and **IC-207H**; **dual DRA** `dual-retest` with **IC-2720** + **FT-8900R**. The announcements app (`TTS_RADIO_BACKEND=dra`) has been run there with two DRAs and transmitted on both radios. Radios have not been tried on macOS. Re-run `probe-all` / `dual-retest` when both production **IC-207H** replace the bench pair. For jumpers, checkout order, and `dra36m_check.py` commands, see [`final-hardware/`](final-hardware/README.md).
 
 After **deploy or restart**, busy-retry / defer state and login lockout counters are in-memory only — see [Deploying — Process restart and in-memory state](deploy.md#process-restart-and-in-memory-state).
