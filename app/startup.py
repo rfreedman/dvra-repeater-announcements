@@ -14,7 +14,7 @@ def _message_for_os_error(exc: OSError) -> str:
     return (
         "Could not open the DRA USB HID device. "
         "On Linux, check udev rules, replug the DRA, and confirm your user is in the "
-        "plugdev group (see docs/NUC-notes.md). "
+        "plugdev group (see docs/linux-host.md). "
         f"({exc})"
     )
 

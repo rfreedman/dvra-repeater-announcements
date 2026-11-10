@@ -33,7 +33,7 @@ APScheduler with a shifted/frozen clock before fixing; the new tests in
 - **Tests:** `test_busy_retry_survives_until_its_own_deadline`, `test_busy_retry_removed_when_slot_has_nothing_to_play`.
 
 ### 4. Two DRAs played one after the other, not together
-- **Symptom:** (production = one NUC, two DRAs) radio 1 played the whole announcement while radio 2 was keyed on silence; then radio 2 played it.
+- **Symptom:** (production = one Linux host, two DRAs) radio 1 played the whole announcement while radio 2 was keyed on silence; then radio 2 played it.
 - **Cause:** `sounddevice` `stream.write()` blocks until the data is buffered. A cached announcement is a single chunk, so the first stream got all of it before the second got anything.
 - **Fix:** `app/dra_playback.py` builds one float32 program per device (lead silence + resampled audio) and `write_programs_interleaved()` feeds the streams in alternating 50 ms blocks.
 - **Test:** `test_two_radios_are_fed_in_alternating_short_blocks` (`tests/test_dra_hardware_fixes.py`).
@@ -64,25 +64,25 @@ APScheduler with a shifted/frozen clock before fixing; the new tests in
 - **Follow-up:** the server first required the header value to be exactly `"1"`, a magic value typed separately in Python and JS that could silently drift. It now checks only that the header is present, so just the header name (`BACKGROUND_POLL_HEADER`) has to match.
 - **Tests:** `test_background_poll_does_not_extend_idle_session` (runs with several values, all ignored) and `test_request_without_background_header_extends_idle_session`.
 
-### 9. "Trigger now" button showed "Playing" late or not at all (found on the NUC after deploy)
+### 9. "Trigger now" button showed "Playing" late or not at all (found on the Linux host after deploy)
 - **Symptom:** after a manual trigger the button changed to "Playing" late, sometimes never. Scheduled fires were fine.
 - **Cause:** when the clear hold is already met, the trigger transmits *inside* the POST request. The UI's fast (1 s) refresh only ran when something was already queued/running or a scheduled run was within 15 s, so during that POST it waited for the 15 s timer — longer than a short announcement. Scheduled fires hit the "within 15 s" case, which is why they worked. Not seen in Mac stub mode because stub transmits finish almost instantly. Likely predates this review.
 - **Fix:** `static/app.js` `tickUpcoming()` also polls while `triggerNowBusy` (a trigger request is in flight).
 - **Test:** `tests/test_manual_trigger_status.py` checks the server reports `upcoming.status == "running"` while a manual transmit is in progress.
 
-### 10. "Trigger in progress" instead of the clear-hold countdown (found on the NUC)
+### 10. "Trigger in progress" instead of the clear-hold countdown (found on the Linux host)
 - **Symptom:** pressing Trigger now right after the channel went idle (but before the 10 s clear hold) showed "Trigger in progress / Waiting for clear channel or transmitting" with no countdown. On-air behavior was correct. Pressing it while the channel was busy showed the countdown as expected.
 - **Cause:** the HTTP trigger defers the clear wait to a scheduler retry about 0.5 s later. That retry is "in flight" while it blocks for the rest of the hold. `_pending_row_for_manual` checked in-flight *before* busy and clear hold, so the whole wait was labeled `in_progress`. (The UI's `in_progress` countdown could never appear: `interpolatedClearRemaining` only works for `clear_window`.) In the busy case the retry usually runs only once the hold is already met, so the bug didn't show.
 - **Fix:** `app/scheduler.py`: radio state (busy, then clear hold) now takes priority over in-flight; `in_progress` is used only when no clear hold is configured. In-flight runs also record their give-up deadline (`_set_manual_inflight_deadline`), so "Give up in" stays correct after the retry job has been consumed.
 - **Test:** `tests/test_manual_trigger_status.py` (phase ordering and in-flight give-up time).
 
-### 11. Short kerchunks did not reset the clear hold (found on the NUC)
+### 11. Short kerchunks did not reset the clear hold (found on the Linux host)
 - **Symptom:** during a manual trigger's clear-hold countdown, a quick kerchunk did not reset the countdown; it took about a second of transmission. This affected the real on-air hold, not just the display.
-- **Cause:** `DraRadio._apply_cos_busy` reset idle credit only after **two consecutive** busy samples. At the 0.25 s poll, a kerchunk shorter than about 0.5 s was ignored. The NUC verbose log confirmed it: one `decoded_busy=True` sample while idle credit kept climbing. The debounce dated from the Mac integration and wasn't documented. Missed or garbled HID reads already reach the code as "no reading" (keeping idle credit), not as busy, so the debounce wasn't protecting against bad reads.
+- **Cause:** `DraRadio._apply_cos_busy` reset idle credit only after **two consecutive** busy samples. At the 0.25 s poll, a kerchunk shorter than about 0.5 s was ignored. The Linux host verbose log confirmed it: one `decoded_busy=True` sample while idle credit kept climbing. The debounce dated from the Mac integration and wasn't documented. Missed or garbled HID reads already reach the code as "no reading" (keeping idle credit), not as busy, so the debounce wasn't protecting against bad reads.
 - **Fix:** one decoded busy sample resets idle credit. Removed the now-dead "busy sample ignored" bypass in `wait_for_transmit_clear`.
 - **Test:** `tests/test_dra_cos_idle.py::test_single_busy_sample_resets_idle_credit` (previously asserted the opposite).
 
-### 12. Key-up in the last second of the clear hold did not stop the transmit (found on the NUC)
+### 12. Key-up in the last second of the clear hold did not stop the transmit (found on the Linux host)
 - **Symptom:** with the UI showing 0:01 remaining, keying up (even for a long transmission) did not reset the hold; the announcement played.
 - **Causes:**
   - The "before PTT" check used `channel_blocks_transmit`, which **skips reading COS** once idle credit has reached the clear hold, so there was no real final check. A test (`test_fire_transmits_when_clear_hold_met_despite_busy_sample`) required this, based on the same "busy samples are flaky" assumption as the debounce in error 11.

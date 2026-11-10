@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stop the app on the NUC (SIGTERM only; no SIGKILL — PTT safety).
+# Stop the app on the Linux host (SIGTERM only; no SIGKILL — PTT safety).
 # Usage: scripts/stop-remote [host]   (env: DEPLOY_HOST, DEPLOY_PATH, DEPLOY_STOP_TIMEOUT)
 set -euo pipefail
 
@@ -32,7 +32,7 @@ for ((i = 0; i < stop_timeout; i++)); do
 done
 if pgrep -u "$USER" -f "$pattern" >/dev/null; then
   echo "App still running after ${stop_timeout}s (pid $(pgrep -u "$USER" -f "$pattern" | tr '\n' ' '))." >&2
-  echo "Not sending SIGKILL (can leave PTT keyed). Check the NUC and stop it manually." >&2
+  echo "Not sending SIGKILL (can leave PTT keyed). Check the Linux host and stop it manually." >&2
   exit 1
 fi
 echo "App stopped"

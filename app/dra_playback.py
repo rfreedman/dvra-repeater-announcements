@@ -141,7 +141,7 @@ def play_s16_stereo_via_aplay(
         )
     except FileNotFoundError as exc:
         raise RuntimeError(
-            "aplay not found; install alsa-utils on the NUC (docs/NUC-notes.md)"
+            "aplay not found; install alsa-utils on the Linux host (docs/linux-host.md)"
         ) from exc
 
     if register_proc is not None:

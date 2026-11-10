@@ -1,10 +1,14 @@
 # DVRA Repeater Announcements
 
-Station software for scheduled **Piper TTS** (and Amateur Radio Newsline) announcements on a repeater. A FastAPI web UI manages the library and schedules; on the NUC a DRA-36M backend keys PTT, watches COS, and plays USB audio. Audio is generated and played **in memory** — nothing is written as WAV/MP3 for on-air use.
+Station software for scheduled **Piper TTS** (and Amateur Radio Newsline) announcements on a repeater. A FastAPI web UI manages the library and schedules. A **DRA** (Digital Radio Adapter) is the USB box between the computer and one radio. This project uses the [Masters Communications **DRA-36M**](https://www.masterscommunications.com/products/radio-adapter/dra/dra36m.html). It plays the announcement into the radio and keys the transmitter. The setting `TTS_RADIO_BACKEND=dra` means the app is using those adapters. Audio is generated and played **in memory** — nothing is written as WAV/MP3 for on-air use.
+
+Development and testing **without radios** is done on macOS. That work was done on a MacBook Pro M3 running macOS Tahoe. Radios have not been tried on macOS; use `TTS_RADIO_BACKEND=stub` there.
+
+Development and production **with radios** run on a 64-bit Linux computer. That work has been done only on Ubuntu 26.04.1 LTS, including two DRAs transmitting together. Use `TTS_RADIO_BACKEND=dra` on the Linux host.
 
 ## Requirements
 
-- macOS or **64-bit Linux** (production: [docs/final-hardware/README.md](docs/final-hardware/README.md); DRA bench: [dra36m-check-tests.md](docs/final-hardware/dra36m-check-tests.md), [scripts/README.md](scripts/README.md))
+- macOS (no radios) or **64-bit Linux** (with radios). Hardware: [docs/final-hardware/README.md](docs/final-hardware/README.md). DRA bench: [dra36m-check-tests.md](docs/final-hardware/dra36m-check-tests.md), [scripts/README.md](scripts/README.md)
 - Python 3.12+
 - [uv](https://docs.astral.sh/uv/)
 - PortAudio for CLI/local playback (`brew install portaudio` / `sudo apt install libportaudio2`)
@@ -18,7 +22,7 @@ source .venv/bin/activate   # optional; or use uv run …
 
 Dependencies live in `pyproject.toml` + `uv.lock` (commit both). Use `uv add` / `uv remove` — do not `pip install` into the venv.
 
-**Deploy to the NUC:** [docs/deploy-nuc.md](docs/deploy-nuc.md) (`scripts/deploy`, `serve.sh`, version bumps, restart behavior).
+**Deploy to the Linux host:** [docs/deploy.md](docs/deploy.md) (`scripts/deploy`, `serve.sh`, version bumps, restart behavior). The default SSH hostname `repeater-nuc` is this station’s machine, not a hardware requirement.
 
 **Environment variables:** [docs/env-reference.md](docs/env-reference.md) and [`.env.example`](.env.example). `STATION_CALL` and `STATION_NAME` are required; optional `APP_TITLE` defaults to `{STATION_CALL} Announcements`.
 

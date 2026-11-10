@@ -19,17 +19,17 @@
 | `TTS_PCM_CACHE_DIR` | `./data/pcm` | Pre-rendered announcement PCM (written on save and at startup; scheduled fires play this) |
 | `TTS_LOG_DIR` | `./data/logs` | Daily rotating `announcements.log` (app + uvicorn server) and filtered `access.log` (page/asset/major API hits; home polls/health/SSE omitted). Access is file-only (not stdout/stderr). Kept 30 days (`TTS_LOG_KEEP_DAYS`). |
 | `TTS_PTT_LEAD_SECONDS` | `0.4` | Delay after PTT before audio (on **dra**, silence is streamed on USB; on **stub**, host sleep) |
-| `TTS_RADIO_BACKEND` | `stub` | `stub` = in-memory PTT/COS; `dra` = CM119A HID + DRA USB audio (requires `hidapi`). Confirm the active mode in the startup log: `(radio mode: stub)` or `(radio mode: dra)` |
+| `TTS_RADIO_BACKEND` | `stub` | `stub` = in-memory PTT/COS. A **DRA** (Digital Radio Adapter) is the USB box between the computer and one radio. This project uses the [Masters Communications **DRA-36M**](https://www.masterscommunications.com/products/radio-adapter/dra/dra36m.html). It plays the announcement into the radio and keys the transmitter. `dra` means the app is using those adapters (requires `hidapi`). Confirm the active mode in the startup log: `(radio mode: stub)` or `(radio mode: dra)` |
 | `TTS_DRA_USB_CHANNEL` | `left` | USB channel for DATA IN (**JU3=L** → `left`) |
 | `TTS_DRA_COS_LINE` | `vol_dn` | HID COS decode (`vol_dn` or `allstar3`) |
 | `TTS_DRA_COS_ACTIVE_HIGH` | `false` | Set `true` if idle/busy labels swap on `monitor` |
-| `TTS_DRA_AUDIO_DEVICES` | *(auto)* | Optional comma list of PortAudio substrings or indices (**one per DRA**). On the NUC with **two radios**, use fixed USB ports; set this only if auto-detection order is wrong |
+| `TTS_DRA_AUDIO_DEVICES` | *(auto)* | Optional comma list of PortAudio substrings or indices (**one per DRA**). On the Linux host with **two radios**, use fixed USB ports; set this only if auto-detection order is wrong |
 | `TTS_DRA_CLEAR_SECONDS` | `0` | Continuous COS idle required after synthesize, before PTT (`10` matches bench voice-gate) |
 | `TTS_DRA_CLEAR_POLL_SECONDS` | `0.25` | COS poll interval during clear wait and background idle tracking |
 | `TTS_DRA_FINAL_CHECK_SECONDS` | `1.0` | After the clear hold, keep reading COS this long before PTT; any busy read cancels (catches a key-up as the UI countdown ends). Only applies when `TTS_DRA_CLEAR_SECONDS` > 0 |
 | `TTS_DRA_COS_TRACK` | `true` | Background COS polls while the scheduler runs (idle before Trigger now counts toward clear) |
-| `TTS_DRA_HID_PATH` | *(auto)* | Hex HID path to pin **one** CM119 (Mac dev or **single** DRA on the NUC). **Omit when two DRAs are on the NUC** — each radio needs its own CM119 HID |
-| `TTS_DRA_ALSA_UNMUTE` | `true` | Linux **dra** only: run `amixer` to unmute CM119 **Speaker** at startup (see [NUC notes](docs/NUC-notes.md)). Set `false` to skip |
+| `TTS_DRA_HID_PATH` | *(auto)* | Hex HID path to pin **one** CM119 (a **single** DRA on the Linux host). **Omit when two DRAs are connected** — each radio needs its own CM119 HID |
+| `TTS_DRA_ALSA_UNMUTE` | `true` | Linux **dra** only: run `amixer` to unmute CM119 **Speaker** at startup (see [Linux host notes](linux-host.md)). Set `false` to skip |
 | `TTS_DRA_ALSA_SPEAKER_LEVEL` | `100%` | ALSA **Speaker** level passed to `amixer sset` when unmuting |
 | `TTS_BUSY_RETRY_SECONDS` | `5` | Retry interval while the channel is busy; also the value pre-filled for a **new announcement** in the UI |
 | `TTS_BUSY_GIVE_UP_SECONDS` | `45` | Drop this fire if still busy after this long; also pre-filled for a new announcement |

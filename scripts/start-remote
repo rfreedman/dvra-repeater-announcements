@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start the app on the NUC (detached; survives logoff there). No git pull.
+# Start the app on the Linux host (detached; survives logoff there). No git pull.
 # Usage: scripts/start-remote [host]   (env: DEPLOY_HOST, DEPLOY_PATH)
 set -euo pipefail
 
@@ -17,14 +17,14 @@ start_timeout=180
 out=data/logs/serve.out
 
 if ! command -v uv >/dev/null 2>&1; then
-  echo "uv not found on the NUC (serve.sh needs it to sync dependencies)." >&2
+  echo "uv not found on the Linux host (serve.sh needs it to sync dependencies)." >&2
   exit 1
 fi
 
 pids="$(pgrep -u "$USER" -f "$pattern" || true)"
 if [[ -n "$pids" ]]; then
   echo "App already running (pid $pids)." >&2
-  echo "Stop it on the NUC with: pkill -TERM -f '$pattern'" >&2
+  echo "Stop it on the Linux host with: pkill -TERM -f '$pattern'" >&2
   exit 1
 fi
 

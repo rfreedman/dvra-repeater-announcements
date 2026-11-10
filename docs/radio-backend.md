@@ -3,7 +3,7 @@
 Scheduled and manual fires talk to a **radio backend** selected by `TTS_RADIO_BACKEND`:
 
 - **`stub`** (default) — in-memory PTT/COS for dev and tests ([`StubRadio`](../app/radio.py)).
-- **`dra`** — CM119 HID + DRA USB audio on the NUC ([`DraRadio`](../app/dra_radio.py)).
+- **`dra`** — A **DRA** (Digital Radio Adapter) is the USB box between the computer and one radio. This project uses the [Masters Communications **DRA-36M**](https://www.masterscommunications.com/products/radio-adapter/dra/dra36m.html). It plays the announcement into the radio and keys the transmitter. The setting `TTS_RADIO_BACKEND=dra` means the app is using those adapters ([`DraRadio`](../app/dra_radio.py)). Tested on Ubuntu 26.04.1 LTS. Radios have not been tried on macOS.
 
 The typed [`Radio`](../app/radio.py) protocol only requires `channel_busy()` and `set_ptt()`. Optional capabilities are expressed as `@runtime_checkable` Protocols with matching `as_*` helpers (e.g. `as_idle_credit(radio)`) — call sites use these helpers instead of `getattr`. A production DRA backend should implement the full extension set below; stub implements enough for tests and Mac UI work.
 
@@ -46,4 +46,4 @@ PortAudio device enumeration helpers live in [`app/dra_portaudio.py`](../app/dra
 3. Register via [`create_radio_from_config()`](../app/radio.py) / startup in [`app/startup.py`](../app/startup.py).
 4. Run the full test suite with `TTS_RADIO_BACKEND=stub`; add targeted tests with fakes where hardware is required.
 
-See also [final hardware](final-hardware/README.md), [NUC notes](NUC-notes.md), and [code review findings — DRA](code-review-findings.md).
+See also [final hardware](final-hardware/README.md), [Linux host notes](linux-host.md), and [code review findings — DRA](code-review-findings.md).

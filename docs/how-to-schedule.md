@@ -93,7 +93,7 @@ restarted the server after those slots. Overlays and fires always **re-resolve**
 fire time; the grid for past slots is only a simulation for planning.
 
 For what really aired, use station records or logs (`data/logs/announcements.log` on
-the NUC), not the UI clock alone.
+the Linux host), not the UI clock alone.
 
 ## Suggested first setup
 

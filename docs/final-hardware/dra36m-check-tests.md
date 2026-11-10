@@ -1,6 +1,8 @@
 # DRA-36M bench tests (`scripts/dra36m_check.py`)
 
-Use these **before** wiring the announcements app to CM119A HID/PortAudio. Same commands work on **macOS (dev)** and **Linux (NUC)** except where noted.
+A **DRA** (Digital Radio Adapter) is the USB box between the computer and one radio. This project uses the [Masters Communications **DRA-36M**](https://www.masterscommunications.com/products/radio-adapter/dra/dra36m.html). It plays the announcement into the radio and keys the transmitter. The setting `TTS_RADIO_BACKEND=dra` means the app is using those adapters.
+
+Use these **before** wiring the announcements app to CM119A HID/PortAudio. Run them on the **Linux host**. Radios have not been tried on macOS.
 
 Script path: [`scripts/dra36m_check.py`](../../scripts/dra36m_check.py) ([`scripts/README.md`](../../scripts/README.md)). Record results in [`bench-record.md`](bench-record.md).
 
@@ -10,11 +12,11 @@ Script path: [`scripts/dra36m_check.py`](../../scripts/dra36m_check.py) ([`scrip
 
 | Mode | Host | Radios | Regression command | Result |
 |------|------|--------|-------------------|--------|
-| Single DRA | Intel **NUC** | **IC-2720** (dev / test rig) | `retest -c left --with-voice --lead 0.6` | **Pass** (2026-10-24) |
-| Single DRA | Intel **NUC** | **IC-207H** (production) | same `retest` | **Pass** (2026-10-24) |
-| Dual DRA | Intel **NUC** | **IC-2720** + **FT-8900R** | `dual-retest -c left --with-voice --lead 0.6` | **Pass** (2026-10-24) |
+| Single DRA | **Linux** (Ubuntu 26.04.1 LTS) | **IC-2720** (dev / test rig) | `retest -c left --with-voice --lead 0.6` | **Pass** (2026-10-24) |
+| Single DRA | **Linux** (Ubuntu 26.04.1 LTS) | **IC-207H** (production) | same `retest` | **Pass** (2026-10-24) |
+| Dual DRA | **Linux** (Ubuntu 26.04.1 LTS) | **IC-2720** + **FT-8900R** | `dual-retest -c left --with-voice --lead 0.6` | **Pass** (2026-10-24) |
 
-Earlier **macOS + IC-2720** checkout (2026-10-10) is recorded in [`bench-record.md`](bench-record.md). The announcements app (`TTS_RADIO_BACKEND=dra`) has been run on the NUC with two DRAs and transmitted on both radios. On-air production will use **two IC-207H**; dual **`dual-retest`** with both production rigs on the NUC is not recorded yet.
+The announcements app (`TTS_RADIO_BACKEND=dra`) has been run on this Linux host with two DRAs and transmitted on both radios. On-air production will use **two IC-207H**; dual **`dual-retest`** with both production rigs on the Linux host is not recorded yet. Radios have not been tried on macOS.
 
 ---
 
@@ -23,15 +25,14 @@ Earlier **macOS + IC-2720** checkout (2026-10-10) is recorded in [`bench-record.
 | Item | Requirement |
 |------|-------------|
 | Python venv | `uv sync` (installs `hidapi`, `sounddevice`, `numpy`; see the main README) |
-| macOS | `brew install hidapi portaudio`; often `export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib` |
-| Linux | `sudo apt install libportaudio2`; **udev + `plugdev`** — see [Linux: udev and plugdev](#linux-nuc-udev-and-plugdev) |
+| Linux | `sudo apt install libportaudio2`; **udev + `plugdev`** — see [Linux: udev and plugdev](#linux-udev-and-plugdev) |
 | DRA jumpers | **JU1 on**, **JU5 = A (1200)**, **JU3 = L** on both production DRA (must match `-c`; default **`left`**) |
 | Radio | **1200 bps DATA**, speaker volume up, **mic unplugged** for on-air TX tests |
 | RF safety | Low power, dummy load, or quiet simplex |
 
 **Blue COMM OK** is a host-audio watchdog, not COS. **Bare `ptt` does not key RF** without USB streaming; use **`smoke`** or **`voice`** for real PTT.
 
-### Linux (NUC): udev and plugdev
+### Linux: udev and plugdev
 
 The DRA-36M CM119A needs **HID** (`open_path`) and **USB audio** (PortAudio). On Linux, `hidapi` needs both:
 
@@ -94,9 +95,9 @@ Optional: **`snap --period 0.25`** during step 2 for a burst log of `vol_dn` / `
 
 ## Dual DRA (two adapters on one host)
 
-**Verified on Intel NUC (2026-10-24):** two **DRA-36M** units with **IC-2720** and **FT-8900R** — `probe-all`, `dual-smoke`, `dual-voice`, and `dual-retest -c left --with-voice --lead 0.6` all passed (both rigs keyed; Piper heard on both).
+**Verified on the Linux host (Ubuntu 26.04.1 LTS, 2026-10-24):** two **DRA-36M** units with **IC-2720** and **FT-8900R** — `probe-all`, `dual-smoke`, `dual-voice`, and `dual-retest -c left --with-voice --lead 0.6` all passed (both rigs keyed; Piper heard on both).
 
-Use these when **two** DRA-36M units are on fixed USB ports on the NUC (or on a dev Mac). Single-radio commands (`probe`, `smoke`, `retest`) still target the **first** CM119 only; dual commands pair every HID with PortAudio the same way as the app.
+Use these when **two** DRA-36M units are on fixed USB ports on the Linux host. Single-radio commands (`probe`, `smoke`, `retest`) still target the **first** CM119 only; dual commands pair every HID with PortAudio the same way as the app.
 
 Run from repo root with venv active (`python scripts/dra36m_check.py …`).
 
@@ -115,16 +116,6 @@ Run from repo root with venv active (`python scripts/dra36m_check.py …`).
 **Env:** Leave **`TTS_DRA_HID_PATH` unset** with two DRAs. If PortAudio order is wrong, use fixed USB ports and optional **`TTS_DRA_AUDIO_DEVICES`**.
 
 Per-radio jumper/COS checkout (first time on a new unit): unplug the other DRA and run the [single-radio order](#recommended-order-single-radio) above.
-
----
-
-## macOS shell prefix
-
-```bash
-cd /path/to/dvra-repeater-announcements
-source .venv/bin/activate
-export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib   # if needed
-```
 
 ---
 
@@ -162,11 +153,9 @@ If the channel is **already busy** at startup and HID enumerate fails, the scrip
 | `--active-high` | Flip polarity if idle/busy swap |
 | `--wait-device SEC` | Retry HID enumerate at startup (default **20**) |
 
-**Pass:** Labels match what you hear on the monitored radio. Ctrl+C to stop.
+**Pass:** Labels match what you hear on the monitored radio. Ctrl+C to stop. COS polarity for this project was measured on Linux.
 
-**macOS:** While squelch is open, HID may stall — **`monitor --cos vol_dn`** reports **busy (HID read stalled)**. The monitor uses a **fresh HID open/read/close on each poll** (subprocess fallback if needed) so **idle** should return after unkey in the same session. Authoritative COS for production is still **NUC/Linux**.
-
-Legacy **`dra_mac`** / **`audio_mac`** / **`hybrid_mac`**: not recommended on DRA-36M after **JU1/JU5** fix; kept for old benches.
+Legacy **`dra_mac`** / **`audio_mac`** / **`hybrid_mac`** modes are not used for this checkout.
 
 ---
 
@@ -285,8 +274,6 @@ python scripts/dra36m_check.py voice-gate -c left --poll 0.25 --lead 0.6 \
 
 **Pass:** No TX during hold; no TX during clear window if channel busy again; exactly one TX after stable clear.
 
-**macOS:** COS polling uses one-shot HID reads. Piper is **not** synthesized during the wait; at TX the script runs **`voice`** in a **subprocess** (avoids PortAudio `-9986` after HID polling).
-
 ---
 
 ### `retest`
@@ -310,7 +297,7 @@ python scripts/dra36m_check.py retest -c left --with-voice --lead 0.6
 
 ### `hid-once` (internal)
 
-Hidden helper: one HID read as JSON. Used by macOS COS polling fallback; not part of normal manual checkout.
+Hidden helper: one HID read as JSON. Not part of normal manual checkout.
 
 ---
 
@@ -322,17 +309,16 @@ Hidden helper: one HID read as JSON. Used by macOS COS polling fallback; not par
 | **`--poll`** | `voice-gate` | COS sample period |
 | **`--period`** | `snap` | Time between COS samples |
 | **`--interval`** | `monitor` | Time between COS polls |
-| **`--reacquire-after`** | `monitor` | Legacy: persistent-handle reopen (default **0**; macOS uses one-shot reads instead) |
+| **`--reacquire-after`** | `monitor` | Legacy: persistent-handle reopen (default **0**) |
 | **`--wait-device`** | `monitor`, `voice-gate` | Startup HID enumerate retry (default **20** s) |
 | **`--clear-seconds`** | `voice-gate` | Idle hang time before TX (default **10**) |
 | **`-c` / `--channel`** | TX commands | **`left`** (production default) / **`right`** must match **JU3** |
 
 ---
 
-## NUC notes
+## Linux host notes
 
-- Omit **`DYLD_*`** on Linux.
-- Install [udev rules and `plugdev`](#linux-nuc-udev-and-plugdev) before relying on `probe` / PTT / COS.
+- Install [udev rules and `plugdev`](#linux-udev-and-plugdev) before relying on `probe` / PTT / COS.
 - Prefer **`monitor --cos vol_dn`** as authoritative COS polarity for future app config.
 - Dual DRA: run the [single-radio order](#recommended-order-single-radio) **per radio** when bringing up a new unit; then run the [dual commands](#dual-dra-two-adapters-on-one-host) with both plugged in (production app and bench scripts support dual TX).
 

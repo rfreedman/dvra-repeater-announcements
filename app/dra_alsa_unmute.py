@@ -73,7 +73,7 @@ def alsa_cards_for_dra_outputs(device_indices: list[int]) -> list[int]:
     raise StartupError(
         "Could not determine ALSA card number for DRA USB audio "
         + "(expected PortAudio name with (hw:N,0) or CM119 in /proc/asound/cards). "
-        + "See docs/NUC-notes.md (ALSA mixer)."
+        + "See docs/linux-host.md (ALSA mixer)."
     )
 
 
@@ -119,8 +119,8 @@ def unmute_speaker(card: int, level: str) -> None:
         result = _amixer_unmute_speaker(card, level)
     except FileNotFoundError as exc:
         raise StartupError(
-            "amixer not found; install alsa-utils on the NUC to unmute CM119 Speaker "
-            + "(docs/NUC-notes.md)."
+            "amixer not found; install alsa-utils on the Linux host to unmute CM119 Speaker "
+            + "(docs/linux-host.md)."
         ) from exc
     except subprocess.CalledProcessError as exc:
         err_text = cast(object, exc.stderr)
@@ -129,7 +129,7 @@ def unmute_speaker(card: int, level: str) -> None:
         raise StartupError(
             f"Could not unmute ALSA Speaker on card {card} "
             + f"(amixer sset Speaker {level} unmute failed). {detail} "
-            + "See docs/NUC-notes.md."
+            + "See docs/linux-host.md."
         ) from exc
     else:
         log.info(
@@ -151,7 +151,7 @@ def try_unmute_playback_controls(card: int, level: str) -> bool:
             result = _amixer_sset(card, control, level)
         except FileNotFoundError:
             log.warning(
-                "amixer not found; cannot unmute CM119 on card %s (docs/NUC-notes.md)",
+                "amixer not found; cannot unmute CM119 on card %s (docs/linux-host.md)",
                 card,
                 exc_info=True,
             )

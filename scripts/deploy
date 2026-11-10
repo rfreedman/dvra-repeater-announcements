@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy origin/main to the NUC: stop the app, git pull, start serve.sh, wait for startup.
+# Deploy origin/main to the Linux host: stop the app, git pull, start serve.sh, wait for startup.
 # Usage: scripts/deploy [host]
 #   env: DEPLOY_HOST, DEPLOY_PATH, DEPLOY_BRANCH, DEPLOY_STOP_TIMEOUT, DEPLOY_START_TIMEOUT
 set -euo pipefail
@@ -43,20 +43,20 @@ pattern='python -m app serve'
 out=data/logs/serve.out
 
 if ! command -v uv >/dev/null 2>&1; then
-  echo "uv not found on the NUC (serve.sh needs it to sync dependencies); app left running." >&2
+  echo "uv not found on the Linux host (serve.sh needs it to sync dependencies); app left running." >&2
   exit 1
 fi
 git fetch --quiet origin "$branch"
 if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
-  echo "NUC working tree has local changes; app left running." >&2
+  echo "Linux host working tree has local changes; app left running." >&2
   git status --short --untracked-files=no >&2
   if [[ "$(git status --porcelain --untracked-files=no)" == " M uv.lock" ]]; then
-    echo "If only uv.lock changed: git restore uv.lock on the NUC, then redeploy (see README Deploying)." >&2
+    echo "If only uv.lock changed: git restore uv.lock on the Linux host, then redeploy (see docs/deploy.md)." >&2
   fi
   exit 1
 fi
 if ! git merge-base --is-ancestor HEAD "origin/$branch"; then
-  echo "NUC HEAD cannot fast-forward to origin/$branch; app left running." >&2
+  echo "Linux host HEAD cannot fast-forward to origin/$branch; app left running." >&2
   exit 1
 fi
 

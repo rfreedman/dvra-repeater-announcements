@@ -65,7 +65,7 @@ def resolve_bench_dra_pairs(hid: HidModule, *, min_pairs: int = 2) -> list[DraBe
     if n_hid < min_pairs:
         raise BenchPairingError(
             f"Need at least {min_pairs} paired DRA(s); found {n_hid}. "
-            + "Plug both adapters into direct NUC USB ports."
+            + "Plug both adapters into direct motherboard USB ports."
         )
 
     pairs: list[DraBenchPair] = []

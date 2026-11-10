@@ -9,7 +9,7 @@ When implementing a fix for a numbered GitHub issue:
 
 - **Do not** run `gh issue close` or mark the issue complete in comments unless the user explicitly asks you to close it.
 - **Do** implement the fix, run tests, and briefly tell the user which issue was addressed and how to verify.
-- The user closes the issue after they test on their machine or the NUC.
+- The user closes the issue after they test on their machine or the Linux host.
 
 When the user asks to close a **parent issue** that has sub-issues (e.g. [#30](https://github.com/rfreedman/dvra-repeater-announcements/issues/30), [#31](https://github.com/rfreedman/dvra-repeater-announcements/issues/31), [#32](https://github.com/rfreedman/dvra-repeater-announcements/issues/32)), close **all linked sub-issues in the same turn**, then the parent, unless they say otherwise.
 

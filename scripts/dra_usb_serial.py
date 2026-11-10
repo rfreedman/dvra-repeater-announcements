@@ -5,7 +5,7 @@ Use this when labeling Radio 1 / Radio 2 or writing udev rules keyed on serial o
 
   python scripts/dra_usb_serial.py
 
-On Linux (NUC), serial comes from sysfs on the USB device node. On macOS, hidapi
+On Linux, serial comes from sysfs on the USB device node. On macOS, hidapi
 enumeration is used (one row per distinct serial). If serial is blank, rely on the
 printed USB path / port for stable binding.
 """

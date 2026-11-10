@@ -2,7 +2,7 @@
 
 ## `start-remote`
 
-Run from the **dev machine**: SSH to the NUC and start `./serve.sh` with `setsid`/`nohup` (survives logoff on the NUC). Does not stop a running app or pull git. Log on the NUC: `data/logs/serve.out`. Same host/path env as deploy (`DEPLOY_HOST`, `DEPLOY_PATH`).
+Run from the **dev machine**: SSH to the Linux host and start `./serve.sh` with `setsid`/`nohup` (survives logoff on that host). Does not stop a running app or pull git. Log on the Linux host: `data/logs/serve.out`. Same host/path env as deploy (`DEPLOY_HOST`, `DEPLOY_PATH`). The default host `repeater-nuc` is this station’s SSH hostname.
 
 ```bash
 scripts/start-remote                 # default host repeater-nuc
@@ -11,7 +11,7 @@ scripts/start-remote other-host      # or DEPLOY_HOST=other-host
 
 ## `stop-remote`
 
-Run from the **dev machine**: SSH to the NUC and stop `python -m app serve` with SIGTERM (never SIGKILL). Waits up to `DEPLOY_STOP_TIMEOUT` seconds (default 30), same as deploy. Exits 0 if the app was not running.
+Run from the **dev machine**: SSH to the Linux host and stop `python -m app serve` with SIGTERM (never SIGKILL). Waits up to `DEPLOY_STOP_TIMEOUT` seconds (default 30), same as deploy. Exits 0 if the app was not running.
 
 ```bash
 scripts/stop-remote
@@ -20,7 +20,7 @@ scripts/stop-remote other-host
 
 ## `deploy`
 
-Run from the dev machine: stops the app on the NUC, runs `git pull` there, and restarts `./serve.sh` in the background. The host defaults to `repeater-nuc`; override it with `DEPLOY_HOST` or the first argument. `DEPLOY_STOP_TIMEOUT` (default 30) and `DEPLOY_START_TIMEOUT` (default 180) are the stop and startup waits, in seconds. Needs uv on the NUC. Details: [README — Deploying (NUC)](../README.md#deploying-nuc).
+Run from the dev machine: stops the app on the Linux host, runs `git pull` there, and restarts `./serve.sh` in the background. The host defaults to `repeater-nuc` (this station’s SSH hostname); override it with `DEPLOY_HOST` or the first argument. `DEPLOY_STOP_TIMEOUT` (default 30) and `DEPLOY_START_TIMEOUT` (default 180) are the stop and startup waits, in seconds. Needs uv on the Linux host. Details: [Deploying](../docs/deploy.md).
 
 ```bash
 scripts/deploy
@@ -29,7 +29,7 @@ scripts/deploy other-host
 
 ## `dra36m_check.py`
 
-Bench verification for **DRA-36M** (CM119A USB audio + HID PTT/COS) before wiring the announcements app.
+Bench verification before wiring the announcements app to the radios. A **DRA** (Digital Radio Adapter) is the USB box between the computer and one radio. This project uses the [Masters Communications **DRA-36M**](https://www.masterscommunications.com/products/radio-adapter/dra/dra36m.html). It plays the announcement into the radio and keys the transmitter. The setting `TTS_RADIO_BACKEND=dra` means the app is using those adapters.
 
 **Full procedures, pass criteria, and flags:** [`docs/final-hardware/dra36m-check-tests.md`](../docs/final-hardware/dra36m-check-tests.md)
 
@@ -39,13 +39,12 @@ Quick start (JU1 on, JU5=A, **JU3=L** on both DRA; `-c left` is the script defau
 
 ```bash
 source .venv/bin/activate
-export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib   # if hidapi from Homebrew (macOS only)
 python scripts/dra36m_check.py retest -c left --with-voice --lead 0.6
 ```
 
-**Linux (NUC):** udev rules + `plugdev` for CM119 HID/USB — [`dra36m-check-tests.md`](../docs/final-hardware/dra36m-check-tests.md#linux-nuc-udev-and-plugdev).
+Run this on the Linux host. Radios have not been tried on macOS. **Linux:** udev rules + `plugdev` for CM119 HID/USB — [`dra36m-check-tests.md`](../docs/final-hardware/dra36m-check-tests.md#linux-udev-and-plugdev).
 
-Subcommands: `probe`, **`probe-all`**, `monitor`, `snap`, `ptt`, `tone`, `smoke`, `voice`, `voice-gate`, `retest`, **`dual-smoke`**, **`dual-voice`**, **`dual-retest`** (dual = both DRAs on the NUC).
+Subcommands: `probe`, **`probe-all`**, `monitor`, `snap`, `ptt`, `tone`, `smoke`, `voice`, `voice-gate`, `retest`, **`dual-smoke`**, **`dual-voice`**, **`dual-retest`** (dual = both DRAs on the Linux host).
 
 ## `work_time.py`
 

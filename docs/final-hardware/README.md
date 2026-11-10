@@ -1,19 +1,25 @@
-# Final hardware: Intel NUC + two DRA-36M Digital Radio Adapters
+# Final hardware: Linux host + two DRA-36M Digital Radio Adapters
+
+A **DRA** (Digital Radio Adapter) is the USB box between the computer and one radio. This project uses the [Masters Communications **DRA-36M**](https://www.masterscommunications.com/products/radio-adapter/dra/dra36m.html). It plays the announcement into the radio and keys the transmitter. The setting `TTS_RADIO_BACKEND=dra` means the app is using those adapters.
 
 This is the production radio interface for the announcements app.
 
+Development and testing **without radios** is done on macOS. That work was done on a MacBook Pro M3 running macOS Tahoe. Radios have not been tried on macOS.
+
+Development and production **with radios** run on a 64-bit Linux computer. That work has been done only on Ubuntu 26.04.1 LTS.
+
 **Decision:** two assembled Masters [DRA-36M](https://www.masterscommunications.com/products/radio-adapter/dra/dra36m.html) units, each with its own USB cable to the host and its own Mini-DIN-6 cable to one radio. Both radios hear the same announcement, key together, and report busy independently.
 
-**Host:** a used **Intel NUC** running **64-bit Xubuntu**, with an **internal SSD**. A Raspberry Pi 4 was considered as the host, but the NUC was chosen instead: faster CPU, internal SSD, and approximately the same cost in 2026.
+**Host:** a 64-bit Linux computer with an **internal SSD**. A Raspberry Pi 4 was considered; a used mini PC was used instead (faster CPU, internal SSD, similar cost in 2026). The machine used for radio development, and the intended production host, runs **Ubuntu 26.04.1 LTS**.
 
-**Bench status (October 2026):** On the **Intel NUC**, single-DRA **`retest`** passed with **IC-2720** and **IC-207H**; dual-DRA **`dual-retest`** passed with **IC-2720** + **FT-8900R**. The announcements app (`TTS_RADIO_BACKEND=dra`) has been run on this NUC with two DRAs and transmitted on both radios. Summary: [verification table](dra36m-check-tests.md#verification-status-october-2026), [bench record](bench-record.md), [dual checklist](dra36m-check-tests.md#dual-dra-two-adapters-on-one-host).
+**Bench status (October 2026):** On that Linux host, single-DRA **`retest`** passed with **IC-2720** and **IC-207H**; dual-DRA **`dual-retest`** passed with **IC-2720** + **FT-8900R**. The announcements app (`TTS_RADIO_BACKEND=dra`) has been run there with two DRAs and transmitted on both radios. Summary: [verification table](dra36m-check-tests.md#verification-status-october-2026), [bench record](bench-record.md), [dual checklist](dra36m-check-tests.md#dual-dra-two-adapters-on-one-host).
 
 ## Parts list / cost
 
 | Item | Cost ea | Qty | Total | Source |
 | ---- | ------- | --- | ----- | ------ |
 | DRA-36M + cable & shipping | $129 | 2 | $258 | masterscommunications.com |
-| Intel NUC + tax & shipping | ≤ $150 | 1 | ≤ $150 | (used market) |
+| Linux PC (used mini PC) + tax & shipping | ≤ $150 | 1 | ≤ $150 | (used market) |
 | **TOTAL** | | | **≤ $408** | |
 
 DRA list prices and cables are detailed under [Buy list](#buy-list) below.
@@ -22,15 +28,15 @@ DRA list prices and cables are detailed under [Buy list](#buy-list) below.
 
 | Role | Choice |
 |---|---|
-| Host | Intel NUC, Xubuntu (64-bit) |
+| Host | 64-bit Linux (tested on Ubuntu 26.04.1 LTS) |
 | Production radios | **IC-207H** |
 | Test radio | **IC-2720** (same DATA jack; development only) |
 | Radio interface | 2 × DRA-36M, assembled, metal case |
-| Audio path | USB only. The NUC analog headphone jack is unused. |
+| Audio path | USB only. The computer’s analog headphone jack is unused. |
 | PTT / busy | Each DRA’s CM119A HID (GPIO3 PTT, COS from SQL) |
 | Storage | Internal SSD |
-| Host power | NUC AC adapter (as supplied with the unit) |
-| DRA power | USB from the NUC; use **direct** motherboard ports, not an unpowered hub |
+| Host power | AC adapter supplied with the computer |
+| DRA power | USB from the Linux host; use **direct** motherboard ports, not an unpowered hub |
 
 The IC-207H and IC-2720 share the rear 6-pin Mini-DIN DATA jack, ground-to-key PTT, and pin 6 SQL (high when squelch is open). SQL is labeled **SQ** on the 207H and **P SQL** on the 2720.
 
@@ -48,11 +54,11 @@ From [Masters Communications](https://www.masterscommunications.com/products/rad
 
 Typical total with two Shorties: about **$222** plus USB cables and shipping.
 
-Plug both DRA USB cables **directly into the NUC**. Do not put them on an unpowered hub.
+Plug both DRA USB cables **directly into the Linux host**. Do not put them on an unpowered hub.
 
 Label the cases **Radio 1** and **Radio 2** and keep each DRA on a dedicated USB port so udev can bind by path.
 
-**Not required:** custom interface board, Y-cable, DRA-Switch, DRA-3M mixer, extra PTT transistor, or analog audio from the NUC headphone jack.
+**Not required:** custom interface board, Y-cable, DRA-Switch, DRA-3M mixer, extra PTT transistor, or analog audio from the computer’s headphone jack.
 
 ---
 
@@ -67,9 +73,9 @@ Announcements app  --USB-->  DRA-36M  --Mini-DIN pin 1-->  radio DATA IN
                                       --Mini-DIN pin 2-->  ground
 ```
 
-There is no analog lead from the NUC into a “DRA DATA IN.” DATA IN is on the radio. The stock Mini-DIN cable already makes that connection.
+There is no analog lead from the computer into a “DRA DATA IN.” DATA IN is on the radio. The stock Mini-DIN cable already makes that connection.
 
-On each DRA, **JU3** chooses whether pin 1 is fed from the USB **left** or **right** channel. Play (or upmix) onto that same channel. TX level is the DRA’s transmit pot for that channel (R14 = right, R16 = left), not the NUC’s system volume alone.
+On each DRA, **JU3** chooses whether pin 1 is fed from the USB **left** or **right** channel. Play (or upmix) onto that same channel. TX level is the DRA’s transmit pot for that channel (R14 = right, R16 = left), not the computer’s system volume alone.
 
 This app does not use receive audio from the radio (pins 4 / 5). Busy is taken from SQL on pin 6.
 
@@ -151,13 +157,13 @@ Announcements go out on **both** radios at once. Never talk on one machine while
 
 SQL polarity: radio pin 6 is **high when the squelch is open**. CM119A COS for AllStar is normally **active-low**. Invert in software after measuring, or use any NPN inverter Masters documents for that COS input. Confirm with a DMM on pin 6 (squelched vs open) and on the HID bit before relying on busy detect.
 
-**Application:** Set `TTS_RADIO_BACKEND=dra` on the **one Intel NUC** that runs this app (keep `stub` on dev Macs without hardware). That configuration has been tested on the NUC with two DRAs: the app transmitted on both radios. The app uses [`DraRadio`](../../app/dra_radio.py): defer/drop on busy, **re-check after synthesize**, optional **`TTS_DRA_CLEAR_SECONDS`** (continuous idle before PTT, same idea as `voice-gate`). While the scheduler runs, **background COS polling** (`TTS_DRA_COS_TRACK`, default on) accrues idle time so Trigger now or a slot fire can **key immediately** if the channel was already quiet long enough. Final busy check at keying; **both** PTT lines together; **left** USB channel; PTT lead as USB silence.
+**Application:** Set `TTS_RADIO_BACKEND=dra` on the **one Linux computer** that runs this app with radios (keep `stub` on macOS, where radios have not been tried). That configuration has been tested on Ubuntu 26.04.1 LTS with two DRAs: the app transmitted on both radios. The app uses [`DraRadio`](../../app/dra_radio.py): defer/drop on busy, **re-check after synthesize**, optional **`TTS_DRA_CLEAR_SECONDS`** (continuous idle before PTT, same idea as `voice-gate`). While the scheduler runs, **background COS polling** (`TTS_DRA_COS_TRACK`, default on) accrues idle time so Trigger now or a slot fire can **key immediately** if the channel was already quiet long enough. Final busy check at keying; **both** PTT lines together; **left** USB channel; PTT lead as USB silence.
 
-**One DRA** (Mac dev or a single radio on the NUC): optional **`TTS_DRA_HID_PATH`** (hex from `probe`) when several CM119 interfaces exist.
+**One DRA** (a single radio on the Linux host): optional **`TTS_DRA_HID_PATH`** (hex from `probe`) when several CM119 interfaces exist.
 
-**Two DRAs on the same NUC:** each radio has its own DRA-36M and therefore its own **CM119A** USB audio + HID. Expect **two** PortAudio DRA devices and **two** HID paths at startup. Plug each DRA into a **fixed** motherboard USB port; do **not** set `TTS_DRA_HID_PATH` (that pins one CM119 only). Use **`TTS_DRA_AUDIO_DEVICES`** if PortAudio order is ambiguous. See [Identifying two identical adapters](#identifying-two-identical-adapters) and [`docs/NUC-notes.md`](../NUC-notes.md).
+**Two DRAs on the same Linux host:** each radio has its own DRA-36M and therefore its own **CM119A** USB audio + HID. Expect **two** PortAudio DRA devices and **two** HID paths at startup. Plug each DRA into a **fixed** motherboard USB port; do **not** set `TTS_DRA_HID_PATH` (that pins one CM119 only). Use **`TTS_DRA_AUDIO_DEVICES`** if PortAudio order is ambiguous. See [Identifying two identical adapters](#identifying-two-identical-adapters) and [`docs/linux-host.md`](../linux-host.md).
 
-When startup succeeds, the server logs **`Startup complete in …s (radio mode: dra)`** or **`… stub`**, reflecting the registered radio implementation. Use that line (stderr or `data/logs/announcements.log`) to confirm the NUC is on **dra** before relying on on-air PTT/COS.
+When startup succeeds, the server logs **`Startup complete in …s (radio mode: dra)`** or **`… stub`**, reflecting the registered radio implementation. Use that line (stderr or `data/logs/announcements.log`) to confirm the Linux host is on **dra** before relying on on-air PTT/COS.
 
 Bench verification before enabling **dra**: [`dra36m-check-tests.md`](dra36m-check-tests.md) and [`scripts/dra36m_check.py`](../../scripts/dra36m_check.py). With **both** DRAs on one host: `probe-all`, `dual-smoke`, `dual-retest` (see [dual DRA checklist](dra36m-check-tests.md#dual-dra-two-adapters-on-one-host)).
 
@@ -167,10 +173,10 @@ Bench verification before enabling **dra**: [`dra36m-check-tests.md`](dra36m-che
 
 Both DRA-36M units enumerate as the same C-Media CM119A (USB sound + HID). Enumeration order is not stable across reboots.
 
-1. Plug Radio 1’s DRA into a chosen NUC USB port and leave it there.
+1. Plug Radio 1’s DRA into a chosen USB port on the Linux host and leave it there.
 2. Same for Radio 2 on a different port.
 3. udev rules keyed on **USB path** (`KERNELS=="1-1.x"`) or the device serial, not “first CM119A vs second.”
-4. Grant the service user access to both CM119 **USB** and **`hidraw`** nodes (see [Linux udev + `plugdev`](dra36m-check-tests.md#linux-nuc-udev-and-plugdev)) and both ALSA / PortAudio devices. Put the app user in group **`plugdev`**.
+4. Grant the service user access to both CM119 **USB** and **`hidraw`** nodes (see [Linux udev + `plugdev`](dra36m-check-tests.md#linux-udev-and-plugdev)) and both ALSA / PortAudio devices. Put the app user in group **`plugdev`**.
 
 `lsusb` and `arecord -l` / `aplay -l` should show two C-Media devices. `ls /dev/hidraw*` should show two HID interfaces after the DRA are plugged in.
 
@@ -195,47 +201,26 @@ Blue COMM OK also gates PTT in hardware: if blue is out, the red PTT LED and rad
 Work one radio at a time, low power, dummy load or known quiet simplex.
 
 1. Jumpers as in the table. JU1 on, **JU3 = L**, **JU5 = A (1200)**, PTT = transistor to start.
-2. USB into the NUC. `aplay -l` lists the CM119A. Green should be solid; blue stays off until step 5 streams audio.
+2. USB into the Linux host. `aplay -l` lists the CM119A. Green should be solid; blue stays off until step 5 streams audio.
 3. Mini-DIN cable to the radio DATA jack. Radio on 1200 bps DATA, mic unplugged, volume up.
 4. In `alsamixer` (that USB card), unmute the playback path and raise the PCM slider.
 5. Play a test tone **to that USB device** on the **left** channel (not the motherboard analog output). Easiest: `python scripts/dra36m_check.py smoke -c left --seconds 2 --lead 0.6` from the repo venv. Green should flash and **blue COMM OK should be solid** during playback. Adjust **R16** until DATA-IN deviation is reasonable. Repeat for the second DRA.
 6. Key test: assert GPIO3 on that HID (or Masters’ documented PTT test). Radio should TX; red PTT LED on. If not, switch the PTT pair to relay. (Blue must be on from recent audio streaming, or watchdog may block PTT.)
-7. Busy test: squelch closed → pin 6 low and COS HID **idle**; open squelch → pin 6 high and COS HID **busy**. Record polarity for production (`channel_busy()`). **Authoritative: NUC (Linux)** — `python scripts/dra36m_check.py monitor --interval 1 --raw --cos vol_dn` (prefer `vol_dn`; `allstar3` is an equivalent cross-check). Use `--active-high` only if idle/busy labels swap. **macOS dev:** same `--cos vol_dn` when IR bytes update reliably; legacy `dra_mac` (HID stall) only if bytes never change. Do not use USB audio capture for squelch on the 36M.
+7. Busy test: squelch closed → pin 6 low and COS HID **idle**; open squelch → pin 6 high and COS HID **busy**. Record polarity for production (`channel_busy()`). Measure it on Linux: `python scripts/dra36m_check.py monitor --interval 1 --raw --cos vol_dn` (prefer `vol_dn`; `allstar3` is an equivalent cross-check). Use `--active-high` only if idle/busy labels swap. Do not use USB audio capture for squelch on the 36M.
 8. Repeat for the second DRA + second radio.
-9. Confirm the NUC’s analog headphone output is silent during these tests — if you hear the announcement there, playback is aimed at the wrong PortAudio device.
+9. Confirm the computer’s analog headphone output is silent during these tests — if you hear the announcement there, playback is aimed at the wrong PortAudio device.
 
-### Dev checkout record (macOS)
-
-PTT and on-air **audio tone** were verified on a **development MacBook Pro** (USB CM119A audio + HID). For COS, use app jumpers (**JU1**, **JU5 = A**) and 1200 bps DATA—not factory digital defaults (JU1 off, JU5 = B). Direct Mac USB is fine when `probe` succeeds; blue COMM OK is unrelated to busy detect.
-
-Full step-by-step commands, flags (`--lead`, `--poll`, `--clear-seconds`, …), and pass criteria: **[`dra36m-check-tests.md`](dra36m-check-tests.md)**.
-
-Quick smoke list (macOS):
-
-```bash
-export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib   # if hidapi came from Homebrew
-
-python scripts/dra36m_check.py probe
-python scripts/dra36m_check.py monitor --interval 0.5 --changes-only --cos vol_dn
-python scripts/dra36m_check.py smoke -c left --seconds 2 --lead 0.6
-python scripts/dra36m_check.py voice -c left --lead 0.6 "This is a test."
-python scripts/dra36m_check.py voice-gate -c left --poll 0.25 --clear-seconds 10 --lead 0.6
-python scripts/dra36m_check.py retest -c left --with-voice --lead 0.6
-```
-
-On macOS, `system_profiler SPUSBDataType` often lists nothing on recent releases; use `probe` or `ioreg` for “USB PnP Sound Device” instead.
-
-Record jumper, level, COS polarity, and `--lead` in [`bench-record.md`](bench-record.md) for NUC day-one setup.
+Radios have not been tried on macOS. Full commands, flags, and pass criteria: **[`dra36m-check-tests.md`](dra36m-check-tests.md)**. Record jumper, level, COS polarity, and `--lead` in [`bench-record.md`](bench-record.md).
 
 ---
 
 ## Host notes
 
-- **64-bit Linux** (Xubuntu on the NUC). The Piper stack requires 64-bit; do not use 32-bit OS builds.
+- **64-bit Linux**, tested on Ubuntu 26.04.1 LTS. The Piper stack requires 64-bit; do not use 32-bit OS builds.
 - `sudo apt install libportaudio2` (or equivalent) for PortAudio playback.
-- **DRA HID on Linux:** install udev rules for CM119 (`0d8c`/`013a`) on **`hidraw`** and **USB**, add the runtime user to **`plugdev`**, then replug — full steps in [`dra36m-check-tests.md`](dra36m-check-tests.md#linux-nuc-udev-and-plugdev). Run bench scripts as that user, not `sudo`. Shack checklist: [`docs/NUC-notes.md`](../NUC-notes.md).
+- **DRA HID on Linux:** install udev rules for CM119 (`0d8c`/`013a`) on **`hidraw`** and **USB**, add the runtime user to **`plugdev`**, then replug — full steps in [`dra36m-check-tests.md`](dra36m-check-tests.md#linux-udev-and-plugdev). Run bench scripts as that user, not `sudo`. Shack checklist: [`docs/linux-host.md`](../linux-host.md).
 - Keep `data/` (announcements JSON, PCM cache, logs) on the **internal SSD**.
-- Two DRA-36M units are USB-powered; plug both into **direct** NUC USB ports with adequate current.
+- Two DRA-36M units are USB-powered; plug both into **direct** motherboard USB ports with adequate current.
 
 ---
 
@@ -255,6 +240,6 @@ Record jumper, level, COS polarity, and `--lead` in [`bench-record.md`](bench-re
 - Mini-DIN pinout: https://masterscommunications.com/products/radio-adapter/dra/txt/dra36-DIN-pinout.txt
 - 36 vs 36M: https://www.masterscommunications.com/products/radio-adapter/dra/dra36-vs-dra36m.html
 - DRA bench tests: [`dra36m-check-tests.md`](dra36m-check-tests.md)
-- Hardware notes index: [`docs/hardware-notes/README.md`](../hardware-notes/README.md) (connectors, [NUC notes](../NUC-notes.md))
+- Hardware notes index: [`docs/hardware-notes/README.md`](../hardware-notes/README.md) (connectors, [Linux host notes](../linux-host.md))
 - Radio DATA jack: [`docs/hardware-notes/connectors.md`](../hardware-notes/connectors.md)
 - Scheduling: [`docs/how-to-schedule.md`](../how-to-schedule.md)

@@ -1499,7 +1499,7 @@ def cmd_monitor(args) -> int:
                     mac_stuck_hint = True
                     print(
                         "  → macOS: still busy after unkey? Try restarting monitor, or use "
-                        "NUC/Linux for authoritative COS.",
+                        "Linux for authoritative COS.",
                         flush=True,
                     )
 

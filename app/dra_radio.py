@@ -164,7 +164,7 @@ class DraRadio:
         else:
             log.warning(
                 "DRA HID count (%s) != PortAudio device count (%s); using %s pair(s). "
-                + "Two radios on one NUC need two CM119 HID interfaces "
+                + "Two radios on one Linux host need two CM119 HID interfaces "
                 + "(python scripts/dra36m_check.py probe). Unset TTS_DRA_HID_PATH when both "
                 + "DRAs are connected; check udev/plugdev (docs/final-hardware/README.md). "
                 + "Optional: TTS_DRA_AUDIO_DEVICES and fixed USB ports.",
