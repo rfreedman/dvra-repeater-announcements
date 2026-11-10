@@ -23,6 +23,7 @@ class AppRuntime:
     """Services owned by this process. ``None`` means "not constructed yet"."""
 
     store: object | None = None
+    phoneme_dictionary: object | None = None
     users: object | None = None
     radio: object | None = None
     registry: object | None = None

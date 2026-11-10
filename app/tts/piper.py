@@ -19,6 +19,7 @@ from piper.download_voices import VOICE_PATTERN, download_voice
 from app.audio import PauseSegment, PcmChunk, parse_script, silence_chunk, with_sentence_pauses
 from app.config import PIPER_VOICES_DIR, PIPER_VOICES_FILE, piper_quality_allowed
 from app.tts.base import Engine, VoiceError, VoiceInfo
+from app.tts.phoneme_warnings import missing_phoneme_context
 
 log = logging.getLogger("app.tts.piper")
 
@@ -298,18 +299,23 @@ class PiperEngine(Engine):
         def speech_chunks(speech: str) -> Iterator[PcmChunk]:
             # Hold the voice lock per sentence only, never across a yield: a slow
             # streaming client must not block scheduled synthesis on the same voice.
-            sentences = iter(model.synthesize(speech, syn_config=syn_config))
-            while True:
-                with lock:
-                    chunk = next(sentences, None)
-                if chunk is None:
-                    return
-                yield PcmChunk(
-                    pcm_int16=chunk.audio_int16_bytes,
-                    sample_rate=chunk.sample_rate,
-                    sample_width=chunk.sample_width,
-                    channels=chunk.sample_channels,
-                )
+            def phonemize_word(word: str) -> tuple[str, ...]:
+                grouped = model.phonemize(word)
+                return tuple(phone for sentence in grouped for phone in sentence)
+
+            with missing_phoneme_context(speech, phonemize_word):
+                sentences = iter(model.synthesize(speech, syn_config=syn_config))
+                while True:
+                    with lock:
+                        chunk = next(sentences, None)
+                    if chunk is None:
+                        return
+                    yield PcmChunk(
+                        pcm_int16=chunk.audio_int16_bytes,
+                        sample_rate=chunk.sample_rate,
+                        sample_width=chunk.sample_width,
+                        channels=chunk.sample_channels,
+                    )
 
         for segment in parse_script(text):
             if isinstance(segment, PauseSegment):

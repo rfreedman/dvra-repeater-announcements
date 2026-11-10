@@ -1,0 +1,19 @@
+---
+description: Keep vertical space between stacked screen elements
+globs: static/**/*.{html,css}
+alwaysApply: false
+---
+
+# Vertical rhythm in screens
+
+`.subhead` and `.lede` are `margin: 0`. `.actions` has no vertical margin. Only `.voice-row` adds space under itself (22px). A heading, paragraph, table, and button row stacked as siblings therefore sit flush.
+
+Panels, the announcement editor, the schedule editor, open home foldouts, and `.script` are already `flex-direction: column` with `gap: 22px`. Their direct children have vertical margin removed so it does not add to that gap.
+
+When adding stacked blocks in `static/index.html`:
+
+- Put them inside one of those parents, or a new parent with `display: flex; flex-direction: column; gap: 22px`.
+- Do not also set vertical margin on those children. The gap and the margin add together.
+- Do not give a new content class `margin: 0` unless that parent gap is what separates it from the next block.
+- A table that can be empty needs a body row that says so (`No dictionary entries yet.`). A header row alone looks like a stray label.
+- Put an editable table below the form that fills it, so a new row does not push the form down.

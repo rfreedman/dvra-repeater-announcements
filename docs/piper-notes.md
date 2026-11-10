@@ -50,14 +50,30 @@ This frequently produces better pronunciation for words mispronounced
 by the default Piper internal phoneme conversion. "Delaware" and "Association"
 are both cases where this is true.
 
-### Planned Phoneme Dictionary Feature
-Currently in the investigation / pre-planning stage (as of 2026-11-10),
-the app will gain a feature enabling the creation of phoneme substitution
-dictionary.
+## Phoneme dictionary
 
-Instead of using inline IPA phoneme substitutions, the new feature will 
-enable adding {word, phoneme} pairs to a dictionary so that they will
-be substituted globally. This will be most convenient for words or phrases
-that are used frequently, such as the aforementioned "Delaware" and "Association".
-Other mispronounced words include "our" and "Hertz"
+The Pronunciations screen stores a word or phrase spelling with either an IPA
+string or alternate plain text, not both. While a spoken announcement has
+**Use the phoneme dictionary** on (the default, including announcements saved
+before this existed), those spellings are replaced when the announcement is
+synthesized. IPA is spoken as phonemes. Alternate text is spoken as ordinary
+words. The stored announcement text is unchanged.
+The dictionary file is `phonemes.json` in the data directory. It is not part of
+the git repository. Its JSON `version` is 1.
+
+Matching ignores case and only replaces whole words and phrases. A longer phrase
+wins over a shorter one. "our" does not change "hour". "Delaware's" does not use
+an entry for "Delaware"; add "Delaware's" if that possessive needs an entry.
+
+`{{phrase}}` in the announcement is spoken as written and skips the dictionary.
+The braces are not spoken. `[[ipa]]` is still manual phoneme input and is not
+rewritten. `[pause:1s]` is still a pause.
+
+**IPA for this spelling** on the Pronunciations screen uses the espeak-ng
+library shipped with Piper, with the same phoneme mode as
+`espeak-ng -v en-us --ipa=3` (including tie marks and stress). A word looked up
+by itself is stressed the way that command stresses it, so `our` alone is
+`ˈaʊɚ` rather than the unstressed form used inside a sentence. Pick a voice on
+that screen and speak the spelling, the IPA, or the alternate text before saving the row.
+Tie marks are easy to miss because the joiner has no width. The saved IPA keeps them. They are removed from `[[ ]]` blocks when text is prepared for Piper, which has no phoneme id for U+200D and would only skip the character.
 

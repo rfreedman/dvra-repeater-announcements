@@ -85,6 +85,7 @@ def _from_request(req: AnnouncementIn, existing: Announcement | None) -> Announc
             "voice": req.voice,
             "speed": req.speed,
             "sentence_pause": req.sentence_pause,
+            "use_phoneme_dictionary": req.use_phoneme_dictionary,
             "busy_retry_seconds": req.busy_retry_seconds,
             "busy_give_up_seconds": req.busy_give_up_seconds,
         }

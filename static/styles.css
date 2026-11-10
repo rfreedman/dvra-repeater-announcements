@@ -99,10 +99,6 @@ body {
   margin: 40px auto 0;
 }
 
-#view-login .voice-row:first-of-type {
-  margin-top: 1rem;
-}
-
 .mast h1 {
   display: flex;
   flex-direction: column;
@@ -575,6 +571,16 @@ input[type="time"] {
   margin-bottom: 22px;
 }
 
+.voice-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.voice-row > * {
+  margin-block: 0;
+}
+
 .controls {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -647,14 +653,6 @@ input[type="range"]:focus-visible {
   gap: 12px;
 }
 
-#view-schedule .actions {
-  margin-top: 22px;
-}
-
-.actions + .controls {
-  margin-top: 32px;
-}
-
 button {
   border: 0;
   border-radius: 999px;
@@ -692,11 +690,6 @@ button:disabled {
 #status.error,
 #newsline-play-status.error {
   color: var(--danger);
-}
-
-#newsline-fields .actions {
-  margin-top: 16px;
-  margin-bottom: 8px;
 }
 
 .screen {
@@ -848,7 +841,14 @@ input[type="time"] {
 }
 
 .kind-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   margin: 16px 0;
+}
+
+.kind-fields > * {
+  margin-block: 0;
 }
 
 .time-row {
@@ -882,7 +882,7 @@ input[type="time"] {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin: 8px 0 16px;
+  margin: 0;
 }
 
 .chip {
@@ -919,6 +919,9 @@ button.small {
 }
 
 .panel {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
   margin: 4rem 0;
 }
 
@@ -960,8 +963,9 @@ button.small {
   margin-top: -0.2em;
 }
 
-.clock-fold[open] > summary {
-  margin-bottom: 16px;
+.clock-fold[open] > :not(summary) {
+  margin-top: 22px;
+  margin-bottom: 0;
 }
 
 .clock-fold .subhead {
@@ -1174,7 +1178,91 @@ a.ghost {
   height: var(--logo-height, 48px);
 }
 
-#admin-environment .inline-check,
-#admin-branding .inline-check {
-  margin: 8px 0;
+#view-phonemes .panel {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  margin: 0 0 2.75rem;
+}
+
+#view-phonemes .panel:last-child {
+  margin-bottom: 0;
+}
+
+#view-phonemes .voice-row,
+#view-phonemes .script-meta,
+#view-phonemes .status-error {
+  margin: 0;
+}
+
+.phoneme-ipa {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+#phoneme-table tbody tr.phoneme-empty {
+  cursor: default;
+}
+
+#phoneme-table tbody tr.phoneme-empty:hover {
+  background: transparent;
+}
+
+#phoneme-table tbody tr.phoneme-empty td {
+  color: var(--muted);
+}
+
+.phoneme-field {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.phoneme-field input {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
+.phoneme-matches {
+  margin: 0.35rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.phoneme-matches:empty {
+  display: none;
+}
+
+/* Stacked screens share one gap. Child margins would add to it. */
+#view-announcement.screen.active,
+#spoken-fields,
+#newsline-fields,
+#view-schedule.screen.active,
+.script,
+.help {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.panel > *,
+#view-announcement > *,
+#spoken-fields > *,
+#newsline-fields > *,
+#view-schedule > *,
+.script > *,
+.help > * {
+  margin-block: 0;
+}
+
+.help {
+  gap: 16px;
+}
+
+.help h3 {
+  margin-top: 10px;
+}
+
+.auth-panel.panel {
+  margin-left: auto;
+  margin-right: auto;
 }

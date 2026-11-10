@@ -224,8 +224,19 @@ def no_pcm_warm(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[Non
     set_pcm_cache(None)
 
 
+@pytest.fixture(autouse=True)
+def isolate_phoneme_dictionary(tmp_path: Path) -> Iterator[None]:
+    """Keep tests off the operator's phonemes.json."""
+    from app.phoneme_dict import PhonemeDictionary, set_phoneme_dictionary
+
+    set_phoneme_dictionary(PhonemeDictionary(tmp_path / "phonemes.json"))
+    yield
+    set_phoneme_dictionary(None)
+
+
 @pytest.fixture
-def store(tmp_path: Path) -> Iterator[AnnouncementStore]:
+def store(tmp_path: Path, isolate_phoneme_dictionary: None) -> Iterator[AnnouncementStore]:
+    _ = isolate_phoneme_dictionary
     path = tmp_path / "announcements.json"
     item = AnnouncementStore(path)
     set_store(item)

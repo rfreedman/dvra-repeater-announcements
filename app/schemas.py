@@ -52,6 +52,7 @@ class TtsSpeechParams(BaseModel):
 class SpeakRequest(TtsSpeechParams):
     text: str = Field(..., min_length=1, max_length=TEXT_CHARS_CEILING)
     voice: str | None = None
+    use_phoneme_dictionary: bool = True
 
     @field_validator("text")
     @classmethod
@@ -159,6 +160,7 @@ class TtsAnnouncementIn(AnnouncementInCommon, TtsSpeechParams):
     kind: Literal["tts"] = "tts"
     text: str = Field(default="", max_length=TEXT_CHARS_CEILING)
     voice: str | None = None
+    use_phoneme_dictionary: bool = True
 
     @field_validator("text")
     @classmethod

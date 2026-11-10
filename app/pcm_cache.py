@@ -35,13 +35,20 @@ def fingerprint(
     speed: float,
     sentence_pause: float,
     voice_mtime_ns: int | None,
+    *,
+    use_phoneme_dictionary: bool = False,
+    phoneme_dictionary_hash: str = "",
 ) -> str:
+    if not use_phoneme_dictionary:
+        phoneme_dictionary_hash = ""
     payload = {
         "text": text,
         "voice": voice_id,
         "speed": speed,
         "sentence_pause": sentence_pause,
         "voice_mtime_ns": voice_mtime_ns,
+        "use_phoneme_dictionary": use_phoneme_dictionary,
+        "phoneme_dictionary_hash": phoneme_dictionary_hash,
     }
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
@@ -150,12 +157,31 @@ def set_pcm_cache(cache: PcmCache | None) -> None:
 
 
 def _fingerprint_for(announcement: TtsAnnouncement, voice_id: str, voice_mtime_ns: int | None) -> str:
+    from app.phoneme_dict import get_phoneme_dictionary
+
+    dictionary_hash = ""
+    if announcement.use_phoneme_dictionary:
+        dictionary_hash = get_phoneme_dictionary().content_hash()
     return fingerprint(
         announcement.text,
         voice_id,
         announcement.speed,
         announcement.sentence_pause,
         voice_mtime_ns,
+        use_phoneme_dictionary=announcement.use_phoneme_dictionary,
+        phoneme_dictionary_hash=dictionary_hash,
+    )
+
+
+def speech_text_for(announcement: TtsAnnouncement) -> str:
+    """Announcement text after dictionary replacement, ready for Piper."""
+    from app.phoneme_dict import get_phoneme_dictionary
+    from app.phoneme_text import prepare_speech_text
+
+    return prepare_speech_text(
+        announcement.text,
+        get_phoneme_dictionary().compiled(),
+        use_dictionary=announcement.use_phoneme_dictionary,
     )
 
 
@@ -177,7 +203,7 @@ def chunks_for_announcement(announcement: Announcement) -> list[PcmChunk]:
             log.info("PCM cache hit; %s in %.1fs", announcement.name, elapsed)
             return hit
         _voice, _rate, chunks = registry.synthesize(
-            announcement.text,
+            speech_text_for(announcement),
             voice=voice_id,
             speed=announcement.speed,
             sentence_pause=announcement.sentence_pause,

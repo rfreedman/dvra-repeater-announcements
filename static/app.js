@@ -90,6 +90,7 @@ const PTT_TONE_SECONDS = 0.2;
  * @property {string} [name]
  * @property {string} [kind]
  * @property {string} [text]
+ * @property {boolean} [use_phoneme_dictionary]
  * @property {boolean} [too_long]
  * @property {number|null} [play_seconds]
  */
@@ -189,6 +190,10 @@ let triggerNowEnabled = false;
 let triggerNowBusy = false;
 let pendingManualTriggers = [];
 let editingAnnouncementId = null;
+/** @type {Array.<{spelling: string, ipa: string, alternate: string}>} */
+let phonemeEntries = [];
+let phonemeEditIndex = -1;
+let phonemeMatchTimer = 0;
 let editingScheduleId = null;
 let currentUser = null;
 let authReady = false;
@@ -288,6 +293,7 @@ function updateAuthChrome() {
   readOnly = loggedIn && currentUser.role === "readonly";
   document.getElementById("nav-home").classList.toggle("hidden", !loggedIn);
   document.getElementById("nav-help").classList.toggle("hidden", !loggedIn);
+  document.getElementById("nav-phonemes").classList.toggle("hidden", !loggedIn);
   document.getElementById("nav-admin").classList.toggle("hidden", !isAdmin());
   document.getElementById("nav-logout").classList.toggle("hidden", !loggedIn);
   document.getElementById("system-stats").classList.toggle("hidden", !loggedIn);
@@ -328,6 +334,7 @@ function announcementEditorControls() {
     document.getElementById("news-resume"),
     document.getElementById("news-gap"),
     document.getElementById("newsline-reset"),
+    document.getElementById("use-phoneme-dictionary"),
   ];
 }
 
@@ -707,6 +714,7 @@ function formSnapshot() {
       newsClosing: document.getElementById("news-closing").value,
       newsResume: document.getElementById("news-resume").value,
       newsGap: document.getElementById("news-gap").value,
+      usePhonemeDictionary: document.getElementById("use-phoneme-dictionary").checked,
     });
   }
   if (document.getElementById("view-schedule").classList.contains("active")) {
@@ -764,6 +772,7 @@ function resetAnnouncementEdits() {
   fillSpokenSelect("news-closing", saved.newsClosing, { optional: true });
   fillSpokenSelect("news-resume", saved.newsResume, { optional: true });
   document.getElementById("news-gap").value = saved.newsGap;
+  document.getElementById("use-phoneme-dictionary").checked = saved.usePhonemeDictionary !== false;
   if (catalog) renderVoices(saved.voice);
   editorPlaySeconds = editorBaselinePlaySeconds;
   if (editorBaselinePrefs == null) localStorage.removeItem(PREFS_KEY);
@@ -774,6 +783,7 @@ function resetAnnouncementEdits() {
   showError("announcement-error", "");
   showKnownPlayLength();
   syncEditorSave();
+  schedulePhonemeMatches();
 }
 
 function primaryPendingManual() {
@@ -2134,17 +2144,23 @@ function readPrefs() {
   }
 }
 
-function renderVoices(preferred) {
+function fillVoiceSelect(select, preferred) {
   const selected = preferred || catalog.default_voice;
-  voiceEl.replaceChildren();
+  select.replaceChildren();
   for (const voice of catalog.voices) {
     const option = document.createElement("option");
     option.value = voice.id;
     const bits = [voice.name, voice.gender, voice.locale, voice.quality].filter(Boolean);
     option.textContent = bits.join(" · ");
     option.selected = voice.id === selected;
-    voiceEl.append(option);
+    select.append(option);
   }
+}
+
+function renderVoices(preferred) {
+  fillVoiceSelect(voiceEl, preferred);
+  const phonemeVoice = document.getElementById("phoneme-voice");
+  if (phonemeVoice) fillVoiceSelect(phonemeVoice, phonemeVoice.value || catalog.default_voice);
 }
 
 function applyBrandingFromCatalog() {
@@ -2210,6 +2226,8 @@ function blankAnnouncement() {
   document.getElementById("announcement-kind").value = "tts";
   nameEl.value = "";
   textEl.value = defaultScript;
+  document.getElementById("use-phoneme-dictionary").checked = true;
+  schedulePhonemeMatches();
   fillSpokenSelect("news-opening", "", { optional: true });
   fillSpokenSelect("news-station", spokenAnnouncements()[0]?.id || "");
   fillSpokenSelect("news-closing", "", { optional: true });
@@ -2239,6 +2257,8 @@ async function loadAnnouncement(id) {
   document.getElementById("announcement-kind").value = item.kind || "tts";
   nameEl.value = item.name || "";
   textEl.value = item.text || "";
+  document.getElementById("use-phoneme-dictionary").checked = item.use_phoneme_dictionary !== false;
+  schedulePhonemeMatches();
   fillSpokenSelect("news-opening", item.opening_announcement_id || "", { optional: true });
   fillSpokenSelect("news-station", item.station_id_announcement_id || "");
   fillSpokenSelect("news-closing", item.closing_announcement_id || "", { optional: true });
@@ -2271,6 +2291,7 @@ async function saveAnnouncement() {
     voice: voiceEl.value,
     speed: Number(speedEl.value),
     sentence_pause: Number(pauseEl.value),
+    use_phoneme_dictionary: document.getElementById("use-phoneme-dictionary").checked,
     busy_retry_seconds: Number(document.getElementById("busy-retry").value),
     busy_give_up_seconds: Number(document.getElementById("busy-giveup").value),
     opening_announcement_id: document.getElementById("news-opening").value || null,
@@ -2380,6 +2401,7 @@ async function speak() {
         voice: voiceEl.value,
         speed: Number(speedEl.value),
         sentence_pause: Number(pauseEl.value),
+        use_phoneme_dictionary: document.getElementById("use-phoneme-dictionary").checked,
       }),
       signal: controller.signal,
     });
@@ -3244,6 +3266,289 @@ async function resetBranding(url, errorId) {
   location.reload();
 }
 
+function setPhonemeStatus(text, kind = "") {
+  const el = document.getElementById("phoneme-status");
+  if (!el) return;
+  el.textContent = text;
+  el.className = kind;
+}
+
+function stopPhonemePreview() {
+  cancelInFlight();
+  setPhonemeStatus("Ready");
+}
+
+function schedulePhonemeMatches() {
+  window.clearTimeout(phonemeMatchTimer);
+  phonemeMatchTimer = window.setTimeout(() => {
+    refreshPhonemeMatches().catch(() => {});
+  }, 250);
+}
+
+async function refreshPhonemeMatches() {
+  const list = document.getElementById("phoneme-matches");
+  if (!list) return;
+  const enabled = document.getElementById("use-phoneme-dictionary").checked;
+  const text = textEl.value.trim();
+  if (!enabled || !text) {
+    list.replaceChildren();
+    return;
+  }
+  const res = await fetch("/api/phonemes/matches", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: textEl.value }),
+  });
+  if (!res.ok) {
+    list.replaceChildren();
+    return;
+  }
+  const payload = await res.json();
+  list.replaceChildren();
+  for (const entry of payload.entries || []) {
+    const li = document.createElement("li");
+    li.textContent = `${entry.spelling} → ${entry.ipa || entry.alternate}`;
+    list.append(li);
+  }
+}
+
+async function loadPhonemeDictionary() {
+  setError("phoneme-error", "");
+  const res = await fetch("/api/phonemes");
+  if (!res.ok) {
+    setError("phoneme-error", await errorDetail(res));
+    return;
+  }
+  const payload = await res.json();
+  phonemeEntries = Array.isArray(payload.entries) ? payload.entries : [];
+  renderPhonemeRows();
+  applyPhonemeReadOnly();
+}
+
+function renderPhonemeRows() {
+  const body = document.getElementById("phoneme-rows");
+  body.replaceChildren();
+  if (!phonemeEntries.length) {
+    const tr = document.createElement("tr");
+    tr.className = "phoneme-empty";
+    const td = document.createElement("td");
+    td.colSpan = 4;
+    td.textContent = "No dictionary entries yet.";
+    tr.append(td);
+    body.append(tr);
+    return;
+  }
+  phonemeEntries.forEach((entry, index) => {
+    const tr = document.createElement("tr");
+    const spelling = document.createElement("td");
+    spelling.textContent = entry.spelling;
+    const ipa = document.createElement("td");
+    ipa.className = "phoneme-ipa";
+    ipa.textContent = entry.ipa;
+    const alternate = document.createElement("td");
+    alternate.textContent = entry.alternate || "";
+    const actions = document.createElement("td");
+    const speakWord = document.createElement("button");
+    speakWord.type = "button";
+    speakWord.className = "ghost small";
+    speakWord.textContent = "Speak word";
+    speakWord.addEventListener("click", () => {
+      playPhonemePreview(entry.spelling, "Speaking word…").catch((err) =>
+        setError("phoneme-error", err.message),
+      );
+    });
+    actions.append(speakWord);
+    if (entry.ipa) {
+      const speakIpa = document.createElement("button");
+      speakIpa.type = "button";
+      speakIpa.className = "ghost small";
+      speakIpa.textContent = "Speak IPA";
+      speakIpa.addEventListener("click", () => {
+        playPhonemePreview(`[[${entry.ipa}]]`, "Speaking IPA…").catch((err) =>
+          setError("phoneme-error", err.message),
+        );
+      });
+      actions.append(speakIpa);
+    }
+    if (entry.alternate) {
+      const speakAlternate = document.createElement("button");
+      speakAlternate.type = "button";
+      speakAlternate.className = "ghost small";
+      speakAlternate.textContent = "Speak alternate";
+      speakAlternate.addEventListener("click", () => {
+        playPhonemePreview(entry.alternate, "Speaking alternate…").catch((err) =>
+          setError("phoneme-error", err.message),
+        );
+      });
+      actions.append(speakAlternate);
+    }
+    if (!readOnly) {
+      const edit = document.createElement("button");
+      edit.type = "button";
+      edit.className = "ghost small";
+      edit.textContent = "Edit";
+      edit.addEventListener("click", () => beginPhonemeEdit(index));
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "ghost small";
+      remove.textContent = "Delete";
+      remove.addEventListener("click", () => {
+        deletePhonemeEntry(index).catch((err) => setError("phoneme-error", err.message));
+      });
+      actions.append(edit, remove);
+    }
+    tr.append(spelling, ipa, alternate, actions);
+    body.append(tr);
+  });
+}
+
+function applyPhonemeReadOnly() {
+  for (const id of ["phoneme-spelling", "phoneme-ipa", "phoneme-alternate", "phoneme-save", "phoneme-fill-ipa"]) {
+    const el = document.getElementById(id);
+    if (el) el.disabled = readOnly;
+  }
+  const save = document.getElementById("phoneme-save");
+  if (save) save.classList.toggle("hidden", readOnly);
+}
+
+function beginPhonemeEdit(index) {
+  const entry = phonemeEntries[index];
+  if (!entry) return;
+  phonemeEditIndex = index;
+  document.getElementById("phoneme-spelling").value = entry.spelling;
+  document.getElementById("phoneme-ipa").value = entry.ipa || "";
+  document.getElementById("phoneme-alternate").value = entry.alternate || "";
+  document.getElementById("phoneme-cancel").classList.remove("hidden");
+}
+
+function clearPhonemeForm() {
+  phonemeEditIndex = -1;
+  document.getElementById("phoneme-spelling").value = "";
+  document.getElementById("phoneme-ipa").value = "";
+  document.getElementById("phoneme-alternate").value = "";
+  document.getElementById("phoneme-cancel").classList.add("hidden");
+}
+
+async function putPhonemeEntries(entries) {
+  const res = await fetch("/api/phonemes", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ entries }),
+  });
+  if (!res.ok) {
+    setError("phoneme-error", await errorDetail(res));
+    return false;
+  }
+  const payload = await res.json();
+  phonemeEntries = payload.entries || [];
+  renderPhonemeRows();
+  schedulePhonemeMatches();
+  return true;
+}
+
+async function savePhonemeForm() {
+  setError("phoneme-error", "");
+  const spelling = document.getElementById("phoneme-spelling").value.trim();
+  const ipa = document.getElementById("phoneme-ipa").value.trim();
+  const alternate = document.getElementById("phoneme-alternate").value.trim();
+  if (!spelling) {
+    setError("phoneme-error", "Spelling is required.");
+    return;
+  }
+  if (ipa && alternate) {
+    setError("phoneme-error", "Enter IPA or alternate text, not both.");
+    return;
+  }
+  if (!ipa && !alternate) {
+    setError("phoneme-error", "Enter IPA or alternate text.");
+    return;
+  }
+  const next = phonemeEntries.map((entry) => ({
+    spelling: entry.spelling,
+    ipa: entry.ipa || "",
+    alternate: entry.alternate || "",
+  }));
+  const row = { spelling, ipa, alternate };
+  if (phonemeEditIndex >= 0) next[phonemeEditIndex] = row;
+  else next.push(row);
+  if (await putPhonemeEntries(next)) clearPhonemeForm();
+}
+
+async function deletePhonemeEntry(index) {
+  const next = phonemeEntries.filter((_, itemIndex) => itemIndex !== index);
+  if (phonemeEditIndex === index) clearPhonemeForm();
+  await putPhonemeEntries(next);
+}
+
+async function fillIpaField(sourceId, targetId) {
+  setError("phoneme-error", "");
+  const text = document.getElementById(sourceId).value.trim();
+  if (!text) {
+    setError("phoneme-error", "Type a word or phrase first.");
+    return;
+  }
+  const res = await fetch("/api/phonemes/ipa", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+  if (!res.ok) {
+    setError("phoneme-error", await errorDetail(res));
+    return;
+  }
+  const payload = await res.json();
+  document.getElementById(targetId).value = payload.ipa || "";
+}
+
+function speakPhonemeField(sourceId, { phonemes, emptyMessage, status }) {
+  setError("phoneme-error", "");
+  const value = document.getElementById(sourceId).value.trim();
+  if (!value) {
+    setError("phoneme-error", emptyMessage);
+    return;
+  }
+  const text = phonemes ? `[[${value}]]` : value;
+  playPhonemePreview(text, status).catch((err) => setError("phoneme-error", err.message));
+}
+
+async function playPhonemePreview(text, status) {
+  await ensureVoices();
+  cancelInFlight();
+  const mySession = session;
+  const controller = new AbortController();
+  abort = controller;
+  const currentPlayer = new PcmPlayer();
+  player = currentPlayer;
+  setPhonemeStatus(status);
+  try {
+    const res = await fetch("/api/speak", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text,
+        voice: document.getElementById("phoneme-voice")?.value || catalog?.default_voice || null,
+        speed: catalog?.speed ?? 1,
+        sentence_pause: catalog?.sentence_pause ?? 0.25,
+        use_phoneme_dictionary: false,
+      }),
+      signal: controller.signal,
+    });
+    if (mySession !== session) return;
+    if (!res.ok) {
+      setPhonemeStatus((await errorDetail(res)) || "Playback failed", "error");
+      return;
+    }
+    const sampleRate = Number(res.headers.get("X-Sample-Rate") || "22050");
+    await currentPlayer.play(res.body, sampleRate, controller.signal, { totalSeconds: 0 });
+    if (mySession === session) setPhonemeStatus("Ready");
+  } catch (err) {
+    if (mySession !== session) return;
+    if (err.name !== "AbortError" && !controller.signal.aborted) {
+      setPhonemeStatus(err.message || "Playback failed", "error");
+    }
+  }
+}
+
 function routeKey(hash = location.hash) {
   const raw = String(hash || "").replace(/^#/, "") || "/";
   const [path] = raw.split("?");
@@ -3253,6 +3558,7 @@ function routeKey(hash = location.hash) {
   if (parts[0] === "setup") return "setup";
   if (parts[0] === "users" || parts[0] === "admin") return "admin";
   if (parts[0] === "help") return "help";
+  if (parts[0] === "phonemes") return "phonemes";
   if (parts[0] === "announcements") return parts[1] === "new" ? "ann-new" : `ann/${parts[1]}`;
   if (parts[0] === "schedules") {
     if (parts[1] === "new") return `sched-new${location.hash.includes("?") ? location.hash.slice(location.hash.indexOf("?")) : ""}`;
@@ -3308,6 +3614,7 @@ async function route() {
       ignoreHashChange = false;
       if (editorKey === "home") showScreen("view-home");
       else if (editorKey === "help") showScreen("view-help");
+      else if (editorKey === "phonemes") showScreen("view-phonemes");
       else if (String(editorKey).startsWith("admin")) {
         showScreen("view-admin");
         showAdminSection(adminSectionFromKey(editorKey));
@@ -3318,6 +3625,9 @@ async function route() {
     }
     if (String(editorKey || "").startsWith("ann") && nextKey !== editorKey) {
       stopEditorPlayback();
+    }
+    if (editorKey === "phonemes" && nextKey !== "phonemes") {
+      stopPhonemePreview();
     }
     const raw = (location.hash.replace(/^#/, "") || "/").split("?")[0];
     const parts = raw.split("/").filter(Boolean);
@@ -3367,6 +3677,15 @@ async function route() {
       showScreen("view-help");
       editorKey = "help";
       clearEditorGuard();
+      return;
+    }
+    if (parts[0] === "phonemes") {
+      stopHomePolling();
+      showScreen("view-phonemes");
+      editorKey = "phonemes";
+      clearEditorGuard();
+      await ensureVoices();
+      await loadPhonemeDictionary();
       return;
     }
     if (parts[0] === "announcements") {
@@ -3439,6 +3758,43 @@ document.getElementById("new-announcement").addEventListener("click", () => {
 });
 document.getElementById("nav-home").addEventListener("click", () => goToHash("#/"));
 document.getElementById("nav-help").addEventListener("click", () => goToHash("#/help"));
+document.getElementById("nav-phonemes").addEventListener("click", () => goToHash("#/phonemes"));
+document.getElementById("back-phonemes").addEventListener("click", () => goToHash("#/"));
+document.getElementById("use-phoneme-dictionary").addEventListener("change", () => {
+  schedulePhonemeMatches();
+  syncEditorSave();
+});
+document.getElementById("phoneme-speak-spelling").addEventListener("click", () => {
+  speakPhonemeField("phoneme-spelling", {
+    phonemes: false,
+    emptyMessage: "Type a spelling first.",
+    status: "Speaking spelling…",
+  });
+});
+document.getElementById("phoneme-speak-ipa").addEventListener("click", () => {
+  speakPhonemeField("phoneme-ipa", {
+    phonemes: true,
+    emptyMessage: "Type or generate IPA first.",
+    status: "Speaking IPA…",
+  });
+});
+document.getElementById("phoneme-speak-alternate").addEventListener("click", () => {
+  speakPhonemeField("phoneme-alternate", {
+    phonemes: false,
+    emptyMessage: "Type alternate text first.",
+    status: "Speaking alternate…",
+  });
+});
+document.getElementById("phoneme-fill-ipa").addEventListener("click", () => {
+  fillIpaField("phoneme-spelling", "phoneme-ipa").catch((err) => setError("phoneme-error", err.message));
+});
+document.getElementById("phoneme-save").addEventListener("click", () => {
+  savePhonemeForm().catch((err) => setError("phoneme-error", err.message));
+});
+document.getElementById("phoneme-cancel").addEventListener("click", () => {
+  setError("phoneme-error", "");
+  clearPhonemeForm();
+});
 document.getElementById("nav-admin").addEventListener("click", () => goToHash("#/admin/users"));
 document.getElementById("admin-tab-users").addEventListener("click", () => goToHash("#/admin/users"));
 document.getElementById("admin-tab-environment").addEventListener("click", () => goToHash("#/admin/environment"));
@@ -3529,6 +3885,7 @@ document.getElementById("newsline-reset").addEventListener("click", resetAnnounc
 textEl.addEventListener("input", () => {
   updateCount();
   clearKnownPlayLength();
+  schedulePhonemeMatches();
 });
 speedEl.addEventListener("input", () => {
   updateDeliveryLabels();

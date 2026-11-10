@@ -28,6 +28,7 @@ from app.runtime import get_runtime
 from app.routes.admin import router as admin_router
 from app.routes.announcements import router as announcements_router
 from app.routes.newsline import router as newsline_router
+from app.routes.phonemes import router as phonemes_router
 from app.routes.auth import router as auth_router
 from app.routes.schedules import router as schedules_router
 from app.routes.speak import router as speak_router
@@ -62,6 +63,9 @@ def _sync_startup_for_tests() -> bool:
 async def _complete_startup(started: float, stats_stop: asyncio.Event) -> asyncio.Task[None] | None:
     try:
         _ = get_store().document()
+        from app.phoneme_dict import get_phoneme_dictionary
+
+        _ = get_phoneme_dictionary().compiled()
         _ = get_user_store().count()
         await asyncio.to_thread(init_radio_at_startup)
         _ = await asyncio.to_thread(get_registry().preload)
@@ -261,6 +265,7 @@ app.include_router(speak_router)
 app.include_router(announcements_router)
 app.include_router(schedules_router)
 app.include_router(newsline_router)
+app.include_router(phonemes_router)
 
 
 @app.get("/")

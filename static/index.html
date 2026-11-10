@@ -12,7 +12,7 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="stylesheet" href="/static/styles.css?v={{APP_VERSION}}" />
   </head>
   <body>
     <main class="shell wide">
@@ -42,6 +42,7 @@
           <div class="mast-nav-row">
             <button type="button" class="ghost small" id="nav-home">Home</button>
             <button type="button" class="ghost small" id="nav-help">How to schedule</button>
+            <button type="button" class="ghost small" id="nav-phonemes">Pronunciations</button>
             <button type="button" class="ghost small hidden" id="nav-admin">Admin</button>
             <button type="button" class="ghost small hidden" id="nav-logout">Log out</button>
           </div>
@@ -660,6 +661,87 @@
         </article>
       </section>
 
+      <section id="view-phonemes" class="screen">
+        <div class="toolbar">
+          <button type="button" class="ghost" id="back-phonemes">Back</button>
+          <h2 class="editor-title">Pronunciations</h2>
+        </div>
+        <section class="panel">
+          <h2 class="subhead">Dictionary</h2>
+          <p class="lede tight">
+            Entries apply to every spoken announcement that has the dictionary switch on.
+            Matching is whole words and phrases, ignoring case, longest phrase first.
+            A possessive such as Delaware's is its own word.
+            Speak uses the voice selected here, not the dictionary, so you can compare the spelling, the alternate text, and the IPA before saving.
+            Enter either IPA or alternate text, not both. Alternate text is spoken as ordinary words in place of the spelling.
+          </p>
+          <section class="voice-row">
+            <label class="label" for="phoneme-voice">Voice</label>
+            <select id="phoneme-voice"></select>
+          </section>
+          <section class="voice-row">
+            <label class="label" for="phoneme-spelling">Spelling</label>
+            <div class="phoneme-field">
+              <input id="phoneme-spelling" type="text" maxlength="200" />
+              <button type="button" class="ghost" id="phoneme-speak-spelling">Speak</button>
+            </div>
+          </section>
+          <section class="voice-row">
+            <label class="label" for="phoneme-alternate">Alternate text</label>
+            <div class="phoneme-field">
+              <input id="phoneme-alternate" type="text" maxlength="2000" />
+              <button type="button" class="ghost" id="phoneme-speak-alternate">Speak</button>
+            </div>
+          </section>
+          <section class="voice-row">
+            <label class="label" for="phoneme-ipa">IPA</label>
+            <div class="phoneme-field">
+              <input id="phoneme-ipa" class="phoneme-ipa" type="text" maxlength="2000" />
+              <button type="button" class="ghost" id="phoneme-speak-ipa">Speak</button>
+            </div>
+          </section>
+          <div class="actions">
+            <button type="button" class="ghost" id="phoneme-fill-ipa">IPA for this spelling</button>
+            <button type="button" class="primary" id="phoneme-save">Save entry</button>
+            <button type="button" class="ghost hidden" id="phoneme-cancel">Cancel</button>
+          </div>
+          <p id="phoneme-error" class="status-error" hidden></p>
+          <div class="script-meta">
+            <span id="phoneme-status">Ready</span>
+          </div>
+        </section>
+        <section class="panel">
+          <h2 class="subhead">IPA notation</h2>
+          <p class="lede tight">
+            <code>ˈ</code> is primary stress and <code>ˌ</code> is secondary stress, on the following sound.
+            <code>ː</code> lengthens a sound and <code>ˑ</code> is a shorter length.
+            A tie mark (a zero-width joiner) sits between two letters that stay together; you may not see it, but it is there when you copy.
+            Delete or change letters to tweak a pronunciation, then listen again.
+          </p>
+          <p class="lede tight">
+            In announcement text, <code>[[dˈɛlɐwˌɛɹ]]</code> is spoken as those phonemes.
+            <code>{{Delaware}}</code> is spoken as the word Delaware and skips the dictionary.
+            <code>[pause:1s]</code> is still a pause.
+          </p>
+        </section>
+        <section class="panel">
+          <h2 class="subhead">Saved entries</h2>
+          <div class="table-wrap">
+            <table class="schedules" id="phoneme-table">
+              <thead>
+                <tr>
+                  <th scope="col">Spelling</th>
+                  <th scope="col">IPA</th>
+                  <th scope="col">Alternate text</th>
+                  <th scope="col">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="phoneme-rows"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
       <section id="view-announcement" class="screen">
         <div class="toolbar">
           <button type="button" class="ghost" id="back-announcement">Back</button>
@@ -735,8 +817,19 @@
         </section>
 
         <section class="script">
-          <label class="label" for="text">Announcement</label>
-          <textarea id="text" rows="6" placeholder="Write what you want to hear…"></textarea>
+          <div>
+            <label class="label" for="text">Announcement</label>
+            <textarea id="text" rows="6" placeholder="Write what you want to hear…"></textarea>
+          </div>
+          <label class="inline-check" for="use-phoneme-dictionary">
+            <input id="use-phoneme-dictionary" type="checkbox" checked />
+            Use the phoneme dictionary
+          </label>
+          <p class="lede tight">
+            Dictionary words are replaced when this is on. <code>{{phrase}}</code> skips one word or phrase.
+            <code>[[ipa]]</code> is spoken as those sounds and is not changed by the dictionary.
+          </p>
+          <ul id="phoneme-matches" class="phoneme-matches"></ul>
           <div class="script-meta">
             <span id="count">0</span>
             <span id="status">Ready</span>

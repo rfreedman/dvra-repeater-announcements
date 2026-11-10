@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 from datetime import datetime
 from pathlib import Path
+from typing import cast
 
 from app.config import ANNOUNCEMENTS_PATH
 from app.json_io import (
@@ -40,7 +41,12 @@ class AnnouncementStore:
         raw = read_versioned_json(self.path, version=2, kind="announcements")
         if raw is None:
             return empty_document()
-        return StoreDocument.model_validate(raw)
+        document = StoreDocument.model_validate(raw)
+        if _tts_missing_phoneme_flag(raw):
+            # Existing spoken announcements use the dictionary. Write the field
+            # back so the file shows it instead of relying on a missing key.
+            self._write(document)
+        return document
 
     def _write(self, document: StoreDocument) -> None:
         write_json_atomic(self.path, document.model_dump(mode="json"))
@@ -190,6 +196,21 @@ class AnnouncementStore:
             updated = _refresh_rotation(updated)
             self._write(updated)
             return settings
+
+
+def _tts_missing_phoneme_flag(raw: JsonObject) -> bool:
+    """True when a spoken announcement was saved before the dictionary switch existed."""
+    items = raw.get("announcements")
+    if not isinstance(items, list):
+        return False
+    for item in cast(list[object], items):
+        if not isinstance(item, dict):
+            continue
+        row = cast(JsonObject, item)
+        kind = row.get("kind", "tts")
+        if kind == "tts" and "use_phoneme_dictionary" not in row:
+            return True
+    return False
 
 
 def _refresh_rotation(document: StoreDocument) -> StoreDocument:

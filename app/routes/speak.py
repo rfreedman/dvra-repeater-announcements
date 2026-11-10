@@ -67,6 +67,14 @@ async def speak(req: SpeakRequest, request: Request, _user: AuthUser) -> Streami
     text = req.text.strip()
     if not text:
         raise HTTPException(status_code=400, detail="Text is required")
+    from app.phoneme_dict import get_phoneme_dictionary
+    from app.phoneme_text import prepare_speech_text
+
+    text = prepare_speech_text(
+        text,
+        get_phoneme_dictionary().compiled(),
+        use_dictionary=req.use_phoneme_dictionary,
+    )
     try:
         voice_id, sample_rate, chunks = await asyncio.to_thread(
             lambda: registry.synthesize(

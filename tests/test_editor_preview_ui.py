@@ -49,8 +49,8 @@ def test_schedule_save_is_spaced_below_the_enabled_checkbox() -> None:
     schedule = html.split('id="view-schedule"', 1)[1].split('id="schedule-error"', 1)[0]
     enabled = schedule.split('id="sched-enabled"', 1)[1]
     assert enabled.index("Enabled") < enabled.index('id="save-schedule"')
-    rule = css.split("#view-schedule .actions", 1)[1].split("}", 1)[0]
-    assert "margin-top: 22px" in rule
+    rule = css.split("#view-schedule.screen.active", 1)[1].split("}", 1)[0]
+    assert "gap: 22px" in rule
 
 
 def test_save_stays_disabled_until_the_editor_differs_from_its_original() -> None:

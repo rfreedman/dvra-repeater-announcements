@@ -123,6 +123,7 @@ DEFAULT_NEWS_CHECK_STOP = "18:00"
 MIN_REPEATER_TIMEOUT_SECONDS = 30
 MAX_REPEATER_TIMEOUT_SECONDS = 600
 ANNOUNCEMENTS_PATH = DATA_DIR / "announcements.json"
+PHONEMES_PATH = DATA_DIR / "phonemes.json"
 USERS_PATH = Path(os.environ.get("TTS_USERS_PATH", DATA_DIR / "users.json")).expanduser()
 SESSION_SECRET_PATH = DATA_DIR / ".session_secret"
 PCM_CACHE_DIR = Path(os.environ.get("TTS_PCM_CACHE_DIR", DATA_DIR / "pcm")).expanduser()

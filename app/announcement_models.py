@@ -69,6 +69,7 @@ class TtsAnnouncement(AnnouncementCommon):
     sentence_pause: float = Field(
         default=DEFAULT_SENTENCE_PAUSE, ge=0.0, le=MAX_SENTENCE_PAUSE
     )
+    use_phoneme_dictionary: bool = True
     play_seconds: float | None = None
     too_long: bool = False
 
