@@ -44,6 +44,15 @@
       "locale": "en_US",
       "quality": "medium",
       "description": "American English male voice with a bit more character."
+    },
+        {
+      "id": "en_US-kathleen-low",
+      "alias": "Kathleen",
+      "name": "Kathleen",
+      "gender": "femail",
+      "locale": "en_US",
+      "quality": "low",
+      "description": "Huggingface Kathleen Low"
     }
   ]
 }
