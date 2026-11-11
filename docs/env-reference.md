@@ -88,15 +88,15 @@ Example with custom URLs (commented — do not paste live secrets into the defau
 
 ```json
 {
-  "id": "norman",
-  "alias": "norman",
-  "name": "Norman",
+  "id": "custom",
+  "alias": "custom",
+  "name": "Custom",
   "gender": "male",
   "locale": "en_US",
   "quality": "medium",
   "description": "Custom voice.",
-  "onnx_url": "https://example.com/voices/norman.onnx",
-  "config_url": "https://example.com/voices/norman.onnx.json"
+  "onnx_url": "https://example.com/voices/custom.onnx",
+  "config_url": "https://example.com/voices/custom.onnx.json"
 }
 ```
 

@@ -1,8 +1,10 @@
 """Apply the phoneme dictionary to announcement text before Piper sees it.
 
 ``[[phonemes]]`` stays a phoneme block. ``{{phrase}}`` is spoken as written and
-is not dictionary-matched. A dictionary row is either bare IPA, which this
-module wraps in ``[[ ]]``, or alternate plain text, which is inserted as written.
+is not dictionary-matched. A spelling wrapped in asterisks, such as
+``*440-frequency*``, is a shortcut and may contain punctuation. A dictionary
+row is either bare IPA, which this module wraps in ``[[ ]]``, or alternate
+plain text, which is inserted as written.
 The tie mark (U+200D) stays in saved IPA and is removed from phoneme blocks
 here, because Piper has no id for it and would only skip it.
 """
@@ -33,12 +35,15 @@ class PhonemeReplacement:
     """One dictionary row. ``tokens`` are casefolded whole words.
 
     ``ipa`` and ``alternate`` are mutually exclusive. Exactly one is non-empty.
+    ``shortcut`` is the spelling including its asterisks when this row is a
+    ``*shortcut*`` marker rather than whole words.
     """
 
     spelling: str
     ipa: str
     tokens: tuple[str, ...]
     alternate: str = ""
+    shortcut: str = ""
 
 
 def compile_entry(spelling: str, ipa: str, alternate: str = "") -> PhonemeReplacement:
@@ -48,10 +53,16 @@ def compile_entry(spelling: str, ipa: str, alternate: str = "") -> PhonemeReplac
         raise PhonemeTextError("Spelling is required")
     if any(mark in collapsed for mark in _MARKUP):
         raise PhonemeTextError("Spelling cannot contain [[ ]] or {{ }}")
-    pieces = list(_TOKEN.finditer(collapsed))
-    display = " ".join(piece.group() for piece in pieces)
-    if not display or display.casefold() != collapsed.casefold():
-        raise PhonemeTextError("Spelling must be a word or phrase without punctuation")
+    shortcut = _shortcut_spelling(collapsed)
+    pieces: list[re.Match[str]]
+    if shortcut is not None:
+        pieces = []
+        display = shortcut
+    else:
+        pieces = list(_TOKEN.finditer(collapsed))
+        display = " ".join(piece.group() for piece in pieces)
+        if not display or display.casefold() != collapsed.casefold():
+            raise PhonemeTextError("Spelling must be a word or phrase without punctuation")
     cleaned_ipa = ipa.strip()
     cleaned_alternate = " ".join(alternate.split())
     if cleaned_ipa and cleaned_alternate:
@@ -68,6 +79,7 @@ def compile_entry(spelling: str, ipa: str, alternate: str = "") -> PhonemeReplac
         ipa=cleaned_ipa,
         tokens=tokens,
         alternate=cleaned_alternate,
+        shortcut=shortcut or "",
     )
 
 
@@ -84,7 +96,7 @@ def compile_entries(
         else:
             spelling, ipa, alternate = row
         entry = compile_entry(spelling, ipa, alternate)
-        key = " ".join(entry.tokens)
+        key = entry.shortcut.casefold() if entry.shortcut else " ".join(entry.tokens)
         previous = seen.get(key)
         if previous is not None:
             raise PhonemeTextError(f"{entry.spelling} duplicates {previous}")
@@ -128,7 +140,7 @@ def matching_entries(
     seen: set[str] = set()
     for plain in _plain_runs(text):
         for entry in _walk(plain, ranked):
-            key = " ".join(entry.tokens)
+            key = entry.shortcut.casefold() if entry.shortcut else " ".join(entry.tokens)
             if key in seen:
                 continue
             seen.add(key)
@@ -208,9 +220,41 @@ def _apply_markup(text: str, entries: Sequence[PhonemeReplacement]) -> str:
     return "".join(parts)
 
 
+def _shortcut_spelling(collapsed: str) -> str | None:
+    """Return ``*text*`` when ``collapsed`` is a shortcut. ``None`` means a normal spelling.
+
+    An empty pair of asterisks is an error. A spelling with only one asterisk
+    falls through to the normal punctuation check.
+    """
+    if len(collapsed) < 2 or not collapsed.startswith("*") or not collapsed.endswith("*"):
+        return None
+    inside = collapsed[1:-1].strip()
+    if not inside:
+        raise PhonemeTextError("Enter a shortcut between the asterisks")
+    return f"*{inside}*"
+
+
 def _replace_plain(text: str, entries: Sequence[PhonemeReplacement]) -> str:
     if not text or not entries:
         return text
+    shortcuts = tuple(entry for entry in entries if entry.shortcut)
+    if not shortcuts:
+        return _replace_words(text, entries)
+    pieces: list[str] = []
+    pos = 0
+    while pos < len(text):
+        found = _next_shortcut(text, pos, shortcuts)
+        if found is None:
+            pieces.append(_replace_words(text[pos:], entries))
+            break
+        start, end, entry = found
+        pieces.append(_replace_words(text[pos:start], entries))
+        pieces.append(_spoken_form(entry))
+        pos = end
+    return "".join(pieces)
+
+
+def _replace_words(text: str, entries: Sequence[PhonemeReplacement]) -> str:
     tokens = list(_TOKEN.finditer(text))
     if not tokens:
         return text
@@ -234,18 +278,56 @@ def _replace_plain(text: str, entries: Sequence[PhonemeReplacement]) -> str:
 
 
 def _walk(text: str, entries: Sequence[PhonemeReplacement]) -> list[PhonemeReplacement]:
+    shortcuts = tuple(entry for entry in entries if entry.shortcut)
+    hits: list[tuple[int, PhonemeReplacement]] = []
+    spans: list[tuple[int, int]] = []
+    pos = 0
+    while pos < len(text):
+        found = _next_shortcut(text, pos, shortcuts)
+        if found is None:
+            break
+        start, end, entry = found
+        hits.append((start, entry))
+        spans.append((start, end))
+        pos = end
     tokens = list(_TOKEN.finditer(text))
-    found: list[PhonemeReplacement] = []
     index = 0
     while index < len(tokens):
+        if any(_overlaps(tokens[index], span) for span in spans):
+            index += 1
+            continue
         matched = _match_at(text, tokens, index, entries)
         if matched is None:
             index += 1
             continue
         entry, count = matched
-        found.append(entry)
+        hits.append((tokens[index].start(), entry))
         index += count
-    return found
+    hits.sort(key=lambda item: item[0])
+    return [entry for _, entry in hits]
+
+
+def _next_shortcut(
+    text: str,
+    pos: int,
+    shortcuts: Sequence[PhonemeReplacement],
+) -> tuple[int, int, PhonemeReplacement] | None:
+    """Earliest shortcut at or after ``pos``. The longest one wins a shared start."""
+    best: tuple[int, int, PhonemeReplacement] | None = None
+    for entry in shortcuts:
+        found = re.search(re.escape(entry.shortcut), text[pos:], flags=re.IGNORECASE)
+        if found is None:
+            continue
+        start = pos + found.start()
+        end = pos + found.end()
+        if best is None or start < best[0] or (start == best[0] and end > best[1]):
+            best = (start, end, entry)
+    return best
+
+
+def _overlaps(token: re.Match[str], span: tuple[int, int]) -> bool:
+    start, end = span
+    return token.start() < end and token.end() > start
 
 
 def _match_at(
@@ -256,7 +338,7 @@ def _match_at(
 ) -> tuple[PhonemeReplacement, int] | None:
     for entry in entries:
         count = len(entry.tokens)
-        if index + count > len(tokens):
+        if count == 0 or index + count > len(tokens):
             continue
         window = tokens[index : index + count]
         if any(not _gap_is_space(text, window[pos], window[pos + 1]) for pos in range(count - 1)):

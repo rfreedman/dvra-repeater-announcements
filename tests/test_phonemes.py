@@ -93,6 +93,44 @@ def test_alternate_text_replaces_the_spelling_as_plain_words() -> None:
     assert "[[" not in text
 
 
+def test_asterisk_shortcut_allows_punctuation_and_matches_the_whole_marker() -> None:
+    entries = compile_entries([("*440-frequency*", "", "four forty")])
+    assert entries[0].spelling == "*440-frequency*"
+    assert entries[0].shortcut == "*440-frequency*"
+    text = prepare_speech_text(
+        "Use *440-FREQUENCY* or 440-frequency today",
+        entries,
+        use_dictionary=True,
+    )
+    assert text == "Use four forty or 440-frequency today"
+    protected = prepare_speech_text("{{*440-frequency*}}", entries, use_dictionary=True)
+    assert protected == "*440-frequency*"
+
+
+def test_longer_shortcut_wins_and_its_replacement_is_not_matched_again() -> None:
+    entries = compile_entries(
+        [
+            ("*440*", "", "short"),
+            ("*440-frequency*", "", "Delaware"),
+            ("Delaware", _IPA),
+        ]
+    )
+    text = prepare_speech_text("Call *440-frequency* then *440*", entries, use_dictionary=True)
+    assert text == "Call Delaware then short"
+    assert f"[[{_IPA}]]" not in text
+
+
+def test_shortcut_must_have_text_and_a_bare_asterisk_is_still_punctuation() -> None:
+    with pytest.raises(PhonemeTextError, match="shortcut"):
+        _ = compile_entries([("**", "", "nothing")])
+    with pytest.raises(PhonemeTextError, match="punctuation"):
+        _ = compile_entries([("*440-frequency", "", "four forty")])
+    with pytest.raises(PhonemeTextError, match="duplicates"):
+        _ = compile_entries(
+            [("*440-frequency*", "", "one"), ("*440-FREQUENCY*", "", "two")]
+        )
+
+
 def test_an_entry_needs_ipa_or_alternate_text_but_not_both() -> None:
     with pytest.raises(PhonemeTextError, match="not both"):
         _ = compile_entries([("Association", _IPA, "uh so")])

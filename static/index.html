@@ -672,6 +672,7 @@
             Entries apply to every spoken announcement that has the dictionary switch on.
             Matching is whole words and phrases, ignoring case, longest phrase first.
             A possessive such as Delaware's is its own word.
+            Wrap a shortcut in asterisks, such as *440-frequency*, to allow punctuation. The announcement must use the same asterisks.
             Speak uses the voice selected here, not the dictionary, so you can compare the spelling, the alternate text, and the IPA before saving.
             Enter either IPA or alternate text, not both. Alternate text is spoken as ordinary words in place of the spelling.
           </p>
@@ -826,7 +827,8 @@
             Use the phoneme dictionary
           </label>
           <p class="lede tight">
-            Dictionary words are replaced when this is on. <code>{{phrase}}</code> skips one word or phrase.
+            Dictionary words are replaced when this is on. A shortcut such as <code>*440-frequency*</code> matches only with its asterisks.
+            <code>{{phrase}}</code> skips one word or phrase.
             <code>[[ipa]]</code> is spoken as those sounds and is not changed by the dictionary.
           </p>
           <ul id="phoneme-matches" class="phoneme-matches"></ul>

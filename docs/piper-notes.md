@@ -65,6 +65,12 @@ Matching ignores case and only replaces whole words and phrases. A longer phrase
 wins over a shorter one. "our" does not change "hour". "Delaware's" does not use
 an entry for "Delaware"; add "Delaware's" if that possessive needs an entry.
 
+A spelling wrapped in asterisks, such as `*440-frequency*`, is a shortcut. The
+punctuation rule does not apply inside the asterisks, so a hyphenated keyword
+can stand for a different pronunciation. The announcement must contain the same
+asterisks; `440-frequency` does not use that entry. `*440*` does not replace
+the start of `*440-frequency*` when the longer shortcut is saved.
+
 `{{phrase}}` in the announcement is spoken as written and skips the dictionary.
 The braces are not spoken. `[[ipa]]` is still manual phoneme input and is not
 rewritten. `[pause:1s]` is still a pause.

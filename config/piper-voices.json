@@ -44,17 +44,6 @@
       "locale": "en_US",
       "quality": "medium",
       "description": "American English male voice with a bit more character."
-    },
-    {
-      "id": "norman",
-      "alias": "norman",
-      "name": "Norman",
-      "gender": "male",
-      "locale": "en_US",
-      "quality": "medium",
-      "description": "Norm!",
-      "onnx_url": "https://sfo3.digitaloceanspaces.com/bkmdls/norman.onnx",
-      "config_url": "https://sfo3.digitaloceanspaces.com/bkmdls/norman.onnx.json"
     }
   ]
 }
