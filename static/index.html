@@ -216,6 +216,7 @@
               <input id="cfg-timezone" type="text" maxlength="64" autocomplete="off" placeholder="America/New_York" />
             </section>
           </section>
+
           <section class="panel">
             <h2 class="subhead">Speech defaults</h2>
             <p class="lede tight">Used for new announcements. Announcements already saved keep their own voice settings.</p>
@@ -238,6 +239,10 @@
               <label class="label" for="cfg-pause">Sentence pause (seconds)</label>
               <input id="cfg-pause" type="number" min="0" max="2" step="0.05" />
             </section>
+          </section>
+
+            <section class="panel">
+            <h2 class="subhead">Announcement Properties</h2>
             <section class="voice-row">
               <label class="label" for="cfg-ptt-lead">PTT lead (seconds)</label>
               <input id="cfg-ptt-lead" type="number" min="0" max="10" step="0.1" />
@@ -255,8 +260,9 @@
               <input id="cfg-max-chars" type="number" min="1" max="20000" step="1" />
             </section>
           </section>
-          <section class="panel">
-            <h2 class="subhead">Scheduler and sign-in</h2>
+
+            <section class="panel">
+            <h2 class="subhead">Scheduler</h2>
             <section class="voice-row">
               <label class="label" for="cfg-lookahead">Slot lookahead (hours)</label>
               <input id="cfg-lookahead" type="number" min="1" max="336" step="1" />
@@ -265,6 +271,18 @@
               <label class="label" for="cfg-max-wait">Scheduler wake (seconds)</label>
               <input id="cfg-max-wait" type="number" min="0.5" max="60" step="0.5" />
             </section>
+              <label class="inline-check">
+                <input id="cfg-trigger-now" type="checkbox" />
+                Show Trigger now on schedule rows
+             </label>
+            <label class="inline-check">
+              <input id="cfg-fire-verbose" type="checkbox" />
+              Verbose transmit logs
+            </label>
+            </section>
+
+           <section class="panel">
+            <h2 class="subhead">Sign-in</h2>
             <section class="voice-row">
               <label class="label" for="cfg-idle">Sign out after idle (seconds)</label>
               <input id="cfg-idle" type="number" min="60" max="86400" step="60" />
@@ -277,14 +295,6 @@
               <label class="label" for="cfg-login-window">Lockout window (seconds)</label>
               <input id="cfg-login-window" type="number" min="10" max="3600" step="1" />
             </section>
-            <label class="inline-check">
-              <input id="cfg-trigger-now" type="checkbox" />
-              Show Trigger now on schedule rows
-            </label>
-            <label class="inline-check">
-              <input id="cfg-fire-verbose" type="checkbox" />
-              Verbose transmit logs
-            </label>
           </section>
           <section class="panel">
             <h2 class="subhead">Save this configuration</h2>
@@ -883,6 +893,7 @@
           <button type="button" class="primary" id="save-announcement" disabled>Save</button>
         </div>
         <p id="announcement-error" class="status-error" hidden></p>
+        </div>
       </section>
 
       <section id="view-schedule" class="screen">
