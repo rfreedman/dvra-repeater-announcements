@@ -762,6 +762,11 @@ button:disabled {
   margin-bottom: 0;
   flex: 1 1 16rem;
   min-width: 12rem;
+  white-space: pre-line;
+}
+
+#newsline-schedule {
+  white-space: pre-line;
 }
 
 .editor-title {

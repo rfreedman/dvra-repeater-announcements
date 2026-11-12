@@ -19,7 +19,7 @@ limit is 178 seconds. The PTT lead after key-up sits inside that 2 second margin
 If the audio is over the limit, the text is still saved, and the editor tells
 you the length, the limit, and to shorten it and save again. The announcement
 is marked too long. Shorten it under the limit and save again to clear the mark.
-Changing the repeater timeout on the home screen updates the mark from the stored
+Changing the repeater timeout on the Environment screen updates the mark from the stored
 length without synthesizing again.
 
 A too-long announcement cannot be chosen for a new or updated schedule. A

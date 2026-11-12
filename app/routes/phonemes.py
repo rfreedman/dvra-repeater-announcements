@@ -72,7 +72,9 @@ def _refresh_dictionary_users() -> None:
     from app.store import get_store
 
     store = get_store()
-    timeout = store.document().settings.repeater_timeout_seconds
+    from app.config import REPEATER_TIMEOUT_SECONDS
+
+    timeout = REPEATER_TIMEOUT_SECONDS
     changed = False
     for item in store.list_announcements():
         if item.kind != "tts":

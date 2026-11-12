@@ -44,7 +44,7 @@ from app.schemas import (
     SettingsIn,
     build_schedule_detail,
 )
-from app.store import AnnouncementStore, get_store
+from app.store import get_store
 
 router = APIRouter()
 
@@ -53,17 +53,6 @@ def _newsline_status() -> NewslineStatus:
     from app.newsline.poll import status_payload
 
     return status_payload()
-
-
-def _recompute_lengths(store: AnnouncementStore, timeout: int) -> None:
-    from app.spoken_length import recompute_too_long
-
-    for item in store.document().announcements:
-        if item.kind != "tts":
-            continue
-        updated = recompute_too_long(item, timeout)
-        if updated.kind == "tts" and updated.too_long != item.too_long:
-            _ = store.save_announcement(updated)
 
 
 def _validation_detail(exc: ValidationError) -> str:
@@ -166,12 +155,6 @@ def put_settings(req: SettingsIn, _admin: AdminUser) -> Settings:
         data["slot_half_window_minutes"] = req.slot_half_window_minutes
     if req.baseline_randomize is not None:
         data["baseline_randomize"] = req.baseline_randomize
-    if req.news_check_start is not None:
-        data["news_check_start"] = req.news_check_start
-    if req.news_check_stop is not None:
-        data["news_check_stop"] = req.news_check_stop
-    if req.repeater_timeout_seconds is not None:
-        data["repeater_timeout_seconds"] = req.repeater_timeout_seconds
     try:
         settings = Settings.model_validate(data)
     except ValidationError as exc:
@@ -184,7 +167,6 @@ def put_settings(req: SettingsIn, _admin: AdminUser) -> Settings:
                 detail=f"{schedule.name} offset is outside the new slot window",
             )
     stored = store.save_settings(settings)
-    _recompute_lengths(store, stored.repeater_timeout_seconds)
     from app.newsline.poll import arm_next_poll
 
     arm_next_poll(immediate=False)

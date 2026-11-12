@@ -78,6 +78,7 @@ const PTT_TONE_SECONDS = 0.2;
  * @property {string|null} [outcome]
  * @property {string|number|null} [report_number]
  * @property {string|null} [release_friday]
+ * @property {string|null} [published_on]
  * @property {string|null} [last_check_at]
  * @property {string|number|null} [working_report]
  * @property {string} [phase]
@@ -309,10 +310,6 @@ function updateAuthChrome() {
   const shuffle = document.getElementById("baseline-randomize");
   shuffle.disabled = readOnly;
   shuffle.closest("label")?.classList.toggle("hidden", readOnly);
-  for (const id of ["news-check-start", "news-check-stop", "repeater-timeout"]) {
-    const el = document.getElementById(id);
-    if (el) el.disabled = readOnly;
-  }
   const newslineCheck = document.getElementById("newsline-check");
   if (newslineCheck) newslineCheck.classList.toggle("hidden", readOnly);
   syncNewslineCheckButton();
@@ -1589,13 +1586,30 @@ function formatReleaseFriday(isoDate) {
   return `${month} ${dt.getDate()}, ${dt.getFullYear()}`;
 }
 
-function newslineFacts(newsline) {
-  if (!newsline) return "";
-  const parts = [];
-  const distributed = formatReleaseFriday(newsline.release_friday);
-  if (distributed) parts.push(`Distributed ${distributed}.`);
-  if (newsline.last_check_at) parts.push(`Last checked ${formatWhen(newsline.last_check_at)}.`);
-  return parts.length ? ` ${parts.join(" ")}` : "";
+function formatPublished(iso) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?/.exec(String(iso || ""));
+  if (!match) return "";
+  const shown = formatReleaseFriday(`${match[1]}-${match[2]}-${match[3]}`);
+  if (!shown || !match[4]) return shown;
+  return `${shown}, ${match[4]}:${match[5]}`;
+}
+
+function newslineFacts(lead, newsline) {
+  const lines = Array.isArray(lead) ? lead.filter(Boolean) : [];
+  if (newsline) {
+    const dates = [];
+    const published = formatPublished(newsline.published_on);
+    if (published) dates.push(`Published ${published}.`);
+    const airDate = formatReleaseFriday(newsline.release_friday);
+    if (airDate) dates.push(`Air date ${airDate}.`);
+    if (dates.length) {
+      const sentence = dates.join(" ");
+      if (lines.length) lines[lines.length - 1] = `${lines[lines.length - 1]} ${sentence}`;
+      else lines.push(sentence);
+    }
+    if (newsline.last_check_at) lines.push(`Last checked ${formatWhen(newsline.last_check_at)}.`);
+  }
+  return lines.join("\n");
 }
 
 /** @param {NewslineStatus|null|undefined} newsline */
@@ -1633,27 +1647,26 @@ function renderNewsline(newsline) {
     status.textContent = `Checking for a new Newsline report…${elapsed}`;
     return;
   }
-  const facts = newslineFacts(newsline);
   if (newsline.error) {
     const detail = String(newsline.error).trim();
     const stopped = /[.!?]$/.test(detail) ? detail : `${detail}.`;
-    status.textContent = `Last check failed: ${stopped}${facts}`;
+    status.textContent = newslineFacts([`Last check failed: ${stopped}`], newsline);
     return;
   }
   const unchanged = newsline.outcome === "current";
   if (newsline.ready && newsline.report_number) {
-    status.textContent = unchanged
-      ? `No new Newsline report. Report ${newsline.report_number} is ready to play.${facts}`
-      : `Report ${newsline.report_number} is ready to play.${facts}`;
+    const lead = [`Report ${newsline.report_number} ready.`];
+    if (unchanged) lead.unshift("No new Newsline report.");
+    status.textContent = newslineFacts(lead, newsline);
     return;
   }
   if (newsline.report_number) {
-    status.textContent = unchanged
-      ? `No new Newsline report. Report ${newsline.report_number} is downloaded but not split yet.${facts}`
-      : `Report ${newsline.report_number} is downloaded but not split yet.${facts}`;
+    const lead = [`Report ${newsline.report_number} is downloaded but not split yet.`];
+    if (unchanged) lead.unshift("No new Newsline report.");
+    status.textContent = newslineFacts(lead, newsline);
     return;
   }
-  status.textContent = `No report downloaded yet.${facts}`;
+  status.textContent = newslineFacts(["No report downloaded yet."], newsline);
 }
 
 function spokenAnnouncements() {
@@ -1836,12 +1849,8 @@ async function refreshHome({ background = false } = {}) {
     renderSchedules(payload.schedules || []);
     renderLibrary(announcements);
     document.getElementById("baseline-randomize").checked = Boolean(settings.baseline_randomize);
-    const startEl = document.getElementById("news-check-start");
-    const stopEl = document.getElementById("news-check-stop");
-    const timeoutEl = document.getElementById("repeater-timeout");
-    if (startEl) startEl.value = settings.news_check_start || "12:00";
-    if (stopEl) stopEl.value = settings.news_check_stop || "18:00";
-    if (timeoutEl) timeoutEl.value = String(settings.repeater_timeout_seconds ?? 180);
+    const scheduleEl = document.getElementById("newsline-schedule");
+    if (scheduleEl) scheduleEl.textContent = newslineScheduleText(settings);
   } finally {
     homeBusy = false;
   }
@@ -3032,6 +3041,23 @@ function formatSavedAt(iso, timeZone) {
   }
 }
 
+function hhmmField(id) {
+  const raw = document.getElementById(id).value.trim();
+  const match = /^(\d{2}):(\d{2})/.exec(raw);
+  return match ? `${match[1]}:${match[2]}` : raw;
+}
+
+function newslineScheduleText(settings) {
+  const start = (settings && settings.news_check_start) || "12:00";
+  const stop = (settings && settings.news_check_stop) || "18:00";
+  const hours = Number(settings && settings.news_check_interval_hours);
+  const shown = Number.isFinite(hours) ? String(hours) : "1";
+  const unit = hours === 1 ? "hour" : "hours";
+  const timeout = Number(settings && settings.repeater_timeout_seconds);
+  const seconds = Number.isFinite(timeout) ? String(timeout) : "180";
+  return `Checks for new release Thursday ${start} through Friday ${stop}, every ${shown} ${unit}.\nRepeater timeout ${seconds} seconds.`;
+}
+
 function readConfigForm() {
   return {
     station_call: document.getElementById("cfg-station-call").value.trim(),
@@ -3053,6 +3079,10 @@ function readConfigForm() {
     login_window_seconds: Number(document.getElementById("cfg-login-window").value),
     trigger_now: document.getElementById("cfg-trigger-now").checked,
     fire_verbose_log: document.getElementById("cfg-fire-verbose").checked,
+    news_check_start: hhmmField("cfg-news-start"),
+    news_check_stop: hhmmField("cfg-news-stop"),
+    news_check_interval_hours: Number(document.getElementById("cfg-news-interval").value),
+    repeater_timeout_seconds: Number(document.getElementById("cfg-repeater-timeout").value),
   };
 }
 
@@ -3075,6 +3105,10 @@ function fillConfigForm(values) {
   document.getElementById("cfg-login-window").value = String(values.login_window_seconds ?? "");
   document.getElementById("cfg-trigger-now").checked = Boolean(values.trigger_now);
   document.getElementById("cfg-fire-verbose").checked = Boolean(values.fire_verbose_log);
+  document.getElementById("cfg-news-start").value = values.news_check_start || "12:00";
+  document.getElementById("cfg-news-stop").value = values.news_check_stop || "18:00";
+  document.getElementById("cfg-news-interval").value = String(values.news_check_interval_hours ?? 1);
+  document.getElementById("cfg-repeater-timeout").value = String(values.repeater_timeout_seconds ?? 180);
 }
 
 async function fillVoiceOptions(selected) {
@@ -3999,26 +4033,6 @@ for (const id of ["view-announcement", "view-schedule"]) {
   const view = document.getElementById(id);
   view.addEventListener("input", syncEditorSave);
   view.addEventListener("change", syncEditorSave);
-}
-
-async function saveNewslineSettings() {
-  if (readOnly) return;
-  await fetch("/api/settings", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      news_check_start: document.getElementById("news-check-start").value,
-      news_check_stop: document.getElementById("news-check-stop").value,
-      repeater_timeout_seconds: Number(document.getElementById("repeater-timeout").value),
-    }),
-  });
-  refreshHome().catch(() => {});
-}
-
-for (const id of ["news-check-start", "news-check-stop", "repeater-timeout"]) {
-  document.getElementById(id).addEventListener("change", () => {
-    saveNewslineSettings().catch(() => {});
-  });
 }
 
 document.getElementById("newsline-check").addEventListener("click", async () => {

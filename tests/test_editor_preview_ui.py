@@ -66,7 +66,7 @@ def test_save_stays_disabled_until_the_editor_differs_from_its_original() -> Non
         "function clearEditorGuard()", 1
     )[0]
     listeners = source.split('for (const id of ["view-announcement", "view-schedule"])', 1)[1].split(
-        "async function saveNewslineSettings()", 1
+        'document.getElementById("newsline-check")', 1
     )[0]
     assert 'addEventListener("input", syncEditorSave)' in listeners
     assert 'addEventListener("change", syncEditorSave)' in listeners

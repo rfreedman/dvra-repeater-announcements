@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable, Iterable
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Protocol, cast
 
@@ -108,23 +109,27 @@ def test_schedule_list_keeps_a_newsline_announcement(client: TestClient) -> None
     assert row["announcement_name"] == "News"
 
 
-def test_newsline_download_times_round_trip(client: TestClient) -> None:
+def test_settings_save_leaves_newsline_schedule_in_config(client: TestClient) -> None:
     saved = client.put(
         "/api/settings",
         json={
             "news_check_start": "13:30",
             "news_check_stop": "17:00",
             "repeater_timeout_seconds": 200,
+            "baseline_randomize": True,
         },
     )
     assert saved.status_code == 200
     body = json_dict(saved)
-    assert body["news_check_start"] == "13:30"
-    assert body["news_check_stop"] == "17:00"
-    assert body["repeater_timeout_seconds"] == 200
-    again = json_dict(client.get("/api/settings"))
-    assert again["news_check_start"] == "13:30"
-    assert again["repeater_timeout_seconds"] == 200
+    assert "news_check_start" not in body
+    assert "repeater_timeout_seconds" not in body
+    assert body["baseline_randomize"] is True
+    home = json_dict(client.get("/api/schedules"))["settings"]
+    assert isinstance(home, dict)
+    assert home["news_check_start"] == "12:00"
+    assert home["news_check_stop"] == "18:00"
+    assert home["news_check_interval_hours"] == 1
+    assert home["repeater_timeout_seconds"] == 180
 
 
 def test_manual_check_runs_outside_the_window_without_the_network(monkeypatch: pytest.MonkeyPatch, store: AnnouncementStore, tmp_path: Path) -> None:
@@ -179,6 +184,7 @@ def test_check_reports_download_and_processing_then_an_unchanged_report(monkeypa
         report_number: int = 2557
         audio_url: str = "http://example.invalid/Report2557.mp3"
         script_url: str = "http://example.invalid/NSLN2557.txt"
+        published_on: datetime | None = None
 
     monkeypatch.setattr("app.newsline.state.NEWSLINE_DIR", tmp_path)
 
@@ -233,6 +239,8 @@ def test_check_reports_download_and_processing_then_an_unchanged_report(monkeypa
     assert first.working_report is None
     assert first.report_number == 2557
     assert first.release_friday == date(2026, 10, 30)
+    assert first.published_on is None
+    Report.published_on = datetime(2026, 10, 29, 16, 5, tzinfo=ZoneInfo("America/New_York"))
     def check_finished() -> bool:
         return False
 
@@ -241,6 +249,7 @@ def test_check_reports_download_and_processing_then_an_unchanged_report(monkeypa
     assert calls["split"] == 1
     assert second.last_outcome == "current"
     assert second.report_number == 2557
+    assert second.published_on == datetime(2026, 10, 29, 16, 5, tzinfo=ZoneInfo("America/New_York"))
     from app.newsline.poll import status_payload
 
     payload = status_payload()
@@ -251,6 +260,7 @@ def test_check_reports_download_and_processing_then_an_unchanged_report(monkeypa
     assert payload["step"] is None
     assert payload["elapsed_seconds"] is None
     assert payload["release_friday"] == "2026-10-30"
+    assert payload["published_on"] == "2026-10-29T16:05:00-04:00"
 
 
 def test_status_keeps_the_real_phase_while_a_check_is_running(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

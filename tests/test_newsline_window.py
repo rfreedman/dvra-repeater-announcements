@@ -26,6 +26,21 @@ def test_window_is_open_from_thursday_start_through_friday_stop() -> None:
     assert window_for(_at(25, 12, 0), "12:00", "18:00") is None
 
 
+def test_anchors_follow_the_check_interval() -> None:
+    window = window_for(_at(22, 12, 0), "12:00", "18:00")
+    assert window is not None
+    start, stop = window
+    half = anchors(start, stop, interval_minutes=30)
+    assert half[0] == _at(22, 12, 0)
+    assert half[1] == _at(22, 12, 30)
+    assert half[2] == _at(22, 13, 0)
+    assert half[-1] <= stop
+    two = anchors(start, stop, interval_minutes=120)
+    assert two[0] == _at(22, 12, 0)
+    assert two[1] == _at(22, 14, 0)
+    assert next_anchor_after(_at(22, 12, 10), start, stop, interval_minutes=30) == _at(22, 12, 30)
+
+
 def test_anchors_are_hourly_from_the_thursday_start() -> None:
     window = window_for(_at(22, 12, 30), "12:00", "18:00")
     assert window is not None

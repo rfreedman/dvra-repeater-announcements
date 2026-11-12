@@ -31,6 +31,7 @@ class SettingsPayload(TypedDict):
     baseline_randomize: bool
     news_check_start: str
     news_check_stop: str
+    news_check_interval_hours: float
     repeater_timeout_seconds: int
 
 
@@ -48,13 +49,21 @@ def schedule_meta() -> ScheduleMeta:
 
 
 def settings_payload(settings: Settings) -> SettingsPayload:
+    from app.config import (
+        NEWS_CHECK_INTERVAL_HOURS,
+        NEWS_CHECK_START,
+        NEWS_CHECK_STOP,
+        REPEATER_TIMEOUT_SECONDS,
+    )
+
     return {
         "timezone": settings.timezone,
         "slot_half_window_minutes": settings.slot_half_window_minutes,
         "baseline_randomize": settings.baseline_randomize,
-        "news_check_start": settings.news_check_start,
-        "news_check_stop": settings.news_check_stop,
-        "repeater_timeout_seconds": settings.repeater_timeout_seconds,
+        "news_check_start": NEWS_CHECK_START,
+        "news_check_stop": NEWS_CHECK_STOP,
+        "news_check_interval_hours": NEWS_CHECK_INTERVAL_HOURS,
+        "repeater_timeout_seconds": REPEATER_TIMEOUT_SECONDS,
     }
 
 
@@ -89,6 +98,7 @@ class ClockRow(TypedDict):
 class NewslineStatus(TypedDict):
     report_number: int | None
     release_friday: str | None
+    published_on: str | None
     split_ok: bool
     ready: bool
     phase: NewslinePhase

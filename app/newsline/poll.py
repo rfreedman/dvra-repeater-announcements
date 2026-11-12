@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import shutil
 import threading
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 from zoneinfo import ZoneInfo
@@ -21,7 +21,7 @@ from app.newsline.download import download_file, fetch_feed, latest_report
 from app.newsline.engine.progress import begin_ui_progress, end_ui_progress, set_ui_step, ui_snapshot
 from app.newsline.release import parse_release_friday
 from app.newsline.split_job import SplitError, split_report
-from app.newsline.state import NewsState, load_state, save_state
+from app.newsline.state import NewsState, load_state, published_on_text, save_state
 from app.newsline.window import next_anchor_after, success_in_window, window_for
 from app.slots import as_local, zone_for
 from app.scheduler_types import SchedulerJob
@@ -75,6 +75,22 @@ def _mark_current(state: NewsState) -> None:
     state.last_outcome = "current"
 
 
+def _remember_published(state: NewsState, report: object) -> None:
+    """Keep the feed date for this report. A missing date does not erase one already stored."""
+    number = getattr(report, "report_number", None)
+    published = getattr(report, "published_on", None)
+    if not isinstance(number, int):
+        return
+    if isinstance(published, datetime):
+        state.published_on = published
+        return
+    if isinstance(published, date):
+        state.published_on = datetime(published.year, published.month, published.day)
+        return
+    if state.report_number != number:
+        state.published_on = None
+
+
 def _news_root(root: Path | None = None) -> Path:
     return root if root is not None else NEWSLINE_DIR
 
@@ -105,22 +121,30 @@ def _remove_report_files(folder: Path, number: int) -> None:
         shutil.rmtree(stories)
 
 
-def _settings_now() -> tuple[datetime, str, str, int, ZoneInfo]:
+def _settings_now() -> tuple[datetime, str, str, int, ZoneInfo, int]:
+    from app.config import (
+        NEWS_CHECK_START,
+        NEWS_CHECK_STOP,
+        REPEATER_TIMEOUT_SECONDS,
+        news_check_interval_minutes,
+    )
+
     document = get_store().document()
     zone = zone_for(document.settings.timezone)
     now = as_local(datetime.now(zone), zone)
     return (
         now,
-        document.settings.news_check_start,
-        document.settings.news_check_stop,
-        document.settings.repeater_timeout_seconds,
+        NEWS_CHECK_START,
+        NEWS_CHECK_STOP,
+        REPEATER_TIMEOUT_SECONDS,
         zone,
+        news_check_interval_minutes(),
     )
 
 
 def run_check(*, manual: bool, root: Path | None = None) -> NewsState:
     """Fetch, download, and split when a newer report is available."""
-    now, start_hhmm, stop_hhmm, timeout, _zone = _settings_now()
+    now, start_hhmm, stop_hhmm, timeout, _zone, _interval = _settings_now()
     state = load_state(root)
     state.phase = "checking"
     state.working_report = None
@@ -149,6 +173,7 @@ def run_check(*, manual: bool, root: Path | None = None) -> NewsState:
                 stop=window[1],
             ):
                 log.info("Newsline report %s was already split this window", number)
+                _remember_published(state, report)
                 _mark_current(state)
                 return state
             if state.completed_at is not None and state.completed_at < window[0]:
@@ -156,10 +181,12 @@ def run_check(*, manual: bool, root: Path | None = None) -> NewsState:
                     "Newsline feed is still report %s from before this window; will check again",
                     number,
                 )
+                _remember_published(state, report)
                 _mark_current(state)
                 return state
         if already and manual:
             log.info("Newsline report %s is already split", number)
+            _remember_published(state, report)
             _mark_current(state)
             return state
         if not manual and state.split_failed_report == number:
@@ -225,6 +252,7 @@ def run_check(*, manual: bool, root: Path | None = None) -> NewsState:
                 "Newsline report %s script has no intended Friday; it will not air",
                 number,
             )
+        _remember_published(state, report)
         state.report_number = number
         state.release_friday = friday
         state.split_ok = True
@@ -290,7 +318,7 @@ def arm_next_poll(*, immediate: bool) -> None:
     from app.scheduler_instance import get_scheduler
 
     scheduler = get_scheduler()
-    now, start_hhmm, stop_hhmm, _timeout, zone = _settings_now()
+    now, start_hhmm, stop_hhmm, _timeout, zone, interval_minutes = _settings_now()
     window = window_for(now, start_hhmm, stop_hhmm)
     if scheduler is not None:
         existing = cast(SchedulerJob | None, scheduler.get_job(JOB_ID))
@@ -311,7 +339,12 @@ def arm_next_poll(*, immediate: bool) -> None:
                 daemon=True,
             ).start()
         return
-    nxt = next_anchor_after(now, window[0], window[1])
+    nxt = next_anchor_after(
+        now,
+        window[0],
+        window[1],
+        interval_minutes=interval_minutes,
+    )
     if nxt is None or scheduler is None:
         return
     _ = scheduler.add_job(
@@ -342,6 +375,7 @@ def status_payload() -> NewslineStatus:
     return {
         "report_number": state.report_number,
         "release_friday": state.release_friday.isoformat() if state.release_friday else None,
+        "published_on": published_on_text(state.published_on),
         "split_ok": state.split_ok,
         "ready": ready,
         "phase": state.phase,

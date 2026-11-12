@@ -58,7 +58,9 @@ def _role_label(role: str) -> str:
 
 def too_long_parts(document: StoreDocument, announcement: Announcement) -> list[str]:
     """Human descriptions of spoken pieces that exceed the repeater limit."""
-    limit = speech_limit_seconds(document.settings.repeater_timeout_seconds)
+    from app.config import REPEATER_TIMEOUT_SECONDS
+
+    limit = speech_limit_seconds(REPEATER_TIMEOUT_SECONDS)
     limit_text = format_seconds(limit)
     parts: list[str] = []
     if announcement.kind == "tts" and announcement.too_long and announcement.play_seconds is not None:

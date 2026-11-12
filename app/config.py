@@ -120,6 +120,9 @@ NEWSLINE_DIR = DATA_DIR / "arnewsline"
 DEFAULT_REPEATER_TIMEOUT_SECONDS = 180
 DEFAULT_NEWS_CHECK_START = "12:00"
 DEFAULT_NEWS_CHECK_STOP = "18:00"
+DEFAULT_NEWS_CHECK_INTERVAL_HOURS = 1.0
+MIN_NEWS_CHECK_INTERVAL_HOURS = 0.5
+MAX_NEWS_CHECK_INTERVAL_HOURS = 24.0
 MIN_REPEATER_TIMEOUT_SECONDS = 30
 MAX_REPEATER_TIMEOUT_SECONDS = 600
 ANNOUNCEMENTS_PATH = DATA_DIR / "announcements.json"
@@ -232,9 +235,76 @@ def dra_linux_playback_backend() -> str:
     return "aplay"
 
 
+def _hhmm_env(name: str, default: str) -> str:
+    """Return an HH:MM environment value, or ``default`` when it is missing or invalid."""
+    from app.model_common import format_hhmm, parse_hhmm
+
+    raw = os.environ.get(name, default).strip() or default
+    try:
+        return format_hhmm(*parse_hhmm(raw))
+    except ValueError:
+        import logging
+
+        logging.getLogger("app.config").warning("Invalid %s=%r; using %s", name, raw, default)
+        return default
+
+
+def _news_interval_hours() -> float:
+    raw = os.environ.get("TTS_NEWS_CHECK_INTERVAL_HOURS", "").strip()
+    if not raw:
+        return DEFAULT_NEWS_CHECK_INTERVAL_HOURS
+    try:
+        value = float(raw)
+    except ValueError:
+        value = float("nan")
+    if (
+        value != value
+        or value < MIN_NEWS_CHECK_INTERVAL_HOURS
+        or value > MAX_NEWS_CHECK_INTERVAL_HOURS
+    ):
+        import logging
+
+        logging.getLogger("app.config").warning(
+            "Invalid TTS_NEWS_CHECK_INTERVAL_HOURS=%r; using %s",
+            raw,
+            DEFAULT_NEWS_CHECK_INTERVAL_HOURS,
+        )
+        return DEFAULT_NEWS_CHECK_INTERVAL_HOURS
+    return value
+
+
+def news_check_interval_minutes() -> int:
+    """Whole minutes between Newsline checks. 0.5 hours is 30 minutes."""
+    return max(1, round(float(NEWS_CHECK_INTERVAL_HOURS) * 60))
+
+
+def _repeater_timeout_seconds() -> int:
+    raw = os.environ.get("TTS_REPEATER_TIMEOUT_SECONDS", "").strip()
+    if not raw:
+        return DEFAULT_REPEATER_TIMEOUT_SECONDS
+    try:
+        value = int(raw)
+    except ValueError:
+        value = -1
+    if value < MIN_REPEATER_TIMEOUT_SECONDS or value > MAX_REPEATER_TIMEOUT_SECONDS:
+        import logging
+
+        logging.getLogger("app.config").warning(
+            "Invalid TTS_REPEATER_TIMEOUT_SECONDS=%r; using %s",
+            raw,
+            DEFAULT_REPEATER_TIMEOUT_SECONDS,
+        )
+        return DEFAULT_REPEATER_TIMEOUT_SECONDS
+    return value
+
+
 DEFAULT_BUSY_RETRY_SECONDS = float(os.environ.get("TTS_BUSY_RETRY_SECONDS", "5"))
 DEFAULT_BUSY_GIVE_UP_SECONDS = float(os.environ.get("TTS_BUSY_GIVE_UP_SECONDS", "45"))
 SCHEDULER_MAX_WAIT_SECONDS = float(os.environ.get("TTS_SCHEDULER_MAX_WAIT_SECONDS", "5"))
+NEWS_CHECK_START = _hhmm_env("TTS_NEWS_CHECK_START", DEFAULT_NEWS_CHECK_START)
+NEWS_CHECK_STOP = _hhmm_env("TTS_NEWS_CHECK_STOP", DEFAULT_NEWS_CHECK_STOP)
+NEWS_CHECK_INTERVAL_HOURS = _news_interval_hours()
+REPEATER_TIMEOUT_SECONDS = _repeater_timeout_seconds()
 DEFAULT_SLOT_HALF_WINDOW_MINUTES = int(os.environ.get("TTS_SLOT_HALF_WINDOW_MINUTES", "10"))
 LOOKAHEAD_HOURS = int(os.environ.get("TTS_SLOT_LOOKAHEAD_HOURS", "72"))
 TRIGGER_NOW = _env_flag("TTS_TRIGGER_NOW", False)
@@ -300,6 +370,10 @@ def assign_live_settings(
     login_window_seconds: float,
     trigger_now: bool,
     fire_verbose_log: bool,
+    news_check_start: str,
+    news_check_stop: str,
+    news_check_interval_hours: float,
+    repeater_timeout_seconds: int,
 ) -> None:
     """Publish operator settings for the rest of this process.
 
@@ -329,6 +403,10 @@ def assign_live_settings(
         "LOGIN_WINDOW_SECONDS": login_window_seconds,
         "TRIGGER_NOW": trigger_now,
         "FIRE_VERBOSE_LOG": fire_verbose_log,
+        "NEWS_CHECK_START": news_check_start,
+        "NEWS_CHECK_STOP": news_check_stop,
+        "NEWS_CHECK_INTERVAL_HOURS": news_check_interval_hours,
+        "REPEATER_TIMEOUT_SECONDS": repeater_timeout_seconds,
     }
     module = globals()
     for name, value in published.items():
@@ -353,6 +431,10 @@ def assign_live_settings(
     os.environ["TTS_LOGIN_WINDOW_SECONDS"] = _env_number(login_window_seconds)
     os.environ["TTS_TRIGGER_NOW"] = "true" if trigger_now else "false"
     os.environ["TTS_FIRE_VERBOSE_LOG"] = "true" if fire_verbose_log else "false"
+    os.environ["TTS_NEWS_CHECK_START"] = news_check_start
+    os.environ["TTS_NEWS_CHECK_STOP"] = news_check_stop
+    os.environ["TTS_NEWS_CHECK_INTERVAL_HOURS"] = _env_number(news_check_interval_hours)
+    os.environ["TTS_REPEATER_TIMEOUT_SECONDS"] = str(repeater_timeout_seconds)
 
 
 def _env_number(value: float) -> str:
@@ -381,6 +463,10 @@ def editable_env_updates() -> dict[str, str]:
         "TTS_LOGIN_WINDOW_SECONDS": _env_number(LOGIN_WINDOW_SECONDS),
         "TTS_TRIGGER_NOW": "true" if TRIGGER_NOW else "false",
         "TTS_FIRE_VERBOSE_LOG": "true" if FIRE_VERBOSE_LOG else "false",
+        "TTS_NEWS_CHECK_START": NEWS_CHECK_START,
+        "TTS_NEWS_CHECK_STOP": NEWS_CHECK_STOP,
+        "TTS_NEWS_CHECK_INTERVAL_HOURS": _env_number(NEWS_CHECK_INTERVAL_HOURS),
+        "TTS_REPEATER_TIMEOUT_SECONDS": str(REPEATER_TIMEOUT_SECONDS),
     }
 
 

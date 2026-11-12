@@ -46,7 +46,7 @@ def test_too_long_schedule_is_replaced_by_the_baseline() -> None:
         slots=["18:00"],
     )
     document = StoreDocument(
-        settings=Settings(repeater_timeout_seconds=180),
+        settings=Settings(),
         announcements=[short, long],
         schedules=[baseline, weekly],
     )

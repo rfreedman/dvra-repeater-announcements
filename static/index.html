@@ -265,6 +265,27 @@
             </section>
           </section>
 
+          <section class="panel">
+            <h2 class="subhead">Newsline</h2>
+            <p class="lede tight">When the server looks for a new Amateur Radio Newsline report.</p>
+            <section class="voice-row">
+              <label class="label" for="cfg-news-start">Thursday check start</label>
+              <input id="cfg-news-start" type="time" step="60" value="12:00" />
+            </section>
+            <section class="voice-row">
+              <label class="label" for="cfg-news-stop">Friday check stop</label>
+              <input id="cfg-news-stop" type="time" step="60" value="18:00" />
+            </section>
+            <section class="voice-row">
+              <label class="label" for="cfg-news-interval">Check interval (hours)</label>
+              <input id="cfg-news-interval" type="number" min="0.5" max="24" step="0.5" value="1" />
+            </section>
+            <section class="voice-row">
+              <label class="label" for="cfg-repeater-timeout">Repeater timeout (seconds)</label>
+              <input id="cfg-repeater-timeout" type="number" min="30" max="600" step="1" value="180" />
+            </section>
+          </section>
+
             <section class="panel">
             <h2 class="subhead">Scheduler</h2>
             <section class="voice-row">
@@ -482,20 +503,9 @@
                 <button type="button" class="ghost small" id="newsline-check">Check for Newsline now</button>
               </div>
             </div>
-            <div class="controls" aria-label="Newsline download">
-              <div class="control">
-                <label class="label" for="news-check-start">Thursday check start</label>
-                <input id="news-check-start" type="time" value="12:00" />
-              </div>
-              <div class="control">
-                <label class="label" for="news-check-stop">Friday check stop</label>
-                <input id="news-check-stop" type="time" value="18:00" />
-              </div>
-              <div class="control">
-                <label class="label" for="repeater-timeout">Repeater timeout (seconds)</label>
-                <input id="repeater-timeout" type="number" min="30" max="600" step="1" value="180" />
-              </div>
-            </div>
+            <!-- Placeholder. refreshHome() replaces this text with newslineScheduleText(settings). -->
+            <p class="lede tight" id="newsline-schedule">Checks for new release Thursday 12:00 through Friday 18:00, every 1 hour.
+Repeater timeout 180 seconds.</p>
           </details>
         </section>
 

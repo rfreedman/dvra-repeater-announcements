@@ -200,9 +200,6 @@ AnnouncementIn = Annotated[
 class SettingsIn(BaseModel):
     slot_half_window_minutes: int | None = None
     baseline_randomize: bool | None = None
-    news_check_start: str | None = None
-    news_check_stop: str | None = None
-    repeater_timeout_seconds: int | None = None
 
 
 class LoginIn(BaseModel):

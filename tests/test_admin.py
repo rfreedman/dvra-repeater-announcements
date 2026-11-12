@@ -7,6 +7,7 @@ import os
 import time
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
@@ -90,6 +91,54 @@ def test_save_updates_page_history_and_dotenv(client: TestClient) -> None:
     page_headers = client.get("/").headers
     assert page_headers["x-config-generation"] == "1"
     assert page_headers["cache-control"] == "no-store"
+
+
+def test_newsline_interval_save_rearms_and_rejects_a_too_small_value(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[bool] = []
+
+    def record(*, immediate: bool) -> None:
+        calls.append(immediate)
+
+    monkeypatch.setattr("app.newsline.poll.arm_next_poll", record)
+    env_path = Path(os.environ["TTS_DOTENV_PATH"])
+    _ = env_path.write_text("", encoding="utf-8")
+    state = _state(client)
+    values = _values(state)
+    values["news_check_start"] = "13:30"
+    values["news_check_stop"] = "17:00"
+    values["news_check_interval_hours"] = 0.5
+    values["repeater_timeout_seconds"] = 200
+    saved = _save(client, values, "Half-hour Newsline checks")
+    assert saved.current.values.news_check_interval_hours == 0.5
+    assert saved.current.values.repeater_timeout_seconds == 200
+    assert app_config.NEWS_CHECK_START == "13:30"
+    assert app_config.NEWS_CHECK_STOP == "17:00"
+    assert app_config.NEWS_CHECK_INTERVAL_HOURS == 0.5
+    assert app_config.news_check_interval_minutes() == 30
+    assert app_config.REPEATER_TIMEOUT_SECONDS == 200
+    text = env_path.read_text(encoding="utf-8")
+    assert "TTS_NEWS_CHECK_START=13:30" in text
+    assert "TTS_NEWS_CHECK_STOP=17:00" in text
+    assert "TTS_NEWS_CHECK_INTERVAL_HOURS=0.5" in text
+    assert "TTS_REPEATER_TIMEOUT_SECONDS=200" in text
+    assert calls == [False]
+    values["news_check_interval_hours"] = 0.25
+    res = client.post(
+        "/api/admin/config",
+        json={"values": values, "short_description": "Too often"},
+    )
+    assert res.status_code == 422
+    assert app_config.NEWS_CHECK_INTERVAL_HOURS == 0.5
+    values["news_check_interval_hours"] = 0.5
+    values["repeater_timeout_seconds"] = 10
+    rejected = client.post(
+        "/api/admin/config",
+        json={"values": values, "short_description": "Timeout too short"},
+    )
+    assert rejected.status_code == 422
+    assert app_config.REPEATER_TIMEOUT_SECONDS == 200
 
 
 def test_blank_description_does_not_save(client: TestClient) -> None:

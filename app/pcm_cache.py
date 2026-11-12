@@ -259,7 +259,9 @@ def warm_all(announcements: list[Announcement] | None = None) -> None:
     started = time.perf_counter()
     log.info("Warming all TTS announcements; caching %s", len(to_warm))
     get_pcm_cache().prune({item.id for item in items})
-    timeout = document.settings.repeater_timeout_seconds
+    from app.config import REPEATER_TIMEOUT_SECONDS
+
+    timeout = REPEATER_TIMEOUT_SECONDS
     cached = 0
     for item in to_warm:
         if item.kind != "tts":

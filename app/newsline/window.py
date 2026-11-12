@@ -1,4 +1,4 @@
-"""Thursday–Friday check window and hourly anchors."""
+"""Thursday–Friday check window and the anchors inside it."""
 
 from __future__ import annotations
 
@@ -41,17 +41,32 @@ def window_for(
     return None
 
 
-def anchors(start: datetime, stop: datetime) -> list[datetime]:
+def anchors(
+    start: datetime,
+    stop: datetime,
+    *,
+    interval_minutes: int = 60,
+) -> list[datetime]:
+    """Return check times from ``start`` through ``stop``, stepping by ``interval_minutes``."""
+    if interval_minutes < 1:
+        raise ValueError("interval must be at least one minute")
     found: list[datetime] = []
     moment = start
+    step = timedelta(minutes=interval_minutes)
     while moment <= stop:
         found.append(moment)
-        moment += timedelta(hours=1)
+        moment += step
     return found
 
 
-def next_anchor_after(now: datetime, start: datetime, stop: datetime) -> datetime | None:
-    for moment in anchors(start, stop):
+def next_anchor_after(
+    now: datetime,
+    start: datetime,
+    stop: datetime,
+    *,
+    interval_minutes: int = 60,
+) -> datetime | None:
+    for moment in anchors(start, stop, interval_minutes=interval_minutes):
         if moment > now:
             return moment
     return None

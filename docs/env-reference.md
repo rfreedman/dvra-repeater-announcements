@@ -36,6 +36,10 @@
 | `TTS_BUSY_RETRY_SECONDS` | `5` | Retry interval while the channel is busy; also the value pre-filled for a **new announcement** in the UI |
 | `TTS_BUSY_GIVE_UP_SECONDS` | `45` | Drop this fire if still busy after this long; also pre-filled for a new announcement |
 | `TTS_SCHEDULER_MAX_WAIT_SECONDS` | `5` | How long the scheduler may sleep before checking the clock again |
+| `TTS_NEWS_CHECK_START` | `12:00` | Thursday start of the Amateur Radio Newsline check window (`HH:MM`, station timezone) |
+| `TTS_NEWS_CHECK_STOP` | `18:00` | Friday end of that window (`HH:MM`) |
+| `TTS_NEWS_CHECK_INTERVAL_HOURS` | `1` | Hours between checks inside the window (`0.5` is every 30 minutes; `0.5`–`24`) |
+| `TTS_REPEATER_TIMEOUT_SECONDS` | `180` | Repeater time limit for one transmission (`30`–`600`). Spoken audio and Newsline story files must finish 2 seconds sooner |
 | `TTS_SLOT_HALF_WINDOW_MINUTES` | `10` | How far an overlay may shift from its slot center |
 | `TTS_TRIGGER_NOW` | `false` | Dev only: show **Trigger now** on schedule rows (does not change Last or the next slot) |
 

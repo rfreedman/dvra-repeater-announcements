@@ -100,7 +100,9 @@ def _from_request(req: AnnouncementIn, existing: Announcement | None) -> Announc
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if item.kind != "tts":
         return item
-    timeout = store.document().settings.repeater_timeout_seconds
+    from app.config import REPEATER_TIMEOUT_SECONDS
+
+    timeout = REPEATER_TIMEOUT_SECONDS
     try:
         measured = measure_announcement(item, timeout)
     except Exception as exc:

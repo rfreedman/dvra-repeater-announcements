@@ -31,7 +31,7 @@ from app.config import (
 )
 from app.dotenv_file import update_dotenv
 from app.json_io import read_versioned_json, write_json_atomic
-from app.model_common import new_id
+from app.model_common import format_hhmm, new_id, parse_hhmm
 
 SHORT_DESCRIPTION_MAX = 120
 LONG_DESCRIPTION_MAX = 4_000
@@ -63,6 +63,10 @@ class RuntimeConfigValues(BaseModel):
     login_window_seconds: float
     trigger_now: bool
     fire_verbose_log: bool
+    news_check_start: str = "12:00"
+    news_check_stop: str = "18:00"
+    news_check_interval_hours: float = 1.0
+    repeater_timeout_seconds: int = 180
 
     @model_validator(mode="after")
     def bounds(self) -> RuntimeConfigValues:
@@ -107,6 +111,20 @@ class RuntimeConfigValues(BaseModel):
         self.login_max_failures = _int_range(self.login_max_failures, "Login failures", 1, 50)
         self.login_window_seconds = _float_range(
             self.login_window_seconds, "Login window", low=10, high=3600
+        )
+        self.news_check_start = format_hhmm(*parse_hhmm(self.news_check_start))
+        self.news_check_stop = format_hhmm(*parse_hhmm(self.news_check_stop))
+        self.news_check_interval_hours = _float_range(
+            self.news_check_interval_hours,
+            "Newsline check interval",
+            low=config.MIN_NEWS_CHECK_INTERVAL_HOURS,
+            high=config.MAX_NEWS_CHECK_INTERVAL_HOURS,
+        )
+        self.repeater_timeout_seconds = _int_range(
+            self.repeater_timeout_seconds,
+            "Repeater timeout",
+            config.MIN_REPEATER_TIMEOUT_SECONDS,
+            config.MAX_REPEATER_TIMEOUT_SECONDS,
         )
         return self
 
@@ -200,6 +218,10 @@ def current_values() -> RuntimeConfigValues:
         login_window_seconds=config.login_window_seconds(),
         trigger_now=config.TRIGGER_NOW,
         fire_verbose_log=config.FIRE_VERBOSE_LOG,
+        news_check_start=config.NEWS_CHECK_START,
+        news_check_stop=config.NEWS_CHECK_STOP,
+        news_check_interval_hours=config.NEWS_CHECK_INTERVAL_HOURS,
+        repeater_timeout_seconds=config.REPEATER_TIMEOUT_SECONDS,
     )
 
 
@@ -312,6 +334,10 @@ def _apply(values: RuntimeConfigValues) -> None:
         login_window_seconds=values.login_window_seconds,
         trigger_now=values.trigger_now,
         fire_verbose_log=values.fire_verbose_log,
+        news_check_start=values.news_check_start,
+        news_check_stop=values.news_check_stop,
+        news_check_interval_hours=values.news_check_interval_hours,
+        repeater_timeout_seconds=values.repeater_timeout_seconds,
     )
     update_dotenv(dotenv_path(), editable_env_updates())
     _sync_runtime(values)
@@ -334,6 +360,23 @@ def _sync_runtime(values: RuntimeConfigValues) -> None:
     if settings.timezone != values.timezone:
         _ = store.save_settings(settings.model_copy(update={"timezone": values.timezone}))
     sync_jobs()
+    from app.newsline.poll import arm_next_poll
+    from app.spoken_length import recompute_too_long
+
+    arm_next_poll(immediate=False)
+    timeout = int(config.REPEATER_TIMEOUT_SECONDS)
+    length_changed = False
+    for item in list(store.document().announcements):
+        if item.kind != "tts":
+            continue
+        updated = recompute_too_long(item, timeout)
+        if updated.kind == "tts" and updated.too_long != item.too_long:
+            _ = store.save_announcement(updated)
+            length_changed = True
+    if length_changed:
+        from app.live_notify import notify_home_data_changed
+
+        notify_home_data_changed()
 
 
 def _seed_unlocked() -> ConfigHistoryFile:

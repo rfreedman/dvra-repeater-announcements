@@ -5,12 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator
 
 from app.config import (
-    DEFAULT_NEWS_CHECK_START,
-    DEFAULT_NEWS_CHECK_STOP,
-    DEFAULT_REPEATER_TIMEOUT_SECONDS,
     DEFAULT_SLOT_HALF_WINDOW_MINUTES,
-    MAX_REPEATER_TIMEOUT_SECONDS,
-    MIN_REPEATER_TIMEOUT_SECONDS,
     TIMEZONE,
 )
 from app.model_common import (
@@ -58,30 +53,12 @@ class Settings(BaseModel):
     timezone: str = TIMEZONE
     slot_half_window_minutes: int = DEFAULT_SLOT_HALF_WINDOW_MINUTES
     baseline_randomize: bool = False
-    news_check_start: str = DEFAULT_NEWS_CHECK_START
-    news_check_stop: str = DEFAULT_NEWS_CHECK_STOP
-    repeater_timeout_seconds: int = DEFAULT_REPEATER_TIMEOUT_SECONDS
 
     @field_validator("slot_half_window_minutes")
     @classmethod
     def window_range(cls, value: int) -> int:
         if value < 0 or value > 29:
             raise ValueError("Slot window must be 0–29 minutes")
-        return value
-
-    @field_validator("news_check_start", "news_check_stop")
-    @classmethod
-    def clock_time(cls, value: str) -> str:
-        return format_hhmm(*parse_hhmm(value))
-
-    @field_validator("repeater_timeout_seconds")
-    @classmethod
-    def timeout_range(cls, value: int) -> int:
-        if value < MIN_REPEATER_TIMEOUT_SECONDS or value > MAX_REPEATER_TIMEOUT_SECONDS:
-            raise ValueError(
-                f"Repeater timeout must be {MIN_REPEATER_TIMEOUT_SECONDS}–"
-                + f"{MAX_REPEATER_TIMEOUT_SECONDS} seconds"
-            )
         return value
 
 

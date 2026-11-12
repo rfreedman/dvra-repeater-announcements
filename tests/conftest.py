@@ -90,6 +90,10 @@ def restore_operator_settings() -> Iterator[None]:
         login_window_seconds=snapshot.login_window_seconds,
         trigger_now=snapshot.trigger_now,
         fire_verbose_log=snapshot.fire_verbose_log,
+        news_check_start=snapshot.news_check_start,
+        news_check_stop=snapshot.news_check_stop,
+        news_check_interval_hours=snapshot.news_check_interval_hours,
+        repeater_timeout_seconds=snapshot.repeater_timeout_seconds,
     )
     login_limiter.max_failures = snapshot.login_max_failures
     login_limiter.window_seconds = snapshot.login_window_seconds

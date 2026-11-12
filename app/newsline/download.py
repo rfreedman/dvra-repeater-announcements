@@ -5,12 +5,16 @@ from __future__ import annotations
 import logging
 import os
 import re
+import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import cast, override
 from urllib.parse import unquote, urlparse
+from zoneinfo import ZoneInfo
 
 import feedparser
 import requests
@@ -31,6 +35,7 @@ class FeedReport:
     title: str
     audio_url: str
     script_url: str
+    published_on: datetime | None = None
 
 
 class _LabeledLinkParser(HTMLParser):
@@ -139,6 +144,37 @@ def _enclosure_href(entry: FeedEntry) -> str | None:
     return _enclosure_href_string(enclosures[0])
 
 
+def entry_published_on(entry: FeedEntry, *, zone: ZoneInfo) -> datetime | None:
+    """Feed ``pubDate`` as a timezone-aware instant in ``zone``.
+
+    ``published_parsed`` is UTC. A missing or unreadable date returns ``None``.
+    """
+    moment: datetime | None = None
+    parsed = getattr(entry, "published_parsed", None)
+    if isinstance(parsed, time.struct_time):
+        moment = datetime(
+            parsed.tm_year,
+            parsed.tm_mon,
+            parsed.tm_mday,
+            parsed.tm_hour,
+            parsed.tm_min,
+            parsed.tm_sec,
+            tzinfo=timezone.utc,
+        )
+    else:
+        raw = _as_str(getattr(entry, "published", ""))
+        if raw:
+            try:
+                moment = parsedate_to_datetime(raw)
+            except (TypeError, ValueError, IndexError):
+                moment = None
+            if moment is not None and moment.tzinfo is None:
+                moment = moment.replace(tzinfo=timezone.utc)
+    if moment is None:
+        return None
+    return moment.astimezone(zone).replace(microsecond=0)
+
+
 def entry_download_urls(entry: FeedEntry) -> tuple[str | None, str | None]:
     """Return (audio_url, script_url) from the enclosure and SCRIPT/AUDIO links."""
     parser = _LabeledLinkParser()
@@ -167,11 +203,15 @@ def latest_report(feed: Feed) -> FeedReport | None:
             log.warning("Newsline report %s has no SCRIPT download link", number)
             continue
         title = _as_str(getattr(entry, "title", "")) or f"Report {number}"
+        from app.config import TIMEZONE
+        from app.slots import zone_for
+
         return FeedReport(
             report_number=number,
             title=title,
             audio_url=audio_url,
             script_url=script_url,
+            published_on=entry_published_on(entry, zone=zone_for(TIMEZONE)),
         )
     return None
 
