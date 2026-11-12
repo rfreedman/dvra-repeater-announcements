@@ -14,6 +14,14 @@ class SystemStats(TypedDict):
     thermal_state: str | None
     cpu_percent: float | None
     memory_percent: float | None
+    memory_used_bytes: int | None
+    memory_available_bytes: int | None
+
+
+class MemorySample(TypedDict):
+    percent: float | None
+    used_bytes: int | None
+    available_bytes: int | None
 
 _THERMAL_ROOT = Path("/sys/class/thermal")
 
@@ -101,13 +109,24 @@ def read_cpu_percent(*, reset_state: bool = False) -> float | None:
     return max(0.0, min(100.0, value))
 
 
-def read_memory_percent() -> float | None:
-    """Return used memory percent via psutil, or None."""
+def read_memory() -> MemorySample:
+    """Return memory percent plus used and available bytes from one psutil sample.
+
+    ``used`` counts memory psutil treats as in use. ``available`` is memory that
+    can be given to processes without swapping, including reclaimable cache.
+    """
     try:
-        value = float(cast(float, cast(object, psutil.virtual_memory().percent)))
+        mem = psutil.virtual_memory()
+        percent_raw = float(cast(float, cast(object, mem.percent)))
+        used_raw = int(cast(int, cast(object, mem.used)))
+        available_raw = int(cast(int, cast(object, mem.available)))
     except (OSError, ValueError, TypeError, AttributeError):
-        return None
-    return max(0.0, min(100.0, value))
+        return {"percent": None, "used_bytes": None, "available_bytes": None}
+    return {
+        "percent": max(0.0, min(100.0, percent_raw)),
+        "used_bytes": max(0, used_raw),
+        "available_bytes": max(0, available_raw),
+    }
 
 
 def thermal_state_from_ns(value: int) -> str | None:
@@ -166,14 +185,17 @@ def read_system_stats(
     *,
     thermal_root: Path | None = None,
 ) -> SystemStats:
-    """Collect CPU temp or thermal state, CPU %, and memory %."""
+    """Collect CPU temp or thermal state, CPU %, and memory use."""
     celsius = read_cpu_temp_celsius(thermal_root=thermal_root)
     thermal_state = read_thermal_state()
     cpu_percent = read_cpu_percent()
-    memory_percent = read_memory_percent()
+    memory = read_memory()
+    memory_percent = memory["percent"]
     return {
         "celsius": round(celsius, 1) if celsius is not None else None,
         "thermal_state": thermal_state,
         "cpu_percent": round(cpu_percent, 1) if cpu_percent is not None else None,
         "memory_percent": round(memory_percent, 1) if memory_percent is not None else None,
+        "memory_used_bytes": memory["used_bytes"],
+        "memory_available_bytes": memory["available_bytes"],
     }

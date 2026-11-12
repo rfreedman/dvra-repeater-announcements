@@ -36,6 +36,8 @@ def test_stats_hub_delivers_publish() -> None:
                 "thermal_state": None,
                 "cpu_percent": 10.0,
                 "memory_percent": 20.0,
+                "memory_used_bytes": 1000,
+                "memory_available_bytes": 2000,
             }
             publish_stats_event(payload)
             await asyncio.sleep(0)
@@ -55,11 +57,13 @@ def test_stats_sse_stream_yields_snapshot(monkeypatch: pytest.MonkeyPatch) -> No
     from app.server import system_stats_event_stream
     from app.sse_hub import format_sse
 
-    sample = {
+    sample: SystemStats = {
         "celsius": 50.0,
         "thermal_state": "nominal",
         "cpu_percent": 5.0,
         "memory_percent": 30.0,
+        "memory_used_bytes": 3000,
+        "memory_available_bytes": 4000,
     }
     monkeypatch.setattr("app.server.read_system_stats", lambda: sample)
 

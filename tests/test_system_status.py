@@ -8,17 +8,19 @@ from fastapi.testclient import TestClient
 
 from app.server import app
 from app.store import AnnouncementStore
-from app.users import User
 from app.system_status import (
-    thermal_state_from_ns,
+    MemorySample,
+    SystemStats,
     read_cpu_percent,
     read_cpu_temp_celsius,
-    read_memory_percent,
+    read_memory,
     read_system_stats,
     read_thermal_state,
     temp_band,
     thermal_state_band,
+    thermal_state_from_ns,
 )
+from app.users import User
 
 
 def _make_zone(root: Path, name: str, *, zone_type: str, millidegrees: int) -> None:
@@ -80,15 +82,18 @@ def test_read_cpu_percent_psutil_primes_then_returns(monkeypatch: pytest.MonkeyP
     assert calls == [None, None]
 
 
-def test_read_memory_percent_psutil(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_read_memory_psutil(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_virtual_memory() -> SimpleNamespace:
-        return SimpleNamespace(percent=42.5)
+        return SimpleNamespace(percent=42.5, used=1_717_986_918, available=2_254_857_830)
 
     monkeypatch.setattr(
         "app.system_status.psutil.virtual_memory",
         fake_virtual_memory,
     )
-    assert read_memory_percent() == pytest.approx(42.5)
+    sample = read_memory()
+    assert sample["percent"] == pytest.approx(42.5)
+    assert sample["used_bytes"] == 1_717_986_918
+    assert sample["available_bytes"] == 2_254_857_830
 
 
 def test_read_thermal_state_non_darwin(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -103,14 +108,14 @@ def test_read_system_stats_combines(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         _ = reset_state
         return 12.34
 
-    def fake_memory_percent() -> float:
-        return 50.0
+    def fake_memory() -> MemorySample:
+        return {"percent": 50.0, "used_bytes": 1000, "available_bytes": 2000}
 
     def fake_thermal_state() -> None:
         return None
 
     monkeypatch.setattr("app.system_status.read_cpu_percent", fake_cpu_percent)
-    monkeypatch.setattr("app.system_status.read_memory_percent", fake_memory_percent)
+    monkeypatch.setattr("app.system_status.read_memory", fake_memory)
     monkeypatch.setattr("app.system_status.read_thermal_state", fake_thermal_state)
 
     stats = read_system_stats(thermal_root=thermal)
@@ -119,6 +124,8 @@ def test_read_system_stats_combines(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         "thermal_state": None,
         "cpu_percent": 12.3,
         "memory_percent": 50.0,
+        "memory_used_bytes": 1000,
+        "memory_available_bytes": 2000,
     }
 
 
@@ -134,13 +141,13 @@ def test_read_system_stats_macos_thermal(monkeypatch: pytest.MonkeyPatch) -> Non
         _ = reset_state
         return 8.0
 
-    def fake_memory_percent() -> float:
-        return 33.0
+    def fake_memory() -> MemorySample:
+        return {"percent": 33.0, "used_bytes": 3000, "available_bytes": 4000}
 
     monkeypatch.setattr("app.system_status.read_cpu_temp_celsius", fake_cpu_temp)
     monkeypatch.setattr("app.system_status.read_thermal_state", fake_thermal_state)
     monkeypatch.setattr("app.system_status.read_cpu_percent", fake_cpu_percent)
-    monkeypatch.setattr("app.system_status.read_memory_percent", fake_memory_percent)
+    monkeypatch.setattr("app.system_status.read_memory", fake_memory)
 
     stats = read_system_stats()
     assert stats == {
@@ -148,6 +155,8 @@ def test_read_system_stats_macos_thermal(monkeypatch: pytest.MonkeyPatch) -> Non
         "thermal_state": "fair",
         "cpu_percent": 8.0,
         "memory_percent": 33.0,
+        "memory_used_bytes": 3000,
+        "memory_available_bytes": 4000,
     }
 
 
@@ -159,12 +168,14 @@ def test_system_stats_api_requires_auth(store: AnnouncementStore, admin_user: Us
 
 
 def test_system_stats_api(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_stats() -> dict[str, float | str | None]:
+    def fake_stats() -> SystemStats:
         return {
             "celsius": 47.6,
             "thermal_state": None,
             "cpu_percent": 11.0,
             "memory_percent": 42.5,
+            "memory_used_bytes": 1_717_986_918,
+            "memory_available_bytes": 2_254_857_830,
         }
 
     monkeypatch.setattr(
@@ -178,4 +189,6 @@ def test_system_stats_api(client: TestClient, monkeypatch: pytest.MonkeyPatch) -
         "thermal_state": None,
         "cpu_percent": 11.0,
         "memory_percent": 42.5,
+        "memory_used_bytes": 1_717_986_918,
+        "memory_available_bytes": 2_254_857_830,
     }

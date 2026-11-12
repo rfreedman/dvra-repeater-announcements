@@ -30,13 +30,17 @@
             aria-live="polite"
             title="System stats"
           >
-            <span class="system-stats-label">CPU</span>
-            <span class="system-stats-temp" id="system-stats-temp">—</span>
+            <span class="system-stats-cluster">
+              <span class="system-stats-label">CPU</span>
+              <span class="system-stats-temp" id="system-stats-temp">—</span>
+              <span class="system-stats-sep" aria-hidden="true">·</span>
+              <span class="system-stats-usage" id="system-stats-cpu">—</span>
+            </span>
             <span class="system-stats-sep" aria-hidden="true">·</span>
-            <span class="system-stats-usage" id="system-stats-cpu">—</span>
-            <span class="system-stats-sep" aria-hidden="true">·</span>
-            <span class="system-stats-label">MEM</span>
-            <span class="system-stats-usage" id="system-stats-mem">—</span>
+            <span class="system-stats-cluster">
+              <span class="system-stats-label">MEM</span>
+              <span class="system-stats-usage" id="system-stats-mem">—</span>
+            </span>
           </div>
           <span id="nav-user" class="nav-user hidden"></span>
           <div class="mast-nav-row">

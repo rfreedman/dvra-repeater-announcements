@@ -1920,7 +1920,14 @@ async function refreshSystemStats() {
     if (res.ok) {
       renderSystemStats(await res.json());
     } else {
-      renderSystemStats({ celsius: null, thermal_state: null, cpu_percent: null, memory_percent: null });
+      renderSystemStats({
+        celsius: null,
+        thermal_state: null,
+        cpu_percent: null,
+        memory_percent: null,
+        memory_used_bytes: null,
+        memory_available_bytes: null,
+      });
     }
   } finally {
     statsBusy = false;
@@ -1985,6 +1992,42 @@ function stopStatsSse() {
   statsSseConnected = false;
 }
 
+function celsiusThermalText(celsius) {
+  const rounded = Math.round(Number(celsius));
+  let label = "Critical";
+  let band = "hot";
+  if (rounded < 55) {
+    label = "Nominal";
+    band = "cool";
+  } else if (rounded < 70) {
+    label = "Fair";
+    band = "warm";
+  }
+  return { text: `${label} (${rounded}°C)`, band };
+}
+
+function formatMemoryAmount(bytes) {
+  if (bytes == null || bytes === "") return null;
+  const value = Number(bytes);
+  if (!Number.isFinite(value) || value < 0) return null;
+  const gb = 1024 * 1024 * 1024;
+  if (value >= gb) return `${(Math.round((value / gb) * 10) / 10).toFixed(1)} GB`;
+  return `${Math.round(value / (1024 * 1024))} MB`;
+}
+
+function formatMemorySlot(percent, usedBytes, availableBytes) {
+  const hasPercent = percent != null && !Number.isNaN(Number(percent));
+  const parts = [];
+  if (hasPercent) parts.push(`${Math.round(Number(percent))}%`);
+  const used = formatMemoryAmount(usedBytes);
+  const available = formatMemoryAmount(availableBytes);
+  if (used) parts.push(`${used} used`);
+  if (available) parts.push(`${available} available`);
+  if (!hasPercent) parts.unshift("—");
+  if (parts.length === 1 && parts[0] === "—") return "—";
+  return parts.join(" · ");
+}
+
 function renderSystemStats(payload) {
   const chip = document.getElementById("system-stats");
   const tempEl = document.getElementById("system-stats-temp");
@@ -1998,6 +2041,10 @@ function renderSystemStats(payload) {
   const cpuPercent = payload && payload.cpu_percent != null ? Number(payload.cpu_percent) : null;
   const memoryPercent =
     payload && payload.memory_percent != null ? Number(payload.memory_percent) : null;
+  const memoryUsed =
+    payload && payload.memory_used_bytes != null ? payload.memory_used_bytes : null;
+  const memoryAvailable =
+    payload && payload.memory_available_bytes != null ? payload.memory_available_bytes : null;
 
   const thermalLabels = {
     nominal: "Nominal",
@@ -2014,10 +2061,9 @@ function renderSystemStats(payload) {
     else if (thermalState === "serious") band = "serious";
     else if (thermalState === "critical") band = "hot";
   } else if (celsius != null && !Number.isNaN(celsius)) {
-    tempText = `${Math.round(celsius)}°C`;
-    if (celsius < 55) band = "cool";
-    else if (celsius < 70) band = "warm";
-    else band = "hot";
+    const thermal = celsiusThermalText(celsius);
+    tempText = thermal.text;
+    band = thermal.band;
   }
 
   chip.classList.remove("temp-cool", "temp-warm", "temp-serious", "temp-hot", "temp-na");
@@ -2025,8 +2071,7 @@ function renderSystemStats(payload) {
   tempEl.textContent = tempText;
   cpuEl.textContent =
     cpuPercent != null && !Number.isNaN(cpuPercent) ? `${Math.round(cpuPercent)}%` : "—";
-  memEl.textContent =
-    memoryPercent != null && !Number.isNaN(memoryPercent) ? `${Math.round(memoryPercent)}%` : "—";
+  memEl.textContent = formatMemorySlot(memoryPercent, memoryUsed, memoryAvailable);
 
   const parts = [
     thermalState ? `Thermal ${tempEl.textContent}` : `CPU temp ${tempEl.textContent}`,
