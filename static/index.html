@@ -667,15 +667,32 @@
           <h2 class="editor-title">Pronunciations</h2>
         </div>
         <section class="panel">
-          <h2 class="subhead">Dictionary</h2>
+          <h2 class="subhead">Pronunciation Replacements Dictionary</h2>
           <p class="lede tight">
             Entries apply to every spoken announcement that has the dictionary switch on.
+          </p>
+
+          <p class="lede tight">
             Matching is whole words and phrases, ignoring case, longest phrase first.
             A possessive such as Delaware's is its own word.
-            Wrap a shortcut in asterisks, such as *440-frequency*, to allow punctuation. The announcement must use the same asterisks.
-            Speak uses the voice selected here, not the dictionary, so you can compare the spelling, the alternate text, and the IPA before saving.
-            Enter either IPA or alternate text, not both. Alternate text is spoken as ordinary words in place of the spelling.
           </p>
+
+          <p class="lede tight">
+            Wrap a shortcut in asterisks, such as *440-frequency*, to allow matching a phrase containing punctuation.
+            The announcement must use the same asterisks.
+          </p>
+
+          <p class="lede tight">
+            "Speak" uses the voice selected here, not the existing dictionary entry, if any, so you can compare the spelling,
+            the alternate text, and the IPA before saving.
+          </p>
+
+          <p class="lede tight">
+            Enter either alternate text or IPA notation, not both.
+            Alternate text is spoken as ordinary words in place of the spelling.
+            IPA notation is fed directly to the speech engine, not interpreted as text.
+          </p>
+
           <section class="voice-row">
             <label class="label" for="phoneme-voice">Voice</label>
             <select id="phoneme-voice"></select>
@@ -695,14 +712,14 @@
             </div>
           </section>
           <section class="voice-row">
-            <label class="label" for="phoneme-ipa">IPA</label>
+            <label class="label" for="phoneme-ipa">IPA Notation</label>
             <div class="phoneme-field">
               <input id="phoneme-ipa" class="phoneme-ipa" type="text" maxlength="2000" />
               <button type="button" class="ghost" id="phoneme-speak-ipa">Speak</button>
             </div>
           </section>
           <div class="actions">
-            <button type="button" class="ghost" id="phoneme-fill-ipa">IPA for this spelling</button>
+            <button type="button" class="ghost" id="phoneme-fill-ipa">IPA Notation for this spelling</button>
             <button type="button" class="primary" id="phoneme-save">Save entry</button>
             <button type="button" class="ghost hidden" id="phoneme-cancel">Cancel</button>
           </div>
@@ -713,15 +730,18 @@
         </section>
         <section class="panel">
           <h2 class="subhead">IPA notation</h2>
+          <ul style="list-style-type: none;margin:0;padding:0">
+            <li><code style="font-size: 1.5rem;font-weight:bold;">ˈ</code> is primary stress <button class="btn-small-inline" onclick="navigator.clipboard.writeText('ˈ');">Copy</button></li>
+            <li><code style="font-size: 1.5rem;font-weight:bold;">ˌ</code> is secondary stress, on the following sound.<button class="btn-small-inline" onclick="navigator.clipboard.writeText('ˌ');">Copy</button></li>
+            <li><code style="font-size: 1.5rem;font-weight:bold;">ː</code> lengthens a sound.<button class="btn-small-inline" onclick="navigator.clipboard.writeText('ː');">Copy</button></li>
+            <li><code style="font-size: 1.5rem;font-weight:bold;">ˑ</code> is a shorter length.<button class="btn-small-inline" onclick="navigator.clipboard.writeText('ː');">Copy</button></li>
+           </ul>
+
+          <p class="lede tight">Delete or change letters to tweak a pronunciation, then listen again.</p>
+
           <p class="lede tight">
-            <code>ˈ</code> is primary stress and <code>ˌ</code> is secondary stress, on the following sound.
-            <code>ː</code> lengthens a sound and <code>ˑ</code> is a shorter length.
-            A tie mark (a zero-width joiner) sits between two letters that stay together; you may not see it, but it is there when you copy.
-            Delete or change letters to tweak a pronunciation, then listen again.
-          </p>
-          <p class="lede tight">
-            In announcement text, <code>[[dˈɛlɐwˌɛɹ]]</code> is spoken as those phonemes.
-            <code>{{Delaware}}</code> is spoken as the word Delaware and skips the dictionary.
+            In announcement text, <code>[[dˈɛlɐwˌɛɹ]]</code> is spoken as those phonemes.<br/>
+            <code>{{Delaware}}</code> is spoken as the word Delaware and skips the dictionary.<br/>
             <code>[pause:1s]</code> is still a pause.
           </p>
         </section>

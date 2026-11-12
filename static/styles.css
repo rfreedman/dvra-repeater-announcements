@@ -1266,3 +1266,25 @@ a.ghost {
   margin-left: auto;
   margin-right: auto;
 }
+.btn-small-inline {
+  display: inline-flex;
+  margin-left: 0.75rem;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 8px;
+  font-size: 0.75rem; /* 12px */
+  line-height: 1.4;
+  font-weight: 500;
+  color: #ffffff;
+  background-color: #2563eb;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  vertical-align: middle;
+  text-decoration: none;
+  transition: background-color 0.15s ease;
+}
+
+.btn-small-inline:hover {
+  background-color: #1d4ed8;
+}
