@@ -748,8 +748,20 @@ button:disabled {
   margin: 0;
 }
 
+#newsline-panel .toolbar {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+#newsline-panel .toolbar-actions {
+  flex: none;
+  margin-left: auto;
+}
+
 #newsline-status {
-  margin-bottom: 16px;
+  margin-bottom: 0;
+  flex: 1 1 16rem;
+  min-width: 12rem;
 }
 
 .editor-title {

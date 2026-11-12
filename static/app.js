@@ -77,6 +77,8 @@ const PTT_TONE_SECONDS = 0.2;
  * @property {boolean} [in_progress]
  * @property {string|null} [outcome]
  * @property {string|number|null} [report_number]
+ * @property {string|null} [release_friday]
+ * @property {string|null} [last_check_at]
  * @property {string|number|null} [working_report]
  * @property {string} [phase]
  * @property {string} [error]
@@ -1578,6 +1580,24 @@ function newslineElapsedSuffix(seconds) {
   return ` ${formatSegmentElapsed(seconds)}`;
 }
 
+function formatReleaseFriday(isoDate) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(isoDate || ""));
+  if (!match) return "";
+  const dt = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  if (Number.isNaN(dt.getTime())) return "";
+  const month = dt.toLocaleString("en-US", { month: "short" });
+  return `${month} ${dt.getDate()}, ${dt.getFullYear()}`;
+}
+
+function newslineFacts(newsline) {
+  if (!newsline) return "";
+  const parts = [];
+  const distributed = formatReleaseFriday(newsline.release_friday);
+  if (distributed) parts.push(`Distributed ${distributed}.`);
+  if (newsline.last_check_at) parts.push(`Last checked ${formatWhen(newsline.last_check_at)}.`);
+  return parts.length ? ` ${parts.join(" ")}` : "";
+}
+
 /** @param {NewslineStatus|null|undefined} newsline */
 function renderNewsline(newsline) {
   const status = document.getElementById("newsline-status");
@@ -1613,24 +1633,27 @@ function renderNewsline(newsline) {
     status.textContent = `Checking for a new Newsline report…${elapsed}`;
     return;
   }
+  const facts = newslineFacts(newsline);
   if (newsline.error) {
-    status.textContent = `Last check failed: ${newsline.error}`;
+    const detail = String(newsline.error).trim();
+    const stopped = /[.!?]$/.test(detail) ? detail : `${detail}.`;
+    status.textContent = `Last check failed: ${stopped}${facts}`;
     return;
   }
   const unchanged = newsline.outcome === "current";
   if (newsline.ready && newsline.report_number) {
     status.textContent = unchanged
-      ? `No new Newsline report. Report ${newsline.report_number} is ready to play.`
-      : `Report ${newsline.report_number} is ready to play.`;
+      ? `No new Newsline report. Report ${newsline.report_number} is ready to play.${facts}`
+      : `Report ${newsline.report_number} is ready to play.${facts}`;
     return;
   }
   if (newsline.report_number) {
     status.textContent = unchanged
-      ? `No new Newsline report. Report ${newsline.report_number} is downloaded but not split yet.`
-      : `Report ${newsline.report_number} is downloaded but not split yet.`;
+      ? `No new Newsline report. Report ${newsline.report_number} is downloaded but not split yet.${facts}`
+      : `Report ${newsline.report_number} is downloaded but not split yet.${facts}`;
     return;
   }
-  status.textContent = "No report downloaded yet.";
+  status.textContent = `No report downloaded yet.${facts}`;
 }
 
 function spokenAnnouncements() {

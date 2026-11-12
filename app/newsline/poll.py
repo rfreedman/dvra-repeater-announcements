@@ -341,6 +341,7 @@ def status_payload() -> NewslineStatus:
     progress = ui_snapshot()
     return {
         "report_number": state.report_number,
+        "release_friday": state.release_friday.isoformat() if state.release_friday else None,
         "split_ok": state.split_ok,
         "ready": ready,
         "phase": state.phase,

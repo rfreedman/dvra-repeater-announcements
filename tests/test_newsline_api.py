@@ -250,6 +250,7 @@ def test_check_reports_download_and_processing_then_an_unchanged_report(monkeypa
     assert payload["in_progress"] is False
     assert payload["step"] is None
     assert payload["elapsed_seconds"] is None
+    assert payload["release_friday"] == "2026-10-30"
 
 
 def test_status_keeps_the_real_phase_while_a_check_is_running(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -268,6 +269,7 @@ def test_status_keeps_the_real_phase_while_a_check_is_running(monkeypatch: pytes
     assert payload["phase"] == "downloading"
     assert payload["working_report"] == 2558
     assert payload["in_progress"] is True
+    assert payload["release_friday"] is None
 
 
 def _seed_report(

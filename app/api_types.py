@@ -88,6 +88,7 @@ class ClockRow(TypedDict):
 
 class NewslineStatus(TypedDict):
     report_number: int | None
+    release_friday: str | None
     split_ok: bool
     ready: bool
     phase: NewslinePhase
