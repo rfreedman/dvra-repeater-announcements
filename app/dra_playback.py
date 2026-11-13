@@ -14,7 +14,7 @@ import numpy as np
 
 log = logging.getLogger("app.dra_playback")
 
-from app.audio import PcmChunk, materialize_chunks
+from app.audio import PcmChunk, materialize_chunks, resample_pcm_int16_mono
 from app.dra_portaudio import (
     dra_device_samplerate,
     portaudio_lock,
@@ -36,20 +36,6 @@ def mono_to_channel(mono: np.ndarray, channel: str) -> np.ndarray:
 
 def _output_channels(channel: str) -> int:
     return 1 if channel == "mono" else 2
-
-
-def resample_pcm_int16_mono(pcm_int16: bytes, *, from_rate: int, to_rate: int) -> bytes:
-    """Linear resample mono int16 PCM (Piper 22050 Hz → DRA 44100 Hz on Linux)."""
-    if from_rate == to_rate or not pcm_int16:
-        return pcm_int16
-    samples = np.frombuffer(pcm_int16, dtype=np.int16)
-    if samples.size == 0:
-        return pcm_int16
-    out_count = max(1, int(round(samples.size * to_rate / from_rate)))
-    x_old = np.arange(samples.size, dtype=np.float64)
-    x_new = np.linspace(0, samples.size - 1, out_count)
-    resampled = np.interp(x_new, x_old, samples.astype(np.float64)).astype(np.int16)
-    return resampled.tobytes()
 
 
 # PortAudio ``write`` blocks until the data is buffered, so with two radios each

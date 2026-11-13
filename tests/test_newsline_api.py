@@ -397,6 +397,50 @@ def test_preview_frames_are_length_prefixed(store: AnnouncementStore, monkeypatc
     assert body == frame_named_piece("2556_01.mp3", b"01") + frame_named_piece("2556_02.mp3", b"02")
 
 
+def test_preview_resamples_16khz_tts_opening_to_stream_rate(
+    store: AnnouncementStore, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Kathleen (and other low Piper voices) is 16 kHz; preview advertises 22050."""
+    import struct
+
+    from app.newsline.decode import SAMPLE_RATE
+
+    monkeypatch.setattr("app.newsline.preview.NEWSLINE_DIR", tmp_path)
+    monkeypatch.setattr("app.newsline.state.NEWSLINE_DIR", tmp_path)
+
+    def ffmpeg_available() -> bool:
+        return True
+
+    monkeypatch.setattr("app.newsline.preview.ffmpeg_available", ffmpeg_available)
+    _ = _seed_report(tmp_path, 2556, files=[("2556_01.mp3", b"story")])
+    save_state(NewsState(report_number=2556, split_ok=True), tmp_path)
+    opening = store.save_announcement(TtsAnnouncement(name="Open", text="Welcome to newsline."))
+
+    # One second of mono int16 at Kathleen's native rate.
+    pcm_16k = b"\x00\x01" * 16000
+
+    def fake_mp3(_path: Path, sample_rate: int = 22050) -> list[PcmChunk]:
+        return [PcmChunk(pcm_int16=b"ST", sample_rate=sample_rate)]
+
+    def fake_tts(_announcement: Announcement) -> list[PcmChunk]:
+        return [PcmChunk(pcm_int16=pcm_16k, sample_rate=16000)]
+
+    monkeypatch.setattr("app.newsline.preview.mp3_to_chunks", fake_mp3)
+    monkeypatch.setattr("app.pcm_cache.chunks_for_announcement", fake_tts)
+
+    rate, frames = preview_frames(
+        opening_announcement_id=opening.id,
+        root=tmp_path,
+    )
+    assert rate == SAMPLE_RATE
+    body = b"".join(frames)
+    name_len = struct.unpack(">I", body[:4])[0]
+    pcm_start = 4 + name_len
+    pcm_len = struct.unpack(">I", body[pcm_start : pcm_start + 4])[0]
+    # 16000 samples @ 16 kHz → ~22050 samples @ preview rate (2 bytes each).
+    assert pcm_len == SAMPLE_RATE * 2
+
+
 def test_manual_check_refuses_a_second_run(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     started = threading.Event()
     release = threading.Event()

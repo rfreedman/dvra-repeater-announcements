@@ -6,7 +6,7 @@ import struct
 from collections.abc import Iterator
 from pathlib import Path
 
-from app.audio import PcmChunk
+from app.audio import PcmChunk, resample_chunk
 from app.config import NEWSLINE_DIR
 from app.models import NewslineAnnouncement
 from app.newsline.decode import SAMPLE_RATE, ffmpeg_available, mp3_to_chunks
@@ -79,7 +79,11 @@ def _pcm_for_piece(piece: Piece) -> bytes:
     if piece.path is not None:
         chunks = mp3_to_chunks(piece.path, sample_rate=SAMPLE_RATE)
     elif piece.announcement is not None:
-        chunks = list(chunks_for_announcement(piece.announcement))
+        # Piper voices differ (Kathleen is 16 kHz); preview streams one rate.
+        chunks = [
+            resample_chunk(chunk, SAMPLE_RATE)
+            for chunk in chunks_for_announcement(piece.announcement)
+        ]
     else:
         return b""
     return b"".join(chunk.pcm_int16 for chunk in chunks)
@@ -106,7 +110,8 @@ def preview_chunks(
             if piece.path is not None:
                 yield from mp3_to_chunks(piece.path, sample_rate=SAMPLE_RATE)
             elif piece.announcement is not None:
-                yield from chunks_for_announcement(piece.announcement)
+                for chunk in chunks_for_announcement(piece.announcement):
+                    yield resample_chunk(chunk, SAMPLE_RATE)
 
     return SAMPLE_RATE, chunks()
 

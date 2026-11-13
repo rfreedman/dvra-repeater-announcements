@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from app.dra_playback import resample_pcm_int16_mono
+from app.audio import resample_pcm_int16_mono
 
 
 def test_resample_pcm_int16_mono_doubles_rate() -> None:

@@ -4,6 +4,8 @@ import re
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 
+import numpy as np
+
 MAX_PAUSE_SECONDS = 10.0
 _PAUSE_TAG = re.compile(r"\[pause:\s*(\d+(?:\.\d+)?)\s*s?\]", re.IGNORECASE)
 
@@ -58,6 +60,34 @@ def silence_chunk(
         sample_rate=sample_rate,
         sample_width=sample_width,
         channels=channels,
+    )
+
+
+def resample_pcm_int16_mono(pcm_int16: bytes, *, from_rate: int, to_rate: int) -> bytes:
+    """Linear resample mono int16 PCM (e.g. Piper 16 kHz → Newsline preview 22050 Hz)."""
+    if from_rate == to_rate or not pcm_int16:
+        return pcm_int16
+    samples = np.frombuffer(pcm_int16, dtype=np.int16)
+    if samples.size == 0:
+        return pcm_int16
+    out_count = max(1, int(round(samples.size * to_rate / from_rate)))
+    x_old = np.arange(samples.size, dtype=np.float64)
+    x_new = np.linspace(0, samples.size - 1, out_count)
+    resampled = np.interp(x_new, x_old, samples.astype(np.float64)).astype(np.int16)
+    return resampled.tobytes()
+
+
+def resample_chunk(chunk: PcmChunk, to_rate: int) -> PcmChunk:
+    """Return ``chunk`` at ``to_rate``, or the same chunk when rates already match."""
+    if chunk.sample_rate == to_rate:
+        return chunk
+    return PcmChunk(
+        pcm_int16=resample_pcm_int16_mono(
+            chunk.pcm_int16, from_rate=chunk.sample_rate, to_rate=to_rate
+        ),
+        sample_rate=to_rate,
+        sample_width=chunk.sample_width,
+        channels=chunk.channels,
     )
 
 
