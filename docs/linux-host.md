@@ -20,6 +20,41 @@ Run bench scripts and `python -m app serve` as that user — **not** `sudo` (roo
 
 ---
 
+## Stub backend on headless Linux
+
+`TTS_RADIO_BACKEND=stub` replaces only the radio (PTT/COS). A **trigger** or scheduled fire still plays PCM on the **host** through PortAudio (`sounddevice`). Browser **Play** is separate: it streams to the web client and does not use host PortAudio.
+
+On Debian/Ubuntu, PortAudio talks to **PulseAudio** (or PipeWire’s `pipewire-pulse`). `libportaudio2` alone is not enough — the app user needs a running Pulse/PipeWire session (`XDG_RUNTIME_DIR`, usually `/run/user/<uid>/pulse/native`). Without that, triggers fail with:
+
+`PulseAudio_Initialize: Can't connect to server` (`PaErrorCode -9999`)
+
+An ALSA loopback device does not fix that by itself; init fails before device selection.
+
+**Setup (as the same non-root user that runs the app):**
+
+1. Install a Pulse **server**, not only `pulseaudio-utils`. On a minimal host: `sudo apt install pulseaudio` (or PipeWire + `pipewire-pulse` + WirePlumber). `pactl` alone is not enough.
+2. Start it for that user: `systemctl --user start pulseaudio` (or the PipeWire units). For a systemd service, use a user session or set `XDG_RUNTIME_DIR=/run/user/<uid>` so `/run/user/<uid>/pulse/native` exists.
+3. Enable on login so reboot keeps it: `systemctl --user enable pulseaudio`.
+4. With no real speakers, Pulse often already uses **`auto_null`** as the default sink (`pactl info`). If not, add one:
+
+```bash
+pactl load-module module-null-sink sink_name=stub_null \
+  sink_properties=device.description=Stub_Null_Output
+pactl set-default-sink stub_null
+```
+
+5. Confirm PortAudio initializes (app venv):
+
+```bash
+python -c "import sounddevice as sd; print(sd.query_devices())"
+```
+
+6. Restart the app if it was started before Pulse was up, then trigger an announcement. Audio goes to the null sink (the web UI still will not hear triggered audio). A manual `pactl load-module` null sink does not survive a Pulse/PipeWire restart unless you persist it (same as the desktop null-sink note below); `auto_null` comes back when Pulse starts with no hardware.
+
+When you switch to `TTS_RADIO_BACKEND=dra`, CM119 USB devices replace this null-sink path for on-air transmit.
+
+---
+
 ## ALSA mixer: unmute USB Speaker
 
 After plug-in or reboot, the CM119 USB card often comes up with **Speaker muted and 0%**. Symptom: **PTT keys** (HID OK) but **no modulation** on the air (smoke tone and Piper both silent).

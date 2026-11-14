@@ -8,6 +8,8 @@ __pycache__/
 voices/
 data/
 .env
+.env.secrets
+.env.r2
 # Generated for deployment with `uv export` (see README); pyproject.toml + uv.lock are the source
 requirements.txt
 .DS_Store
@@ -28,3 +30,6 @@ requirements.txt
 .playwright-mcp/
 
 app/.cache
+
+backup/
+
